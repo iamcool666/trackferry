@@ -7,6 +7,7 @@ import { Home } from './pages/Home';
 import { Brand } from './components/Mark';
 import { Dock } from './components/Dock';
 import { Fish } from './components/Fish';
+import { HereSaid } from './components/HereSaid';
 import { Signature } from './components/Signature';
 
 // Pages arrive on their own, right after the first one is up.
@@ -174,6 +175,7 @@ function Inner() {
           <got.account.Account key={String(scanOnAccount)} account={data.account} build={session.build} startScanning={scanOnAccount} onChanged={refresh} onLogout={logout} />
         )}
       </main>
+      <HereSaid />
       {place.page !== 'welcome' && <Dock page={place.page} devices={data.devices} navigate={navigate} dot={needsAttention} />}
       {place.page !== 'account' && place.page !== 'search' && place.page !== 'more' && <footer className="colophon"><Signature /></footer>}
     </div>

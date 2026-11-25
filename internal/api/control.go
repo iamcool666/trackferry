@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"trackferry/internal/home"
 	"trackferry/internal/store"
@@ -13,9 +14,11 @@ import (
 // control presses a speaker's buttons.
 func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Action string `json:"action"` // play | pause | stop | next | previous | mode | volume | wake
+		Action string `json:"action"` // play | pause | stop | next | previous | mode | volume | wake | seek
 		Volume *int   `json:"volume"`
 		Mode   string `json:"mode"` // loop | shuffle | one
+		// Where the song goes to with seek, in ms.
+		Position *int64 `json:"position"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -32,8 +35,13 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "bad_mode", "mode 只能是 loop、shuffle 或 one")
 			return
 		}
+	case takeover.ControlSeek:
+		if req.Position == nil || *req.Position < 0 || *req.Position > 24*60*60*1000 {
+			writeError(w, http.StatusBadRequest, "bad_position", "position 是要拖到的位置，单位毫秒")
+			return
+		}
 	default:
-		writeError(w, http.StatusBadRequest, "bad_action", "action 只能是 play、pause、stop、next、previous、mode、volume 或 wake")
+		writeError(w, http.StatusBadRequest, "bad_action", "action 只能是 play、pause、stop、next、previous、mode、volume、seek 或 wake")
 		return
 	}
 	d, err := s.Store.Device(r.Context(), r.PathValue("id"))
@@ -52,6 +60,12 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	switch req.Action {
 	case takeover.ControlVolume:
 		err = s.Engine.SetVolume(r.Context(), d.DeviceID, *req.Volume)
+	case takeover.ControlSeek:
+		err = s.Engine.Seek(r.Context(), d.DeviceID, time.Duration(*req.Position)*time.Millisecond)
+		if errors.Is(err, takeover.ErrCannotSeek) || errors.Is(err, takeover.ErrNoSeek) {
+			writeError(w, http.StatusConflict, "cannot_seek", err.Error())
+			return
+		}
 	case takeover.ControlWake:
 		if err = s.Xiaomi.Wake(r.Context(), d.Hardware, d.MiotDID); err == nil {
 			s.Engine.Woke(d.DeviceID)

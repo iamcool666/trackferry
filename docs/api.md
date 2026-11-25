@@ -29,7 +29,8 @@
 | `GET /api/intent` · `POST /api/intent` | 说法示例；解释一句话 |
 | `GET /api/devices` · `POST /api/devices/sync` · `PATCH /api/devices/{id}` | 音箱列表、同步、改模式、别名，或压住小爱的方式 `{"hush":"normal\|strong\|wait"}` |
 | `POST /api/devices/{id}/takeover-test` | 接管测试，会出声 |
-| `GET·POST /api/devices/{id}/control` | 播放状态与音量；控制：`{"action":"play\|pause\|stop\|next\|previous\|wake"}`、`{"action":"volume","volume":35}` 或 `{"action":"mode","mode":"loop\|shuffle\|one"}`，成功返回 204；没有歌可切返回 409 |
+| `GET·POST /api/devices/{id}/control` | 播放状态与音量；控制：`{"action":"play\|pause\|stop\|next\|previous\|wake"}`、`{"action":"volume","volume":35}`、`{"action":"seek","position":毫秒}` 或 `{"action":"mode","mode":"loop\|shuffle\|one"}`，成功返回 204；没有歌可切返回 409 |
+| `GET·POST /api/devices/{id}/queue` | 播放列表；点一首放、移出 |
 | `POST /api/devices/{id}/play` `{"source":"favorites\|playlist\|artist\|album\|track\|online","id":"","name":"","next":false}` | 把收藏、歌单、专辑、歌手或一首线上的歌送到音箱；`id` 为歌单、专辑或线上歌曲，`name` 为歌手；`next` 排到下一首（曲库的歌或线上的歌） |
 | `GET·PUT /api/playing` `{"artist":true,"after":false,"hours":3}` | 连续播放的设置，`hours` 为 0 不限；没写的不变 |
 | `GET /api/takeover/runs?limit=` | 接管经过 |
@@ -40,11 +41,13 @@
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /api/library` · `POST /api/library/scan` | 状态；同步 |
+| `GET /api/library` · `POST /api/library/scan` | 状态，含自动同步间隔 `every_minutes`；同步 |
+| `PUT /api/library/every` `{"minutes":360}` | 自动同步间隔，分钟：0（关）、5、15、30、60、180、360、720、1440 |
+| `GET /api/here` · `GET /api/here/audio?track=\|online=` | 在浏览器里放：要放的列表（`source=random` 是随机的 30 首）；音频，`index=1` 时 FLAC 装进带索引的 MP4，不重新编码，给跳不准 FLAC 的浏览器 |
 | `GET /api/library/search?q=` · `/shelf` · `/albums/{id}` · `/artist` | 搜索与浏览 |
 | `GET /api/library/favorites` · `/playlists` · `/playlists/{guid}` | 收藏、歌单、歌单里的歌 |
 | `GET /api/library/online?q=` | 搜在线源 |
-| `GET /api/library/tracks/{id}/lyrics` | 歌词 |
+| `GET·PUT /api/library/tracks/{id}/lyrics` | 歌词，`offset_ms` 为正表示提前；PUT `{"offset_ms":500}` 记下偏移 |
 | `GET /api/library/missing` · `/api/library/missing.csv` | 缺歌清单，不含已补上和移除的；导出同一份 |
 | `POST /api/library/missing/dismiss` `{"title":"","artist":"","back":false}` | 从缺歌清单移除；`back` 为撤销 |
 | `POST /api/library/playlists/{guid}/tracks` | 把曲库的歌加入飞牛歌单 |

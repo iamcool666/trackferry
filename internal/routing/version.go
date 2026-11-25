@@ -48,7 +48,7 @@ func (r *Router) version(ctx context.Context, in intent.Intent, query string) (i
 		// What was heard may be a character off from a singer we know sings it.
 		for _, near := range []bool{false, true} {
 			for _, s := range singers {
-				if names.ArtistMatch(s, in.Artist) || near && slices.ContainsFunc(names.Artists(s), func(n string) bool { return oneOff(n, names.Norm(in.Artist)) }) {
+				if names.ArtistMatch(s, in.Artist) || near && slices.ContainsFunc(names.Artists(s), func(n string) bool { return names.NearArtist(n, names.Norm(in.Artist)) }) {
 					if !near && names.SameArtist(s, prev.Artist) {
 						return intent.Intent{Kind: intent.KindArtist, Artist: in.Artist}, true // already on: more of theirs
 					}
@@ -68,18 +68,4 @@ func (r *Router) version(ctx context.Context, in intent.Intent, query string) (i
 		return intent.Intent{Kind: intent.KindArtist, Artist: in.Artist}, true
 	}
 	return song, in.Title != ""
-}
-
-func oneOff(a, b string) bool {
-	x, y := []rune(a), []rune(b)
-	if len(x) != len(y) || len(x) < 3 {
-		return false
-	}
-	n := 0
-	for i := range x {
-		if x[i] != y[i] {
-			n++
-		}
-	}
-	return n == 1
 }

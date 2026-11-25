@@ -85,7 +85,11 @@ func TestFind(t *testing.T) {
 		"timeout":   {platform{kuwo: kuwo(), migu: `[]`, slow: 2500 * time.Millisecond}, named, false, [2]string{StateTimeout, StateMiss}},
 		"disagree": {platform{kuwo: kuwo(kitem("1", "学猫叫", "甲", 0)), migu: `[` + mitem("学猫叫", "乙") + `]`, size: full}, []Reading{{Title: "学猫叫"}}, true,
 			[2]string{StateHit, StateSkipped}},
-		"joined": {platform{kuwo: kuwo(kitem("1", "晴天", "周杰伦", 0)), migu: `[]`, size: full}, []Reading{{Title: "周杰伦晴天"}}, true, [2]string{StateHit, StateMiss}},
+		"near":    {platform{kuwo: kuwo(kitem("1", "雨中的恋人们", "黄凯芹", 0)), migu: `[]`, size: full}, []Reading{{Title: "雨中的恋人"}}, true, [2]string{StateHit, StateMiss}},
+		"near by": {platform{kuwo: kuwo(kitem("1", "龙卷风", "别人", 0), kitem("2", "龙卷风", "周杰伦", 0)), migu: `[]`, size: full}, []Reading{{Title: "龙卷峰", Artist: "周杰伦"}}, true, [2]string{StateHit, StateMiss}},
+		"singer":  {platform{kuwo: kuwo(kitem("1", "晴天", "周杰伦", 0)), migu: `[]`, size: full}, []Reading{{Title: "晴天", Artist: "周结伦"}}, true, [2]string{StateHit, StateMiss}},
+		"exact":   {platform{kuwo: kuwo(kitem("1", "真的爱他", "甲", 0)), migu: `[` + mitem("真的爱你", "乙") + `]`, size: full}, []Reading{{Title: "真的爱你"}}, false, [2]string{StateMiss, StateRestricted}},
+		"joined":  {platform{kuwo: kuwo(kitem("1", "晴天", "周杰伦", 0)), migu: `[]`, size: full}, []Reading{{Title: "周杰伦晴天"}}, true, [2]string{StateHit, StateMiss}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f, outs := tc.p.start(t).Find(context.Background(), tc.rs, "")

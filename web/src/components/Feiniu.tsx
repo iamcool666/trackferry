@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError, type FeiniuInfo, type FeiniuServer, type LibraryStatus } from '../api';
 import { Notice } from './Notice';
+import { Pick } from './Pick';
 import { Setting, type Light } from './Setting';
 import { SourceIcon } from './SourceIcon';
 import { clock, day, timeAgo } from '../copy';
@@ -26,7 +27,7 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
     try {
       const [f, l] = await Promise.all([api.feiniu(), api.library()]);
       setInfo(f);
-      setLib(l.library);
+      setLib({ ...l.library, every_minutes: l.every_minutes });
     } catch (e) {
       setError((e as ApiError).message);
     }
@@ -76,6 +77,10 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
   }, []);
   useEffect(() => { if (wantsForm) look(); }, [wantsForm, look]);
 
+  const every = async (h: number) => {
+    setLib((x) => x && { ...x, every_minutes: h });
+    try { await api.setEvery(h); } catch (e) { setError((e as ApiError).message); }
+  };
   const light: Light | null = !info ? null : info.feiniu.expired ? 'bad' : info.feiniu.linked ? 'ok' : 'warn';
   useEffect(() => { if (light) onLight(light); }, [light, onLight]);
 
@@ -100,6 +105,8 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
               {!running && last?.skipped ? <div><dd className="num">{n(last.skipped)}</dd><dt>首音箱放不了</dt></div> : null}
             </dl>
             {(last?.roots.length ?? 0) > 1 && <div className="shares" aria-label="目录">{last!.roots.map((x) => <span key={x.name} style={{ flexGrow: x.tracks }}><b>{x.name || '根目录'}</b><small className="num">{n(x.tracks)}</small></span>)}</div>}
+            <div className="kept"><div><b>自动同步</b><small>飞牛里新加的歌、收藏和歌单隔多久读一次，没变化时几乎不费资源</small></div>
+              <Pick label="自动同步" value={lib.every_minutes ?? 360} choices={[5, 15, 30, 60, 180, 360, 720, 1440].map((m) => ({ value: m, label: m < 60 ? `每 ${m} 分钟` : `每 ${m / 60} 小时` })).concat({ value: 0, label: '关' })} onPick={every} /></div>
             {last?.error && <p className="field-error">{last.error}</p>}
             <dl className="kv">
               <div><dt>地址</dt><dd className="mono">{f.base}</dd></div>

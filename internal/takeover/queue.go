@@ -45,8 +45,11 @@ type queue struct {
 
 // Wish is a song to play after the one that is on.
 type Wish struct {
-	Title string
-	Route func(ctx context.Context) (*routing.Route, error) // found anew: audio does not last
+	ID     int64 // names it while it waits
+	Track  int64 // 0: not in the library
+	Title  string
+	Artist string
+	Route  func(ctx context.Context) (*routing.Route, error) // found anew: audio does not last
 }
 
 // maxWishes bounds what is asked for ahead.
@@ -66,6 +69,8 @@ func (d *Dispatcher) Want(dev string, w Wish) (bool, error) {
 	if len(q.wishes) >= maxWishes {
 		return false, errors.New("排着的歌太多了")
 	}
+	d.wished++
+	w.ID = d.wished
 	q.wishes = append(q.wishes, w)
 	q.web = true
 	return true, nil
@@ -203,6 +208,172 @@ func (d *Dispatcher) Skip(ctx context.Context, dev string, by int) error {
 	}
 	d.lasts(q) // somebody is listening
 	return d.play(ctx, q, rt, false)
+}
+
+// Slot is a song of a list: where it stands, and which it is.
+type Slot struct {
+	At int   `json:"at"`
+	ID int64 `json:"id"`
+}
+
+// Listing is all that comes after the song on a speaker, in order.
+type Listing struct {
+	List   string
+	Total  int
+	Aside  bool // what plays was asked for by hand
+	Wishes []Wish
+	Songs  []Slot
+}
+
+// Listing tells what comes; false when no song of ours is on.
+func (d *Dispatcher) Listing(ctx context.Context, dev string) (Listing, bool) {
+	loops := d.PlayMode(ctx, dev) == ModeLoop
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	q := d.queues[dev]
+	if q == nil {
+		return Listing{}, false
+	}
+	out := Listing{List: q.list, Total: len(q.ids), Aside: q.aside, Wishes: slices.Clone(q.wishes), Songs: []Slot{}}
+	if q.solo {
+		out.List, out.Total = "", 1
+		return out, true
+	}
+	for i := q.pos + 1; i < len(q.ids); i++ {
+		out.Songs = append(out.Songs, Slot{i, q.ids[i]})
+	}
+	if loops { // shuffled lists start over in another order
+		for i := range q.pos {
+			out.Songs = append(out.Songs, Slot{i, q.ids[i]})
+		}
+	}
+	return out, true
+}
+
+// Pick names one of the songs of a Listing: a wish, or a slot.
+type Pick struct {
+	Wish int64 `json:"wish"`
+	Slot
+}
+
+// ErrMoved is a song that does not come any more.
+var ErrMoved = errors.New("列表已经变了，这首不在后面了")
+
+// find says where a pick stands now. d.mu is held.
+func (q *queue) find(p Pick) (at int, ok bool) {
+	if p.Wish != 0 {
+		at = slices.IndexFunc(q.wishes, func(w Wish) bool { return w.ID == p.Wish })
+		return at, at >= 0
+	}
+	if p.At >= 0 && p.At < len(q.ids) && q.ids[p.At] == p.ID {
+		return p.At, true
+	}
+	at = slices.Index(q.ids, p.ID)
+	return at, at >= 0
+}
+
+// Jump plays one of the songs that come, and goes on from there.
+func (d *Dispatcher) Jump(ctx context.Context, dev string, p Pick) error {
+	q := d.queued(dev)
+	if q == nil {
+		return ErrNoQueue
+	}
+	q.move.Lock()
+	defer q.move.Unlock()
+	d.mu.Lock()
+	if d.queues[dev] != q {
+		d.mu.Unlock()
+		return ErrNoQueue
+	}
+	at, ok := q.find(p)
+	if !ok {
+		d.mu.Unlock()
+		return ErrMoved
+	}
+	var w Wish
+	if p.Wish != 0 {
+		w = q.wishes[at]
+	}
+	d.mu.Unlock()
+	var rt *routing.Route
+	if p.Wish != 0 {
+		c, cancel := context.WithTimeout(ctx, wishFor)
+		defer cancel()
+		var err error
+		if rt, err = w.Route(c); err != nil {
+			return errors.New("这首放不了：" + err.Error())
+		}
+	} else if rt, ok = d.song(q, p.ID); !ok {
+		return errors.New("这首歌暂时读不到")
+	}
+	d.mu.Lock()
+	at, ok = q.find(p) // it may have moved meanwhile
+	if ok {
+		q.aside = p.Wish != 0
+		if q.aside {
+			q.wishes = slices.Delete(slices.Clone(q.wishes), at, at+1)
+		} else {
+			q.pos = at
+		}
+	}
+	d.mu.Unlock()
+	if !ok {
+		return ErrMoved
+	}
+	d.lasts(q)
+	return d.play(ctx, q, rt, false)
+}
+
+// Remove takes one of the songs that come off the list a speaker plays. Playlists and
+// favourites keep it.
+func (d *Dispatcher) Remove(dev string, p Pick) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	q := d.queues[dev]
+	if q == nil {
+		return ErrNoQueue
+	}
+	at, ok := q.find(p)
+	switch {
+	case !ok:
+		return ErrMoved
+	case p.Wish != 0:
+		q.wishes = slices.Delete(slices.Clone(q.wishes), at, at+1)
+		return nil
+	case at == q.pos:
+		return errors.New("这首正在放")
+	}
+	q.ids = slices.Delete(slices.Clone(q.ids), at, at+1)
+	if at < q.pos {
+		q.pos--
+	}
+	if i := slices.Index(q.order, p.ID); i >= 0 {
+		q.order = slices.Delete(slices.Clone(q.order), i, i+1)
+	}
+	return nil
+}
+
+// RemoveCurrent plays the next song and takes the one that was on off the list.
+func (d *Dispatcher) RemoveCurrent(ctx context.Context, dev string) error {
+	d.mu.Lock()
+	q := d.queues[dev]
+	if q == nil {
+		d.mu.Unlock()
+		return ErrNoQueue
+	}
+	p, listed := Pick{Slot: Slot{q.pos, q.ids[q.pos]}}, !q.aside && !q.solo
+	alone := listed && len(q.ids) == 1
+	d.mu.Unlock()
+	if alone {
+		return errors.New("列表里只剩这一首了")
+	}
+	if err := d.Skip(ctx, dev, 1); err != nil || !listed {
+		return err
+	}
+	if err := d.Remove(dev, p); err != nil && !errors.Is(err, ErrMoved) {
+		return errors.New("列表里只剩这一首了")
+	}
+	return nil
 }
 
 // song is the route of one of a queue's songs.

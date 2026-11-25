@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { api, ApiError, type Device, type Track } from '../api';
 import { deviceTitle, length, singer } from '../copy';
-import { connected, useTarget } from '../ear';
+import { connected, HERE, lookAt, useTarget } from '../ear';
+import { hereName, playHere, trackHere } from '../here';
 import type { Place } from '../nav';
 import { AddToSheet } from './AddTo';
 import { Sheet } from './Sheet';
@@ -10,7 +11,7 @@ import { useToast } from './Toast';
 const icon = (d: string) => <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 
 /** What else can be done with a song of the library. */
-export function TrackMenu({ track, devices, navigate }: { track: Track; devices: Device[]; navigate: (p: Place) => void }) {
+export function TrackMenu({ track, from, devices, navigate }: { track: Track; from?: () => { list: string; songs: ReturnType<typeof trackHere>[] }; devices: Device[]; navigate: (p: Place) => void }) {
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [target, setTarget] = useTarget(devices);
@@ -18,10 +19,12 @@ export function TrackMenu({ track, devices, navigate }: { track: Track; devices:
   const list = connected(devices);
   const send = async (d: Device | undefined, next: boolean) => {
     setOpen(false);
+    if (target === HERE) { playHere(trackHere(track), next ? 'next' : 'now', from?.()); say({ tone: 'ok', text: next ? `《${track.title}》在${hereName}排到下一首` : `在${hereName}播放` }); return; }
     if (!d) { say({ tone: 'bad', text: '没有接入的音箱，先到音箱页接入一台' }); return; }
     say({ tone: 'busy', text: `正在送到${deviceTitle(d)}` });
     try {
       const r = next ? await api.playNext(d.device_id, { source: 'track', track_id: track.id, title: track.title }) : (await api.playTrack(d.device_id, track.id), {} as { queued?: boolean });
+      lookAt(d.device_id);
       say({ tone: 'ok', text: r.queued ? `《${track.title}》在${deviceTitle(d)}排到下一首` : `已送往${deviceTitle(d)}` });
     } catch (e) { say({ tone: 'bad', text: (e as ApiError).message }); }
   };
@@ -32,7 +35,7 @@ export function TrackMenu({ track, devices, navigate }: { track: Track; devices:
       {open && (
         <Sheet title={track.title} onClose={() => setOpen(false)}>
           <p className="sheet-by">{[singer(track.artist), length(track.duration_ms)].filter(Boolean).join('　')}</p>
-          {list.length > 1 && <div className="send-to" role="radiogroup" aria-label="放在哪台音箱">{list.map((x) => <button key={x.device_id} type="button" role="radio" aria-checked={x === d} onClick={() => setTarget(x.device_id)}>{deviceTitle(x)}</button>)}</div>}
+          {list.length > 0 && <div className="send-to" role="radiogroup" aria-label="放在哪里"><button type="button" role="radio" aria-checked={target === HERE} onClick={() => setTarget(HERE)}>{hereName}</button>{list.map((x) => <button key={x.device_id} type="button" role="radio" aria-checked={target !== HERE && x === d} onClick={() => setTarget(x.device_id)}>{deviceTitle(x)}</button>)}</div>}
           <div className="send">
             <button type="button" onClick={() => send(d, false)}><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M8 5.2v13.6L19 12z" /></svg>现在放</button>
             <button type="button" onClick={() => send(d, true)}>{icon('M4 7h10M4 12h7M4 17h7M15 11.5v7l5.5-3.5z')}下一首放</button>

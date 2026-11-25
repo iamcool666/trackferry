@@ -79,7 +79,7 @@ export function outcome(run: TakeoverRun) {
 const stepNames: Record<string, string> = {
   status: '读取状态', mute: '静音', stop1: '停止小爱', stop2: '再停一次', wait: '等小爱说完', play: '推送音频', fetched: '音箱取流',
   foreign: '小爱抢回，再停', replay: '重新推送', confirmed: '确认在播', restore: '恢复音量', cancelled: '被新口令取代',
-  ended: '放完', paused: '停了', continued: '又响了', talked: '有人和小爱说话', resume: '接着放', stopped: '停下了', released: '让给小爱',
+  ended: '放完', paused: '停了', continued: '又响了', talked: '有人和小爱说话', resume: '接着放', stopped: '停下了', released: '让给小爱', seek: '换到另一处',
 };
 export const stepLabel = (s: string) => stepNames[s] ?? s;
 

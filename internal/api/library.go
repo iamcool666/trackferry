@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -11,8 +12,28 @@ import (
 	"trackferry/internal/live"
 )
 
-func (s *Server) libraryStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"library": s.Library.Status(), "sources": s.Router.Online.Health()})
+func (s *Server) libraryStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"library": s.Library.Status(), "sources": s.Router.Online.Health(),
+		"every_minutes": s.Library.Every(r.Context())})
+}
+
+// libraryEvery sets how often the library is read again.
+func (s *Server) libraryEvery(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Minutes int `json:"minutes"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if !slices.Contains(library.Minutes, req.Minutes) {
+		writeError(w, http.StatusBadRequest, "bad_minutes", "只能是 0（不自动同步）、5、15、30、60、180、360、720 或 1440 分钟")
+		return
+	}
+	if err := s.Library.SetEvery(r.Context(), req.Minutes); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"every_minutes": req.Minutes})
 }
 
 func (s *Server) libraryScan(w http.ResponseWriter, _ *http.Request) {

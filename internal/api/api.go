@@ -72,6 +72,7 @@ type Options struct {
 type Server struct {
 	Options
 	missMu  sync.Mutex // the list of songs taken off
+	here    here
 	started time.Time
 	ready   atomic.Bool
 	limiter *auth.Limiter
@@ -169,6 +170,8 @@ func (s *Server) Handler() http.Handler {
 	authed("PUT /api/playing", s.playingUpdate)
 	if s.Dispatcher != nil {
 		authed("POST /api/devices/{id}/play", s.play)
+		authed("GET /api/devices/{id}/queue", s.queue)
+		authed("POST /api/devices/{id}/queue", s.queueChange)
 	}
 	if s.Engine != nil {
 		authed("POST /api/devices/{id}/control", s.control)
@@ -193,6 +196,12 @@ func (s *Server) Handler() http.Handler {
 		authed("GET /api/library", s.libraryStatus)
 		authed("GET /api/library/search", s.librarySearch)
 		authed("POST /api/library/scan", s.libraryScan)
+		authed("PUT /api/library/every", s.libraryEvery)
+		authed("PUT /api/library/tracks/{id}/lyrics", s.lyricsOffset)
+		if s.Stream != nil {
+			authed("GET /api/here", s.hereList)
+			authed("GET /api/here/audio", s.hereAudio)
+		}
 		authed("GET /api/library/missing", s.libraryMissing)
 		authed("GET /api/library/missing.csv", s.libraryMissingCSV)
 		authed("POST /api/library/missing/dismiss", s.libraryMissingDismiss)

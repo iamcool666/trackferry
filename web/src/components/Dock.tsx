@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type Device } from '../api';
 import { deviceTitle } from '../copy';
-import { connected } from '../ear';
-import { onSpeaker, useLive } from '../live';
+import { connected, HERE, useEar } from '../ear';
+import { here, hereName, hereSong, useHere } from '../here';
+import { onDeck, songOf, useLive } from '../live';
 import { href, type Page, type Place } from '../nav';
 import { Cover } from './Cover';
 import { Jelly } from './jelly';
@@ -20,28 +21,37 @@ const tabOf = (p: Page): Page => (p === 'flow' || p === 'say' || p === 'speakers
 /** What is on, and the two buttons wanted most, on every page but 此刻. */
 function NowBar({ devices, navigate }: { devices: Device[]; navigate: Nav }) {
   const { flows } = useLive();
+  const h = useHere();
+  const [ear, setEar] = useEar(devices);
   const [busy, setBusy] = useState(false);
-  const d = connected(devices).map((x) => ({ x, f: onSpeaker(flows, x.device_id) })).filter((o) => o.f).sort((a, b) => Number(b.f!.player?.phase === 'playing') - Number(a.f!.player?.phase === 'playing'))[0];
-  if (!d?.f) return null;
-  const song = d.f.route?.decision !== 'native' && d.f.route?.title ? d.f.route : d.f.run?.song;
-  if (!song?.title) return null;
-  const playing = d.f.player?.phase !== 'paused';
-  const press = async (a: 'play' | 'pause' | 'next') => { setBusy(true); await api.press(d.x.device_id, a).catch(() => {}); setBusy(false); };
+  const mine = hereSong(h);
+  const all = [
+    ...(mine ? [{ id: HERE, name: hereName, song: mine as { title?: string; artist?: string; cover?: string }, playing: h.on, waiting: h.waiting }] : []),
+    ...connected(devices).flatMap((x) => { const f = onDeck(flows, x.device_id); return f ? [{ id: x.device_id, name: deviceTitle(x), song: songOf(f)!, playing: f.player?.phase !== 'paused', waiting: !f.player?.phase }] : []; }),
+  ];
+  const d = all.sort((a, b) => Number(b.playing) - Number(a.playing) || Number(b.id === ear) - Number(a.id === ear))[0];
+  if (!d) return null;
+  const press = async (a: 'play' | 'pause' | 'next') => {
+    if (d.id === HERE) { if (a === 'next') here.next(); else here.toggle(); return; }
+    setBusy(true);
+    await api.press(d.id, a).catch(() => {});
+    setBusy(false);
+  };
   return (
     <div className="nowbar glass">
-      <button type="button" className="nowbar-song" onClick={() => navigate({ page: 'home' })} aria-label={`正在放${song.title}，去此刻`}>
-        <Cover cover={song.cover} title={song.title} artist={song.artist} /><span><b>{song.title}</b><small>{deviceTitle(d.x)}</small></span>
+      <button type="button" className="nowbar-song" onClick={() => { if (ear !== d.id && (ear || d.id === HERE)) setEar(d.id); navigate({ page: 'home' }); }} aria-label={`正在放${d.song.title}，去此刻`}>
+        <Cover cover={d.song.cover} title={d.song.title ?? ''} artist={d.song.artist} /><span><b>{d.song.title}</b><small>{d.waiting && d.id !== HERE ? `正在送到${d.name}` : d.name}</small></span>
       </button>
-      <button type="button" className="nowbar-btn" disabled={busy} onClick={() => press(playing ? 'pause' : 'play')} aria-label={playing ? '暂停' : '播放'}><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d={playing ? 'M7 5h3.6v14H7zM13.4 5H17v14h-3.6z' : 'M8 5.2v13.6L19 12z'} /></svg></button>
-      <button type="button" className="nowbar-btn nowbar-next" disabled={busy} onClick={() => press('next')} aria-label="下一首"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M4 6v12l8-6zM12 6v12l8-6z" /></svg></button>
+      <button type="button" className="nowbar-btn" disabled={busy} onClick={() => press(d.playing ? 'pause' : 'play')} aria-label={d.playing ? '暂停' : '播放'}>{d.waiting ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d={d.playing ? 'M7 5h3.6v14H7zM13.4 5H17v14h-3.6z' : 'M8 5.2v13.6L19 12z'} /></svg>}</button>
+      <button type="button" className="nowbar-btn nowbar-next" disabled={busy || (d.id === HERE && h.songs.length < 2)} onClick={() => press('next')} aria-label="下一首"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M4 6v12l8-6zM12 6v12l8-6z" /></svg></button>
     </div>
   );
 }
 
 /** The bar of a phone: a capsule of glass whose lens follows the finger, and search on its own. */
 export function Dock({ page, devices, navigate, dot }: { page: Page; devices: Device[]; navigate: Nav; dot: boolean }) {
-  const here = tabOf(page);
-  const at = items.findIndex((t) => t.page === here);
+  const tab = tabOf(page);
+  const at = items.findIndex((t) => t.page === tab);
   const bar = useRef<HTMLElement>(null);
   const lens = useRef<HTMLSpanElement>(null);
   const [small, setSmall] = useState(false);
@@ -49,7 +59,7 @@ export function Dock({ page, devices, navigate, dot }: { page: Page; devices: De
   const grip = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
   const skip = useRef(false);
   const jelly = useRef<Jelly>(null);
-  const folded = small && here !== 'home' && here !== 'search';
+  const folded = small && tab !== 'home' && tab !== 'search';
 
   // Reading on folds it, reading back unfolds it.
   useEffect(() => {
@@ -139,7 +149,7 @@ export function Dock({ page, devices, navigate, dot }: { page: Page; devices: De
       <nav ref={bar} className="capsule glass" aria-label="主导航" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <span ref={lens} className="lens" aria-hidden="true"><i /><i /></span>
         {items.map((t, i) => (
-          <a key={t.page} href={href({ page: t.page })} draggable={false} className={shown === i ? 'on' : ''} aria-current={here === t.page ? 'page' : undefined}
+          <a key={t.page} href={href({ page: t.page })} draggable={false} className={shown === i ? 'on' : ''} aria-current={tab === t.page ? 'page' : undefined}
             onClick={(e) => {
               e.preventDefault();
               if (skip.current) { skip.current = false; return; }
@@ -151,7 +161,7 @@ export function Dock({ page, devices, navigate, dot }: { page: Page; devices: De
           </a>
         ))}
       </nav>
-      <a className={`orb glass ${here === 'search' ? 'on' : ''}`} href="#/search" aria-label="搜索" aria-current={here === 'search' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); navigate({ page: 'search' }); }}>{draw('M10.8 4.2a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2zM15.7 15.7l4.6 4.6')}</a>
+      <a className={`orb glass ${tab === 'search' ? 'on' : ''}`} href="#/search" aria-label="搜索" aria-current={tab === 'search' ? 'page' : undefined} onClick={(e) => { e.preventDefault(); navigate({ page: 'search' }); }}>{draw('M10.8 4.2a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2zM15.7 15.7l4.6 4.6')}</a>
     </div>
   );
 }

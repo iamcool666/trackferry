@@ -675,3 +675,66 @@ a.lib-search { display: flex; align-items: center; gap: 11px; min-height: 52px; 
   .content > * { animation: page-in .16s ease-out; } @keyframes page-in { from { opacity: .35; } }
   .tracks li, .words > *, .verdict { animation: none; }
 }
+
+/* ---- two lines of hands ---- */
+.ctls { margin: 0 0 10px; } .words .ctls { width: 100%; }
+.ctl-play { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 400px; }
+.ctl-play .ctl, .words .ctl-play .ctl, .speaker .ctl-play .ctl { position: relative; width: 48px; height: 48px; background: none; color: var(--ink); } .ctl-play .ctl:hover:not(:disabled) { background: rgb(255 255 255 / .08); } .ctl-play .ctl svg { width: 25px; height: 25px; }
+.ctl-play .ctl.ctl-main, .words .ctl-play .ctl.ctl-main, .speaker .ctl-play .ctl.ctl-main { width: 60px; height: 60px; background: none; color: var(--ink); } .ctl-play .ctl.ctl-main:hover:not(:disabled) { background: rgb(255 255 255 / .08); } .ctl-play .ctl.ctl-main svg { width: 42px; height: 42px; }
+.ctl-play .ctl.ctl-bare { color: var(--ink2); } .ctl-none { visibility: hidden; } .ctl-play > :first-child { margin-left: -11px; } .ctl-play > .ctl-list { margin-right: -11px; }
+.ctl-list small { position: absolute; left: 26px; top: 2px; min-width: 18px; padding: 0 5px; border-radius: 9px; background: rgb(60 72 77); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .16); color: var(--ink); font-size: 11px; line-height: 17px; font-weight: 560; text-align: center; text-shadow: none; }
+.deck-foot { min-height: 44px; gap: 10px; } .foot-who { flex: 0 1 auto; min-width: 0; display: flex; color: var(--ink2); } .foot-who .chip { min-width: 0; max-width: 100%; } .foot-list { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.foot-acts { flex: none; display: flex; align-items: center; margin-right: -11px; } .foot-btn, .foot-flow { flex: none; width: 44px; height: 44px; margin: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: none; color: var(--ink2); cursor: pointer; transition: color .2s, transform .2s; } .foot-btn:hover:not(:disabled) { color: var(--ink); } .foot-btn:active:not(:disabled) { transform: scale(.92); } .foot-btn:disabled { opacity: .4; }
+.deck-foot .ctl-vol { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin: 0 0 0 -11px; animation: vol-in .24s var(--out); } .deck-foot .ctl-vol input { flex: 1; min-width: 0; height: 44px; touch-action: none; } .deck-foot .ctl-vol small { display: block; min-width: 34px; text-align: right; color: var(--ink2); }
+@keyframes vol-in { from { opacity: 0; transform: translateX(14px); } }
+.words .ctls .deck-foot, .words .ctl-play { max-width: none; } .words > .deck-foot { margin-top: 8px; }
+.ctl-said { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; margin: 2px 0 0; }
+.speaker .ctls { max-width: 440px; }
+@media (min-width: 761px) { .words .ctls { max-width: 460px; } }
+
+/* ---- the song can be moved in ---- */
+.swim.can > div { cursor: pointer; touch-action: none; outline: none; } .swim.can > div::before { content: ''; position: absolute; inset: -20px 0; } .swim.can > div:focus-visible { box-shadow: 0 0 0 3px rgb(244 201 93 / .7); }
+.swim > div { transition: height .2s var(--out); } .swim i, .swim b { transition: transform .26s linear; } .swim.held i, .swim.held b { transition: none; } .swim.held > div { height: 6px; border-radius: 3px; } .swim.resuming i { animation: wait 1.2s ease-in-out infinite alternate; } @keyframes wait { to { opacity: .5; } }
+.swim .fish { transition: width .25s var(--out); } .swim.held .fish { width: 72px; } @media (hover: hover) { .swim.can:hover > div { height: 5px; } }
+.swim em { position: absolute; left: 0; bottom: 34px; transform: translateX(-50%); padding: 4px 12px; border-radius: 14px; background: rgb(20 30 34 / .92); box-shadow: 0 4px 16px rgb(0 0 0 / .3), inset 0 0 0 .5px rgb(255 255 255 / .2); color: var(--ink); font-size: 15px; font-style: normal; font-weight: 560; line-height: 1.5; text-shadow: none; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .swim.resuming i { animation: none; } }
+
+/* ---- the words, to be adjusted ---- */
+.lyric { position: relative; flex: 1 1 0; min-height: 64px; display: flex; flex-direction: column; } .lyric > .sheet-words, .player .lyric > .sheet-words { flex: 1 1 0; min-height: 0; height: auto; }
+.sheet-words.jump li { cursor: pointer; } @media (hover: hover) { .sheet-words.jump li:hover { opacity: 1; } }
+.lyric-open { position: absolute; right: -10px; bottom: 0; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; color: var(--ink3); } .lyric-open:hover { color: var(--ink); }
+.lyric-tools { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; animation: vol-in .24s var(--out); } .lyric-tools > div { display: flex; padding: 3px; border-radius: 20px; background: rgb(255 255 255 / .1); } .lyric-tools > div button { min-width: 34px; height: 36px; padding: 0 9px; border: 0; border-radius: 17px; background: none; color: var(--ink2); font-size: 13px; white-space: nowrap; } .lyric-tools > div button:not(:disabled):active { background: rgb(255 255 255 / .14); } .lyric-tools button:disabled { opacity: 1; color: var(--ink3); } .lyric-tools [aria-pressed=true] { background: rgb(255 255 255 / .2); color: var(--ink); } .lyric-x { flex: none; width: 36px; height: 40px; margin-right: -8px; display: grid; place-items: center; border: 0; background: none; color: var(--ink2); }
+.player .lyric-small .sheet-words li, .player-wide .lyric-small .sheet-words li { font-size: 18px; } .player .lyric-large .sheet-words li, .player-wide .lyric-large .sheet-words li { font-size: clamp(27px, 2.7vw, 42px); }
+@media (max-width: 760px) { .player .lyric-small .sheet-words li { font-size: 18px; } .player .lyric-large .sheet-words li { font-size: clamp(27px, 8vw, 34px); } }
+
+/* ---- what comes ---- */
+.q { padding: 0 2px; } .q-of { display: flex; justify-content: space-between; gap: 16px; padding: 0 14px 10px; color: var(--ink2); font-size: 14px; } .q-of span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .q-of .num { flex: none; } .q > .field-error { padding: 0 14px 8px; }
+.q h3 { margin: 10px 14px 2px; color: var(--ink2); font-size: 13px; font-weight: 520; } .q ol { margin: 0; padding: 0; list-style: none; } .q li { display: flex; align-items: center; border-radius: 18px; transition: opacity .2s; } .q-busy { opacity: .5; } .q-now li { background: rgb(255 255 255 / .12); }
+.q-song { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; gap: 13px; min-height: 60px; padding: 6px 0 6px 12px; border: 0; border-radius: 18px; background: none; text-align: left; } .q-song:disabled { opacity: 1; } button.q-song:active:not(:disabled) { background: rgb(255 255 255 / .1); } @media (hover: hover) { button.q-song:hover:not(:disabled) { background: rgb(255 255 255 / .07); } }
+.q-song .cover { flex: none; width: 44px; border-radius: 9px; } .q-song > .eq { position: absolute; left: 26px; top: 50%; margin-top: -8px; } .q-song:has(> .eq) .cover { filter: brightness(.5); } .q-song span { min-width: 0; } .q-song b, .q-song small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4; } .q-song b { font-size: 16px; font-weight: 520; } .q-song small { color: var(--ink2); font-size: 13px; }
+.q-now b { color: var(--stone); } .q-x { flex: none; width: 46px; height: 52px; display: grid; place-items: center; border: 0; background: none; color: var(--ink2); } .q-x:hover:not(:disabled) { color: var(--ink); } .q-end { height: 48px; justify-content: center; } .q-none { padding: 26px 14px; text-align: center; color: var(--ink2); } .q-tip { padding: 10px 14px 4px; color: var(--ink2); font-size: 12.5px; text-align: center; }
+.q-stop { position: sticky; bottom: 0; z-index: 2; width: 100%; min-height: 50px; margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 20px; background: rgb(52 63 68 / .96); box-shadow: inset 0 1px 1px rgb(255 255 255 / .2), 0 6px 20px rgb(0 0 0 / .25); color: var(--ink); font-size: 16px; font-weight: 560; } .q-stop svg { width: 18px; height: 18px; } .q-stop:active { transform: scale(.98); }
+
+/* ---- 此刻 in the hand: one screen; the log is in a sheet ---- */
+.sheet .log { padding: 0 14px; background: none; min-height: 0; } .sheet .log-bar { margin: 0 0 14px; gap: 2px; flex-wrap: wrap; } .sheet .log-bar > div { flex-wrap: nowrap; gap: 0 20px; overflow-x: auto; scrollbar-width: none; margin-inline: -14px; padding-inline: 14px; } .sheet .log-bar button { flex: none; } .sheet .log-day { margin-bottom: 22px; } .sheet .log-day h2 { font-size: 17px; border: 0; margin: 0; padding-bottom: 4px; } .sheet .log-day h2 small { font-size: 12px; } .sheet .log-day .cover { border-radius: 9px; } .sheet .log .ears:empty { display: none; } .sheet .log-none { margin: 30px 0; text-align: center; } .sheet .pager { margin: 0; }
+.sheet .log-main small, .sheet .log-end { color: var(--ink2); }
+.scene-alerts { position: absolute; z-index: 4; left: var(--gut); right: var(--gut); top: calc(env(safe-area-inset-top) + 58px); display: grid; gap: 6px; } .scene-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 4px 6px 4px 18px; border-radius: 22px; background: rgb(24 33 37 / .94); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .16), 0 8px 24px rgb(0 0 0 / .2); font-size: 14px; line-height: 1.35; } .scene-alert.error span { color: var(--bad); } .scene-alert button { flex: none; min-height: 34px; padding: 0 14px; border: 0; border-radius: 17px; background: rgb(255 255 255 / .16); color: var(--ink); font-size: 14px; }
+@media (max-width: 760px) {
+  .words .ctls, .player .words .ctls { margin: 4px 0 0; } .words .ctl-play, .player .words .ctl-play { width: 100%; max-width: none; justify-content: space-between; padding: 0; margin: 0; } .player .ctl-play { max-width: none; }
+  .player .lyric { margin-top: 10px; } .player .lyric > .sheet-words { margin-top: 0; } .player .deck-foot, .scene:not(.player) .deck-foot { justify-content: space-between; } .speaker .ctls { max-width: none; }
+  .player .transport { margin-top: 8px; } .swim { grid-template-columns: 36px minmax(0, 1fr) 36px; gap: 14px; }
+  .at-home .scene:has(.scene-alerts) { padding-top: calc(env(safe-area-inset-top) + 112px); } .player:has(.scene-alerts) .raft { top: calc(env(safe-area-inset-top) + 118px); }
+  .shell.at-home .colophon { display: none; }
+}
+@media (max-width: 760px) and (min-height: 540px) {
+  html:has(.at-home) { overflow: hidden; overscroll-behavior: none; } .at-home { height: 100svh; overflow: hidden; } .at-home .content { min-height: 0; height: 100svh; }
+  .at-home .scene, .at-home .scene.player, .at-home .scene.with-spks { height: 100svh; min-height: 0; overflow: hidden; touch-action: none; } .at-home .sheet-words { touch-action: pan-y; overscroll-behavior: contain; }
+  .at-home .scene:not(.player) { --raft: min(62vw, 27svh); justify-content: safe center; } .at-home .scene:not(.player) .raft { margin-top: 0; } .at-home .scene:not(.player) .words { width: 100%; } .scene:not(.player) .transport { margin-top: 14px; } .scene:not(.player) .ctls { margin-top: 10px; }
+}
+@media (max-width: 760px) and (max-height: 720px) { .at-home .scene:not(.player) { --raft: min(50vw, 20svh); } .at-home .scene:not(.player) .words { margin-top: 14px; } .at-home .scene:not(.player) .words h1 { -webkit-line-clamp: 1; } .at-home .scene:not(.player) .below { margin-top: 4px; } }
+
+/* ---- folded: the dock is three things of one height, the first and last round ---- */
+@media (max-width: 760px) {
+  .dock.folded { align-items: center; } .folded .capsule { flex: 0 0 auto; width: 48px; height: 48px; min-width: 48px; padding: 0; border-radius: 50%; } .folded .capsule a { border-radius: 50%; } .folded .capsule a.on { flex: 1 1 auto; } .folded .orb { border-radius: 50%; } .folded .nowbar { left: 64px; right: 64px; }
+}
+@media (max-width: 360px) { .lyric-tools { gap: 5px; } .lyric-tools > div button { min-width: 27px; padding: 0 5px; } .lyric-x { width: 30px; } }

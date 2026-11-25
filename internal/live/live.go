@@ -53,6 +53,7 @@ type Player struct {
 	// Elapsed is how far our song has played, by our own clock; speakers rarely report it.
 	Elapsed int64  `json:"elapsed"`
 	Phase   string `json:"phase,omitempty"` // playing | paused | talking | resuming
+	Seek    bool   `json:"seek,omitempty"`  // it can be moved within the song
 	AtMS    int64  `json:"at_ms"`
 }
 

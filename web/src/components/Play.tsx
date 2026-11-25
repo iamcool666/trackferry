@@ -3,9 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError, type Device } from '../api';
 import { deviceTitle } from '../copy';
+import { lookAt } from '../ear';
+import { hereName } from '../here';
+import { hereIcon } from './SpeakerChip';
 
 /** Plays something on a speaker that is connected. */
-export function Play({ send, title, devices, label }: { send: (device: string) => Promise<unknown>; title: string; devices: Device[]; label?: string }) {
+/** here plays it on this device. */
+export function Play({ send, here, title, devices, label }: { send: (device: string) => Promise<unknown>; here: () => Promise<unknown> | void; title: string; devices: Device[]; label?: string }) {
   const targets = devices.filter((d) => d.in_account && d.mode !== 'off');
   const [open, setOpen] = useState(false);
   const [down, setDown] = useState(false);
@@ -29,10 +33,16 @@ export function Play({ send, title, devices, label }: { send: (device: string) =
     setState({ tone: 'busy', text: `正在送到${deviceTitle(d)}` });
     try {
       await send(d.device_id);
+      lookAt(d.device_id);
       setState({ tone: 'ok', text: `已送往${deviceTitle(d)}` });
     } catch (e) {
       setState({ tone: 'bad', text: (e as ApiError).message });
     }
+  };
+
+  const playHere = async () => {
+    setOpen(false);
+    try { await here(); } catch (e) { setState({ tone: 'bad', text: (e as Error).message }); }
   };
 
   return (
@@ -44,13 +54,12 @@ export function Play({ send, title, devices, label }: { send: (device: string) =
       </button>
       {open && matchMedia('(max-width: 760px)').matches ? (
         <Sheet title="在哪里播放" onClose={() => setOpen(false)}>
-          {targets.length === 0 && <p className="muted">没有接入的音箱，先到音箱页接入一台。</p>}
-          <div className="picks">{targets.map((d) => <button key={d.device_id} type="button" onClick={() => play(d)}><i><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M9 6.5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="12" cy="14.5" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg></i><span><b>{deviceTitle(d)}</b></span></button>)}</div>
+          <div className="picks"><button type="button" onClick={playHere}><i>{hereIcon}</i><span><b>{hereName}</b></span></button>{targets.map((d) => <button key={d.device_id} type="button" onClick={() => play(d)}><i><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M9 6.5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="12" cy="14.5" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg></i><span><b>{deviceTitle(d)}</b></span></button>)}</div>
         </Sheet>
       ) : open && (
         <span className={`menu ${down ? 'menu-down' : ''}`} role="menu">
           <span className="menu-head">在哪里播放</span>
-          {targets.length === 0 && <span className="menu-empty">没有接入的音箱</span>}
+          <button role="menuitem" type="button" onClick={playHere}>{hereIcon}<span>{hereName}</span></button>
           {targets.map((d) => <button key={d.device_id} role="menuitem" type="button" onClick={() => play(d)}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M9 6.5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="12" cy="14.5" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg><span>{deviceTitle(d)}</span></button>)}
         </span>
       )}

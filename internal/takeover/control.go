@@ -2,6 +2,7 @@ package takeover
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"trackferry/internal/logx"
@@ -18,6 +19,7 @@ const (
 	ControlNext     = "next"
 	ControlPrevious = "previous"
 	ControlMode     = "mode"
+	ControlSeek     = "seek"
 )
 
 // pressed is how long a speaker gets to do what a button asked before it is looked at.
@@ -107,6 +109,52 @@ func (e *Engine) pause(ctx context.Context, dev string, d *device, gen int, ours
 	e.mu.Unlock()
 	e.Hear(dev, Heard{Control: "pause", Button: true, Cut: true})
 	return nil
+}
+
+// seek asks a run to move to a point of its song.
+type seek struct {
+	to   time.Duration
+	done chan error
+}
+
+// Why a song stays where it is.
+var (
+	ErrCannotSeek = errors.New("这首歌的格式不能拖动")
+	ErrNoSeek     = errors.New("没有能拖动的歌")
+	ErrSeekLate   = errors.New("音箱没有跟上，稍后再试")
+)
+
+// seekFor is how long a speaker may take to move.
+const seekFor = 14 * time.Second
+
+// Seek moves the song on a speaker to a point. A paused song stays paused.
+func (e *Engine) Seek(ctx context.Context, dev string, to time.Duration) error {
+	s := seek{max(0, to), make(chan error, 1)}
+	e.mu.Lock()
+	d := e.devs[dev]
+	if d == nil || d.seeks == nil {
+		e.mu.Unlock()
+		return ErrNoSeek
+	}
+	sent := false
+	select {
+	case d.seeks <- s:
+		sent = true
+		d.handOver()
+	default:
+	}
+	e.mu.Unlock()
+	if !sent {
+		return ErrSeekLate
+	}
+	ctx, cancel := context.WithTimeout(ctx, seekFor)
+	defer cancel()
+	select {
+	case err := <-s.done:
+		return err
+	case <-ctx.Done():
+		return ErrSeekLate
+	}
 }
 
 // SetVolume sets the volume. On a speaker that is muted for a moment it is the volume that

@@ -18,6 +18,13 @@ const (
 // maxPause is how long a paused song is waited for.
 const maxPause = 15 * time.Minute
 
+// minStart is the earliest point a song is started from as its middle.
+const minStart = 200 * time.Millisecond
+
+func minutes(d time.Duration) string {
+	return fmt.Sprintf("%d:%02d", int(d.Minutes()), int(d.Seconds())%60)
+}
+
 // startLag is from the speaker's first request to the first sound.
 const startLag = 500 * time.Millisecond
 
@@ -25,7 +32,7 @@ const startLag = 500 * time.Millisecond
 // report a position for pushed audio; it continues the song after someone talked to Xiao AI;
 // and it stops the speaker once the song has played through, so it does not repeat. A newer
 // run on the speaker cancels the watch (and owns the speaker).
-func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard) (how End) {
+func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan seek) (how End) {
 	e, t := r.e, r.req.Track
 	tm := e.timing
 	if tm.Look <= 0 {
@@ -66,6 +73,7 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard) (how End) {
 		yield       bool // Xiao AI was asked to play something
 		pausedAt    time.Time
 		resumes     int
+		sought      bool // base is where the listener put it
 		lastOK      = e.now()
 	)
 	pause := func(when time.Time) {
@@ -142,20 +150,9 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard) (how End) {
 		}
 		r.step(StepEnded, err == nil, why+"，停止循环 "+describe(err))
 	}
-	// again pushes the song from where it stopped.
-	again := func() bool {
-		if t.Resume == nil || resumes >= 20 {
-			return false
-		}
-		resumes++
-		from := max(time.Second, base-1500*time.Millisecond)
-		r.phase = phaseResuming
-		n, start, err := t.Resume(r.ctx, from)
-		if err != nil { // a format that only starts at its beginning
-			start = 0
-			n = Track{URL: t.URL, Lost: t.Lost}
-		}
-		err = e.sp.PlayURL(r.ctx, r.req.DeviceID, r.req.Hardware, n.URL)
+	// put has the speaker play n, the song from start on.
+	put := func(n Track, start time.Duration) bool {
+		err := e.sp.PlayURL(r.ctx, r.req.DeviceID, r.req.Hardware, n.URL)
 		for i := 0; err != nil && i < 3 && e.sleep(r.ctx, time.Duration(i+1)*400*time.Millisecond) == nil; i++ {
 			err = e.sp.PlayURL(r.ctx, r.req.DeviceID, r.req.Hardware, n.URL)
 		}
@@ -176,13 +173,83 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard) (how End) {
 		track = n
 		play(start, e.now().Add(startLag))
 		r.phase = phasePlaying
+		return true
+	}
+	// again pushes the song from where it stopped.
+	again := func() bool {
+		if t.Resume == nil || resumes >= 20 {
+			return false
+		}
+		resumes++
+		from := max(time.Second, base-1500*time.Millisecond)
+		if sought {
+			from = max(minStart, base) // exactly where the listener put it
+		}
+		r.phase = phaseResuming
+		n, start, err := t.Resume(r.ctx, from)
+		if err != nil { // a format that only starts at its beginning
+			start = 0
+			n = Track{URL: t.URL, Lost: t.Lost}
+		}
+		if !put(n, start) {
+			return false
+		}
+		sought = false
 		if start == 0 {
 			r.step(StepResume, true, "这个格式只能从头放")
 		} else {
-			r.step(StepResume, true, fmt.Sprintf("从 %d:%02d 接着放", int(start.Minutes()), int(start.Seconds())%60))
+			r.step(StepResume, true, "从 "+minutes(start)+" 接着放")
 		}
 		return true
 	}
+
+	setCut := func(on bool) {
+		cut = on
+		e.mu.Lock()
+		if d := e.devs[r.req.DeviceID]; d != nil && d.seeks != nil && (<-chan seek)(d.seeks) == seeks {
+			d.cut = on
+		}
+		e.mu.Unlock()
+	}
+	// move goes to another point of the song. What cannot start there plays on as it is.
+	move := func(to time.Duration) error {
+		if t.Resume == nil || !t.Seekable || length <= 0 {
+			return ErrCannotSeek
+		}
+		to = min(max(minStart, to), max(minStart, length-2*time.Second))
+		if !sounding && talkedUntil.IsZero() {
+			base, sought = to, true
+			setCut(true) // it goes on from there when it goes on
+			r.elapsed = base
+			r.step(StepSeek, true, "停着，放到 "+minutes(to))
+			return nil
+		}
+		n, start, err := t.Resume(r.ctx, to)
+		if err != nil {
+			r.step(StepSeek, false, "这个格式不能拖动")
+			return ErrCannotSeek
+		}
+		was, since, held, stopped := base, anchor, !sounding, pausedAt
+		if !put(n, start) {
+			base, anchor, sounding, pausedAt = was, since, !held, stopped
+			return ErrSeekLate
+		}
+		talkedUntil, silent, foreign, sought = time.Time{}, 0, 0, false
+		byUser, deaf, yield = false, false, false
+		r.elapsed, r.held = at(), false
+		r.step(StepSeek, true, "拖到 "+minutes(start))
+		return nil
+	}
+	defer func() {
+		for {
+			select {
+			case s := <-seeks:
+				s.done <- ErrNoSeek
+			default:
+				return
+			}
+		}
+	}()
 
 	timer := time.NewTimer(tm.Look)
 	defer timer.Stop()
@@ -224,6 +291,10 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard) (how End) {
 			}
 			finish("音箱又从头放了")
 			return
+		case s := <-seeks:
+			s.done <- move(s.to)
+			soon = true
+			continue
 		case h := <-heard:
 			soon, silently = h.Button, h.Button
 			switch {
@@ -248,12 +319,7 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard) (how End) {
 			case h.Control == "resume":
 				byUser, deaf = false, false
 				if cut {
-					cut = false
-					e.mu.Lock()
-					if d := e.devs[r.req.DeviceID]; d != nil {
-						d.cut = false
-					}
-					e.mu.Unlock()
+					setCut(false)
 					if !again() && r.ctx.Err() == nil {
 						over(StepStopped, "没能接着放")
 						return
@@ -304,6 +370,13 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard) (how End) {
 		switch {
 		case ours:
 			silent, foreign = 0, 0
+			if !sounding && !talking && sought { // started on the speaker itself
+				setCut(false)
+				if again() {
+					byUser, lastOK = false, now
+					continue
+				}
+			}
 			if !sounding && !talking {
 				play(base, lastOK.Add(now.Sub(lastOK)/2))
 				r.phase = phasePlaying

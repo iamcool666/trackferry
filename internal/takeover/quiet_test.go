@@ -177,6 +177,7 @@ func TestStopEndsTheSongAndTheRun(t *testing.T) {
 
 func TestStopWhileTheSongIsBeingStarted(t *testing.T) {
 	e, sp, st := setup(t)
+	e.timing.Settle = 300 * time.Millisecond
 	run, _ := e.Start(context.Background(), req(sp))
 	time.Sleep(20 * time.Millisecond)
 	e.Press(context.Background(), "d1", ControlPause) // too early to pause: it stops

@@ -316,7 +316,7 @@ func serve() error {
 		return func(ctx context.Context, rng string) (*http.Response, error) { return fn.Open(ctx, t.GUID, rng) }, "." + ext
 	}
 	go fn.Run(ctx)
-	go lib.Run(ctx, 6*time.Hour)
+	go lib.Run(ctx)
 	client := online.Client()
 	netease := &online.Netease{Client: client, File: filepath.Join(private, "netease.json")}
 	if err := netease.Load(); err != nil {

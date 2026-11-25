@@ -53,6 +53,8 @@ type Track struct {
 	Lost      func() bool     // the speaker hung up before it had everything; optional
 	// Resume prepares the same song from a point and says where it really starts; optional.
 	Resume func(ctx context.Context, at time.Duration) (Track, time.Duration, error)
+	// Seekable: its format can be started in the middle.
+	Seekable bool
 }
 
 // Request is one takeover.
@@ -115,6 +117,7 @@ const (
 	StepContinued = "continued" // and went on by itself
 	StepTalked    = "talked"    // someone talked to Xiao AI over the song
 	StepResume    = "resume"    // we continued the song from where it was
+	StepSeek      = "seek"      // moved to another point of the song
 	StepStopped   = "stopped"   // the listener stopped it, or something else plays
 	StepEnded     = "ended"     // our track played through (or started over); stopped the repeat
 )
@@ -152,8 +155,10 @@ type device struct {
 	// stop fighting whatever she plays next.
 	released chan struct{}
 	heard    chan Heard
-	watching bool // the song is past its guard; what is heard takes effect
-	cut      bool // paused by a stop, so "play" alone does not bring it back
+	watching bool          // the song is past its guard; what is heard takes effect
+	cut      bool          // paused by a stop, so "play" alone does not bring it back
+	hands    chan struct{} // a button was pressed: what is on is what is wanted
+	seeks    chan seek
 
 	vol     sync.Mutex // one mute at a time
 	quiets  int        // requests being decided on
@@ -195,6 +200,8 @@ func (e *Engine) Start(ctx context.Context, req Request) (store.TakeoverRun, err
 	d.released = released
 	heard := make(chan Heard, 8)
 	d.heard = heard
+	hands, seeks := make(chan struct{}, 1), make(chan seek, 4)
+	d.hands, d.seeks = hands, seeks
 	d.watching, d.cut = false, false
 	e.mu.Unlock()
 
@@ -216,11 +223,15 @@ func (e *Engine) Start(ctx context.Context, req Request) (store.TakeoverRun, err
 			e.mu.Lock()
 			if d.gen == gen {
 				d.cancel, d.released, d.heard, d.watching = nil, nil, nil, false
+				d.hands, d.seeks = nil, nil
+				for len(seeks) > 0 {
+					(<-seeks).done <- ErrNoSeek
+				}
 			}
 			e.mu.Unlock()
 		}()
 		defer logx.Recover(e.log, "接管")
-		how = e.execute(runCtx, req, &own, released, heard, func() bool {
+		how = e.execute(runCtx, req, &own, released, heard, hands, seeks, func() bool {
 			e.mu.Lock()
 			defer e.mu.Unlock()
 			return d.gen != gen
@@ -265,6 +276,9 @@ func (e *Engine) Hear(deviceID string, h Heard) {
 		case d.heard <- h:
 		default:
 		}
+		if h.Button {
+			d.handOver()
+		}
 	}
 }
 
@@ -287,7 +301,7 @@ func (e *Engine) Run(ctx context.Context, req Request) (store.TakeoverRun, error
 	defer letGo()
 	d.run.Lock()
 	defer d.run.Unlock()
-	e.execute(ctx, req, &run, nil, nil, func() bool { return false }, letGo)
+	e.execute(ctx, req, &run, nil, nil, nil, nil, func() bool { return false }, letGo)
 	return run, nil
 }
 
@@ -372,7 +386,7 @@ func (r *runner) status() (xiaomi.PlayStatus, error) {
 			r.e.learn(r.req.DeviceID, p.Volume)
 		}
 		r.req.Trace.Player(live.Player{Status: p.Status, Position: p.Position, Duration: p.Duration, Volume: p.Volume,
-			Ours: p.Playing() && (p.AudioID == "" || p.AudioID == xiaomi.OurAudioID), Held: r.held, Elapsed: r.elapsed.Milliseconds(), Phase: r.phase})
+			Ours: p.Playing() && (p.AudioID == "" || p.AudioID == xiaomi.OurAudioID), Held: r.held, Elapsed: r.elapsed.Milliseconds(), Phase: r.phase, Seek: r.req.Track.Seekable})
 	}
 	return p, err
 }
@@ -420,7 +434,7 @@ func (e *Engine) sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRun, released <-chan struct{}, heard <-chan Heard, superseded func() bool, letGo func()) (how End) {
+func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRun, released <-chan struct{}, heard <-chan Heard, hands <-chan struct{}, seeks <-chan seek, superseded func() bool, letGo func()) (how End) {
 	r := &runner{e: e, ctx: ctx, req: req, run: run, start: time.UnixMilli(run.StartedMS)}
 	defer r.settle()
 	finish := func(outcome, detail string) {
@@ -493,7 +507,7 @@ func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRu
 	if !req.Follows {
 		err := <-stop1
 		r.step(StepStop1, err == nil, describe(err))
-		if e.sleep(ctx, e.timing.Settle) != nil || cancelled() {
+		if e.sleep(ctx, e.timing.Settle); cancelled() {
 			return
 		}
 		if remute {
@@ -504,7 +518,7 @@ func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRu
 			left := max(0, min(longestAnswer, e.timing.Pause+time.Duration(req.Answer)*e.timing.Speak-time.Duration(e.now().UnixMilli()-req.UpstreamMS)*time.Millisecond))
 			if req.Answer > 0 && left > 0 {
 				r.step(StepWait, true, fmt.Sprintf("等小爱说完，约 %.1f 秒", left.Seconds()))
-				if e.sleep(ctx, left) != nil || cancelled() {
+				if e.sleep(ctx, left); cancelled() {
 					return
 				}
 				r.stop(StepStop2)
@@ -601,9 +615,12 @@ guard:
 			left = true
 			r.step(StepReleased, true, "有新的口令交给小爱，不再守护")
 			break guard
+		case <-touched(hands, confirmed):
+			break guard
 		case <-tick.C:
 		}
 		if confirmed {
+			r.elapsed = max(0, e.now().Sub(fetchedAt)-startLag)
 			tick.Reset(e.timing.Poll)
 		} else {
 			tick.Reset(fast)
@@ -631,7 +648,8 @@ guard:
 				continue
 			}
 			pushed = e.now()
-			confirmed = false
+			confirmed, r.phase = false, ""
+			e.setWatching(dev, heard, false)
 			continue
 		}
 		// Accepted, but the speaker neither came for it nor plays anything: it got lost.
@@ -642,7 +660,8 @@ guard:
 			continue
 		}
 		if !confirmed && !fetchedAt.IsZero() && p.Playing() {
-			confirmed = true
+			confirmed, r.phase = true, phasePlaying
+			e.setWatching(dev, heard, true) // buttons work from here on
 			r.step(StepConfirmed, true, fmt.Sprintf("播放中，进度 %d ms", p.Position))
 			restore()
 		}
@@ -660,14 +679,35 @@ guard:
 		}
 		return EndUnplayed
 	}
-	e.mu.Lock()
-	if d := e.devs[dev]; d != nil && heard != nil && d.heard == heard {
-		d.watching = true
-	}
-	e.mu.Unlock()
-	how = r.watch(fetchedAt, heard)
+	e.setWatching(dev, heard, true)
+	how = r.watch(fetchedAt, heard, seeks)
 	req.Trace.Done("")
 	return how
+}
+
+// touched is hands while a button may end the guard.
+func touched(hands <-chan struct{}, confirmed bool) <-chan struct{} {
+	if confirmed {
+		return hands
+	}
+	return nil
+}
+
+// setWatching says whether what is heard takes effect, for the run that owns heard.
+func (e *Engine) setWatching(dev string, heard <-chan Heard, on bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if d := e.devs[dev]; d != nil && heard != nil && d.heard == heard {
+		d.watching = on
+	}
+}
+
+// handOver ends a guard whose song is on. Needs e.mu.
+func (d *device) handOver() {
+	select {
+	case d.hands <- struct{}{}:
+	default:
+	}
 }
 
 // refused reports that a speaker or Xiaomi certainly did not do what it was asked.

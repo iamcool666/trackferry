@@ -6,7 +6,7 @@ export interface Flow {
   said: string; upstream_ms?: number; seen_ms: number; intent?: Intent;
   layers: Partial<Record<LayerName, Layer>>; route?: Route; route_ms?: number; run?: TakeoverRun;
   audio?: { bytes: number; total?: number; requests: number; open: boolean; at_ms: number };
-  player?: { status: number; position: number; duration: number; volume: number; ours: boolean; elapsed: number; phase?: 'playing' | 'paused' | 'talking' | 'resuming'; at_ms: number };
+  player?: { status: number; position: number; duration: number; volume: number; ours: boolean; elapsed: number; phase?: 'playing' | 'paused' | 'talking' | 'resuming'; seek?: boolean; at_ms: number };
   done: boolean; note?: string; updated_ms: number;
 }
 export interface Pulse { device_id: string; name: string; state: WatchState; ok: boolean; ms: number; ignored: number; recorded: number; every_ms?: number; at_ms: number }
@@ -55,13 +55,13 @@ function subscribe(f: () => void) {
 export const useLive = () => useSyncExternalStore(subscribe, () => state);
 export const serverNow = () => Date.now() + state.skew;
 
-export interface Sounding { phase: 'playing' | 'paused' | 'talking' | 'resuming'; at: number; since: number }
+export interface Sounding { phase: 'playing' | 'paused' | 'talking' | 'resuming'; at: number; since: number; /** Can be moved in. */ seek?: boolean }
 /** The song a run has on its speaker now, as followed by the server. null: not playing any more. */
 export function sounding(flows: Flow[], runID?: number): Sounding | null {
   const f = runID ? flows.find((x) => x.run?.id === runID) : undefined;
   const p = f?.player;
   if (!f || f.done || !p?.phase) return null;
-  return { phase: p.phase, at: p.elapsed, since: p.at_ms };
+  return { phase: p.phase, at: p.elapsed, since: p.at_ms, seek: p.seek };
 }
 export const position = (s: Sounding) => s.at + (s.phase === 'playing' ? Math.max(0, serverNow() - s.since) : 0);
 export const phaseText = { playing: '正在播放', paused: '停着', talking: '小爱在说话', resuming: '正在接着放' } as const;
@@ -69,4 +69,12 @@ export const phaseText = { playing: '正在播放', paused: '停着', talking: '
 /** The song a speaker has on now. */
 export function onSpeaker(flows: Flow[], id: string) {
   return flows.filter((f) => f.device_id === id && !f.done && f.player?.phase).at(-1) ?? null;
+}
+
+/** The song of a flow, if it is one of ours. */
+export const songOf = (f: Flow) => (f.route?.decision !== 'native' && f.route?.title ? f.route : f.run?.song) ?? null;
+
+/** The song a speaker has on, or is about to: it shows from the moment it is sent. */
+export function onDeck(flows: Flow[], id: string) {
+  return flows.filter((f) => f.device_id === id && !f.done && songOf(f)?.title && (f.player?.phase || (f.kind !== 'try' && f.kind !== 'test' && f.run?.outcome === 'running'))).at(-1) ?? null;
 }

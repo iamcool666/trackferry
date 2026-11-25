@@ -77,6 +77,15 @@ func (it *item) peek(ctx context.Context, from int64, n int) ([]byte, int64, err
 	return b, total, err
 }
 
+// Seekable reports whether Resume is likely to work, without reading the song.
+func (h *Handle) Seekable() bool {
+	it := h.it
+	if it == nil || it.data != nil || it.head != nil || h.Duration <= 0 {
+		return false
+	}
+	return it.ctype == "audio/mpeg" || strings.Contains(it.ctype, "wav") || strings.Contains(it.ctype, "flac")
+}
+
 // Resume hands out the same song from about at. It returns where it really starts.
 func (h *Handle) Resume(ctx context.Context, at time.Duration) (*Handle, time.Duration, error) {
 	it, s := h.it, h.srv
@@ -97,6 +106,9 @@ func (h *Handle) Resume(ctx context.Context, at time.Duration) (*Handle, time.Du
 	case bytes.HasPrefix(first, []byte("fLaC")):
 		ext = ".flac"
 		head, off, start, err = flacAt(ctx, it, first, total, at, h.Duration)
+	case bytes.HasPrefix(first, []byte("RIFF")):
+		ext = ".wav"
+		head, off, start, err = wavAt(ctx, it, first, total, at)
 	case it.ctype == "audio/mpeg":
 		off, err = mp3At(ctx, it, first, total, at, h.Duration)
 		head = []byte{}
@@ -151,6 +163,60 @@ func mp3At(ctx context.Context, it *item, first []byte, total int64, at, length 
 	return 0, ErrNoSeek
 }
 
+// wavAt makes a WAV of what comes after a time; its samples are all the same size.
+func wavAt(ctx context.Context, it *item, first []byte, total int64, at time.Duration) ([]byte, int64, time.Duration, error) {
+	if len(first) < 12 || string(first[8:12]) != "WAVE" {
+		return nil, 0, 0, ErrNoSeek
+	}
+	var format []byte
+	for pos := int64(12); pos+8 <= total; {
+		var b []byte
+		if pos+64 <= int64(len(first)) {
+			b = first[pos : pos+64]
+		} else {
+			var err error
+			if b, _, err = it.peek(ctx, pos, 64); err != nil {
+				return nil, 0, 0, err
+			}
+		}
+		if len(b) < 8 {
+			break
+		}
+		n := int64(binary.LittleEndian.Uint32(b[4:]))
+		switch string(b[:4]) {
+		case "fmt ":
+			if n < 16 || n > 40 || int64(len(b)) < 8+n {
+				return nil, 0, 0, ErrNoSeek
+			}
+			format = bytes.Clone(b[:8+n])
+		case "data":
+			if format == nil {
+				return nil, 0, 0, ErrNoSeek
+			}
+			rate, frame := int64(binary.LittleEndian.Uint32(format[16:])), int64(binary.LittleEndian.Uint16(format[20:]))
+			if rate <= 0 || frame <= 0 {
+				return nil, 0, 0, ErrNoSeek
+			}
+			skip := int64(at.Seconds()*float64(rate)) / frame * frame
+			left := min(n, total-pos-8) - skip
+			if n == 0 || n >= 0xFFFFFF00 { // its size was never filled in
+				left = total - pos - 8 - skip
+			}
+			if left < frame {
+				return nil, 0, 0, ErrNoSeek
+			}
+			// What comes after the sound, tags for one, is left over and not played.
+			rest := total - pos - 8 - skip
+			head := append([]byte("RIFF"), binary.LittleEndian.AppendUint32(nil, uint32(4+int64(len(format))+8+rest))...)
+			head = append(append(head, "WAVE"...), format...)
+			head = binary.LittleEndian.AppendUint32(append(head, "data"...), uint32(left))
+			return head, pos + 8 + skip, time.Duration(float64(skip) / float64(rate) * float64(time.Second)), nil
+		}
+		pos += 8 + n + n&1
+	}
+	return nil, 0, 0, ErrNoSeek
+}
+
 // mp3Frame returns the length of the layer III frame starting b, or 0.
 func mp3Frame(b []byte) int {
 	if len(b) < 4 || b[0] != 0xFF || b[1]&0xE0 != 0xE0 || b[1]>>1&3 != 1 {
@@ -177,33 +243,12 @@ func mp3Frame(b []byte) int {
 
 // flacAt finds the frame playing at a time: every frame says which sample it starts with.
 func flacAt(ctx context.Context, it *item, first []byte, total int64, at, length time.Duration) ([]byte, int64, time.Duration, error) {
-	if len(first) < 42 || first[4]&0x7F != 0 {
-		return nil, 0, 0, ErrNoSeek
+	info, pos, err := flacStart(ctx, it, first, total)
+	if err != nil {
+		return nil, 0, 0, err
 	}
-	info := bytes.Clone(first[8:42])
 	block := int64(binary.BigEndian.Uint16(info[0:]))
 	rate := int64(info[10])<<12 | int64(info[11])<<4 | int64(info[12])>>4
-	if rate == 0 {
-		return nil, 0, 0, ErrNoSeek
-	}
-	// The frames come after all metadata, pictures included.
-	pos := int64(4)
-	for {
-		b, _, err := it.peek(ctx, pos, 4)
-		if pos+4 <= int64(len(first)) {
-			b, err = first[pos:pos+4], nil
-		}
-		if err != nil || len(b) < 4 {
-			return nil, 0, 0, ErrNoSeek
-		}
-		pos += 4 + int64(b[1])<<16 + int64(b[2])<<8 + int64(b[3])
-		if b[0]&0x80 != 0 {
-			break
-		}
-		if pos >= total {
-			return nil, 0, 0, ErrNoSeek
-		}
-	}
 	lo, hi, tlo, thi := pos, total, 0.0, length.Seconds()
 	want := at.Seconds()
 	var off int64
@@ -244,38 +289,80 @@ func flacAt(ctx context.Context, it *item, first []byte, total int64, at, length
 	return head, off, time.Duration(got * float64(time.Second)), nil
 }
 
+// flacStart returns a FLAC file's STREAMINFO and where its frames come, after all metadata,
+// pictures included.
+func flacStart(ctx context.Context, it *item, first []byte, total int64) ([]byte, int64, error) {
+	if len(first) < 42 || !bytes.HasPrefix(first, []byte("fLaC")) || first[4]&0x7F != 0 {
+		return nil, 0, ErrNoSeek
+	}
+	info := bytes.Clone(first[8:42])
+	if info[10] == 0 && info[11] == 0 && info[12]>>4 == 0 { // the sample rate
+		return nil, 0, ErrNoSeek
+	}
+	pos := int64(4)
+	for {
+		var b []byte
+		var err error
+		if pos+4 <= int64(len(first)) {
+			b = first[pos : pos+4]
+		} else {
+			b, _, err = it.peek(ctx, pos, 4)
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(b) < 4 {
+			return nil, 0, ErrNoSeek
+		}
+		pos += 4 + int64(b[1])<<16 + int64(b[2])<<8 + int64(b[3])
+		if b[0]&0x80 != 0 {
+			return info, pos, nil
+		}
+		if pos >= total {
+			return nil, 0, ErrNoSeek
+		}
+	}
+}
+
 // flacFrame finds the first frame in b and the sample it starts with.
 func flacFrame(b []byte, block int64) (int, int64) {
 	for i := 0; i+20 < len(b); i++ {
-		if b[i] != 0xFF || b[i+1]&0xFE != 0xF8 || b[i+2]>>4 == 0 || b[i+2]&0x0F == 0x0F || b[i+3]>>4 > 10 || b[i+3]&1 != 0 {
-			continue
+		if n, ok := flacHeader(b[i:], block); ok {
+			return i, n
 		}
-		n, w := flacNumber(b[i+4:])
-		if w == 0 {
-			continue
-		}
-		p := i + 4 + w
-		switch b[i+2] >> 4 {
-		case 6:
-			p++
-		case 7:
-			p += 2
-		}
-		switch b[i+2] & 0x0F {
-		case 12:
-			p++
-		case 13, 14:
-			p += 2
-		}
-		if p >= len(b) || crc8(b[i:p]) != b[p] {
-			continue
-		}
-		if b[i+1]&1 == 0 {
-			n *= block
-		}
-		return i, n
 	}
 	return -1, 0
+}
+
+// flacHeader reads the header of the frame starting b, at least 20 bytes: the sample it starts with.
+func flacHeader(b []byte, block int64) (int64, bool) {
+	if b[0] != 0xFF || b[1]&0xFE != 0xF8 || b[2]>>4 == 0 || b[2]&0x0F == 0x0F || b[3]>>4 > 10 || b[3]&1 != 0 {
+		return 0, false
+	}
+	n, w := flacNumber(b[4:])
+	if w == 0 {
+		return 0, false
+	}
+	p := 4 + w
+	switch b[2] >> 4 {
+	case 6:
+		p++
+	case 7:
+		p += 2
+	}
+	switch b[2] & 0x0F {
+	case 12:
+		p++
+	case 13, 14:
+		p += 2
+	}
+	if p >= len(b) || crc8(b[:p]) != b[p] {
+		return 0, false
+	}
+	if b[1]&1 == 0 {
+		n *= block
+	}
+	return n, true
 }
 
 func flacNumber(b []byte) (int64, int) {
@@ -365,7 +452,7 @@ func (s *Server) middle(w http.ResponseWriter, r *http.Request, it *item) {
 	w.WriteHeader(code)
 	if r.Method != http.MethodHead {
 		n, err := io.CopyN(w, body, to-from+1)
-		if s.Log != nil {
+		if s.Log != nil && !it.here {
 			s.Log.Info("音频　续播传完", "音频", it.h.Label, "字节", n, "完整", err == nil)
 		}
 	}

@@ -64,6 +64,7 @@ type Dispatcher struct {
 	last map[string]lastSong
 
 	queues map[string]*queue
+	wished int64 // names wishes
 
 	// Random draws songs of the library to go on with; optional.
 	Random func(n int) []int64
@@ -203,7 +204,7 @@ func (d *Dispatcher) TrackOf(rt *routing.Route, tr *live.Trace) (Track, bool, er
 	// No Duration: a song the user paused must not be cut off by the clock. Its end is the
 	// speaker asking for the first byte again.
 	return Track{URL: h.URL, Label: h.Label, Fetched: h.Fetched(), Restarted: h.Restarted(),
-		Length: length, Lost: h.Lost, Resume: Resumer(h, tr)}, true, nil
+		Length: length, Lost: h.Lost, Resume: Resumer(h, tr), Seekable: h.Seekable()}, true, nil
 }
 
 // How long a song must be wanted before it is kept. Tests shorten it.

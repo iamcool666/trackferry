@@ -12,9 +12,14 @@ export interface OnlineOutcome { source: string; state: string; detail?: string 
 export interface Playlist { guid: string; name: string }
 /** What can be sent to a speaker to play. */
 export type Sendable = { source: 'favorites' } | { source: 'playlist' | 'album' | 'online'; id: string; title?: string } | { source: 'track'; track_id: number; title?: string } | { source: 'artist'; name: string };
-export type Press = 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'mode' | 'volume' | 'wake';
+export type Press = 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'mode' | 'volume' | 'wake' | 'seek';
 export type PlayMode = 'loop' | 'shuffle' | 'one';
 export interface Controls { state: 'playing' | 'paused' | 'idle'; volume: number | null; mode: PlayMode | ''; queue: { list: string; at: number; total: number; next: string[] } | null }
+
+/** A song that comes: where it stands on the list, or which wish it is. */
+export interface Coming { wish?: number; at: number; id: number; title: string; artist: string; cover?: string; duration_ms?: number }
+export interface Queue { on: boolean; list: string; total: number; aside: boolean; mode: PlayMode | ''; wishes: Coming[]; songs: Coming[]; left: number }
+export interface HereListed { id: number; title: string; artist: string; album?: string; cover?: string; duration_ms: number }
 
 export type Mode = 'off' | 'observe' | 'takeover';
 
@@ -220,6 +225,8 @@ export interface LibraryStatus {
   tracks: number;
   artists: number;
   last: ScanReport | null;
+  /** Minutes between two syncs; 0 is never. */
+  every_minutes?: number;
   progress?: ScanReport;
 }
 
@@ -379,11 +386,12 @@ export const api = {
   setNativeNote: (id: number, native_note: NativeNote) => request<Command>('PATCH', `/api/commands/${id}`, { native_note }),
   takeoverRuns: (limit = 10) => request<{ runs: TakeoverRun[]; stream_ready: boolean }>('GET', `/api/takeover/runs?limit=${limit}`),
   takeoverTest: (id: string, source: 'tone' | 'library') => request<TakeoverRun>('POST', `/api/devices/${encodeURIComponent(id)}/takeover-test`, { source }),
-  library: () => request<{ library: LibraryStatus; sources: SourceHealth[] }>('GET', '/api/library'),
+  library: () => request<{ library: LibraryStatus; every_minutes: number; sources: SourceHealth[] }>('GET', '/api/library'),
   shelf: () => request<Shelf>('GET', '/api/library/shelf'),
   album: (id: string) => request<{ album: Album; tracks: Track[] }>('GET', `/api/library/albums/${encodeURIComponent(id)}`),
   artist: (name: string) => request<{ artist?: Artist; tracks: Track[] | null }>('GET', `/api/library/artist?name=${encodeURIComponent(name)}`),
-  lyrics: (id: number) => request<{ track: Track; lyrics: string }>('GET', `/api/library/tracks/${id}/lyrics`),
+  lyrics: (id: number) => request<{ track: Track; lyrics: string; offset_ms?: number }>('GET', `/api/library/tracks/${id}/lyrics`),
+  setLyricsOffset: (id: number, offset_ms: number) => request<unknown>('PUT', `/api/library/tracks/${id}/lyrics`, { offset_ms }),
   isFavorite: (id: number) => request<{ favorite: boolean }>('GET', `/api/library/tracks/${id}/favorite`),
   favorite: (id: number, on: boolean) => request<{ favorite: boolean }>('PUT', `/api/library/tracks/${id}/favorite`, { on }),
   playTrack: (id: string, track_id: number) => request<TakeoverRun>('POST', `/api/devices/${encodeURIComponent(id)}/takeover-test`, { source: 'track', track_id }),
@@ -398,6 +406,7 @@ export const api = {
   cache: () => request<CacheStatus>('GET', '/api/cache'),
   setCache: (limit_mb: number) => request<CacheStatus>('PUT', '/api/cache', { limit_mb }),
   clearCache: () => request<CacheStatus>('DELETE', '/api/cache'),
+  setEvery: (minutes: number) => request<unknown>('PUT', '/api/library/every', { minutes }),
   scanLibrary: () => request<{ started: boolean }>('POST', '/api/library/scan'),
   guide: () => request<Guide>('GET', '/api/intent'),
   explain: (text: string) => request<Reading>('POST', '/api/intent', { text }),
@@ -409,8 +418,15 @@ export const api = {
   neteaseQR: () => request<NeteaseQR>('GET', '/api/sources/netease/qr'),
   neteaseCancel: () => request<void>('DELETE', '/api/sources/netease/qr'),
   setSource: (name: string, enabled: boolean) => request<{ sources: SourceHealth[] }>('PATCH', `/api/sources/${name}`, { enabled }),
-  press: (id: string, action: Press, with_: { volume?: number; mode?: PlayMode } = {}) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/control`, { action, ...with_ }),
+  press: (id: string, action: Press, with_: { volume?: number; mode?: PlayMode; position?: number } = {}) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/control`, { action, ...with_ }),
   controls: (id: string) => request<Controls>('GET', `/api/devices/${encodeURIComponent(id)}/control`),
+  queue: (id: string, from = 0) => request<Queue>('GET', `/api/devices/${encodeURIComponent(id)}/queue?from=${from}`).then((q) => {
+    if (!Array.isArray(q?.songs) || !Array.isArray(q.wishes)) throw new ApiError(502, 'bad_answer', '读不到播放列表，TrackFerry 可能要更新');
+    return q;
+  }),
+  queuePlay: (id: string, s: Coming) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/queue`, { action: 'play', wish: s.wish, at: s.at, id: s.id }),
+  queueRemove: (id: string, s: Coming | null) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/queue`, s ? { action: 'remove', wish: s.wish, at: s.at, id: s.id } : { action: 'remove', now: true }),
+  hereList: (what: { source: string; id?: string; name?: string }) => request<{ list: string; songs: HereListed[] }>('GET', `/api/here?${new URLSearchParams(Object.entries(what).filter(([, v]) => v) as [string, string][])}`),
   home: () => request<HomeStatus>('GET', '/api/home'),
   setHome: (enabled: boolean) => request<HomeStatus>('PUT', '/api/home', { enabled }),
   homeToken: () => request<{ token: string }>('POST', '/api/home/token'),

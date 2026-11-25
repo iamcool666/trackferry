@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError, type Controls, type Device, type Hush, type Mode, type PlayMode, type Press, type WatchStatus } from '../api';
-import { onSpeaker, useLive } from '../live';
+import { here, hereName, useHere } from '../here';
+import { onDeck, useLive } from '../live';
+import { Deck, playModes } from './Deck';
+import { HereQueue, SpeakerQueue } from './Queue';
+import { useToast } from './Toast';
 import { Pick } from './Pick';
 import { deviceSubtitle, deviceTitle, isOnline, modeHint, modeLabel } from '../copy';
 
@@ -119,32 +123,18 @@ export function SpeakerRow({ device, watch, onChange }: { device: Device; watch?
   );
 }
 
-const draw = (d: string, fill = true) => <svg viewBox="0 0 24 24" width="20" height="20" fill={fill ? 'currentColor' : 'none'} stroke={fill ? 'none' : 'currentColor'} strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d={d} /></svg>;
-const icons = {
-  play: draw('M8 5.2v13.6L19 12z'), pause: draw('M7 5h3.6v14H7zM13.4 5H17v14h-3.6z'), stop: draw('M6.5 6.5h11v11h-11z'),
-  previous: draw('M6.2 5.5h2.2v13H6.2zM18.6 5.8v12.4L9.4 12z'), next: draw('M15.6 5.5h2.2v13h-2.2zM5.4 5.8v12.4L14.6 12z'),
-  wake: draw('M12 4a2.6 2.6 0 0 1 2.6 2.6v4.8a2.6 2.6 0 0 1-5.2 0V6.6A2.6 2.6 0 0 1 12 4zM6 11.5a6 6 0 0 0 12 0M12 17.5V21', false),
-  volume: draw('M4 9.5v5h3.5L12 18.5v-13L7.5 9.5zM15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11', false),
-};
-
-const playModes: Record<PlayMode, { name: string; icon: ReactNode; next: PlayMode }> = {
-  shuffle: { name: '随机播放', next: 'loop', icon: draw('M4 7h2.6c1.5 0 2.6.8 3.5 2.2l3.8 5.6c.9 1.4 2 2.2 3.5 2.2H20M4 17h2.6c1.5 0 2.6-.8 3.5-2.2M13.9 9.2C14.8 7.8 15.9 7 17.4 7H20M17.5 4.5 20 7l-2.5 2.5M17.5 14.5 20 17l-2.5 2.5', false) },
-  loop: { name: '顺序循环', next: 'one', icon: draw('M4.5 11.5V10A3.5 3.5 0 0 1 8 6.5h11.5M17 4l2.5 2.5L17 9M19.5 12.5V14a3.5 3.5 0 0 1-3.5 3.5H4.5M7 15l-2.5 2.5L7 20', false) },
-  one: { name: '单曲循环', next: 'shuffle', icon: draw('M4.5 11.5V10A3.5 3.5 0 0 1 8 6.5h11.5M17 4l2.5 2.5L17 9M19.5 12.5V14a3.5 3.5 0 0 1-3.5 3.5H4.5M7 15l-2.5 2.5L7 20M11 10.6l1.4-.9v4.8', false) },
-};
-
-/** What a speaker is to do: mode, previous, play, next, stop; wake and volume. */
-export function Buttons({ device, name }: { device: Device; name?: string }) {
+/** The hands of a speaker. foot stands left of the second line; without it, what list is on. */
+export function Buttons({ device, foot, tail }: { device: Device; foot?: ReactNode; tail?: ReactNode }) {
   const id = device.device_id;
-  const flow = onSpeaker(useLive().flows, id);
+  const name = deviceTitle(device);
+  const flow = onDeck(useLive().flows, id);
   const phase = flow?.player?.phase;
   const [meant, setMeant] = useState<'playing' | 'paused' | 'idle' | null>(null); // until the speaker is heard from
   const [now, setNow] = useState<Controls | null>(null);
   const [lost, setLost] = useState<string | null>(null); // why the speaker cannot be read
-  const [drag, setDrag] = useState<number | null>(null);
   const [busy, setBusy] = useState<Press | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [toast, say] = useToast();
   const again = useRef<ReturnType<typeof setTimeout>>(undefined);
   const alive = useRef(true);
   const load = useCallback(async () => {
@@ -162,62 +152,51 @@ export function Buttons({ device, name }: { device: Device; name?: string }) {
     const t = setTimeout(() => setMeant(null), 5000);
     return () => clearTimeout(t);
   }, [meant]);
-  const state = meant ?? (phase ? (phase === 'paused' ? 'paused' : 'playing') : now?.state);
-  useEffect(() => {
-    if (!said) return;
-    const t = setTimeout(() => setSaid(null), 4000);
-    return () => clearTimeout(t);
-  }, [said]);
+  const state = meant ?? (flow ? (phase === 'paused' ? 'paused' : 'playing') : now?.state) ?? 'idle';
   const press = async (action: Press, set: { volume?: number; mode?: PlayMode } = {}) => {
     setBusy(action);
-    setError(null);
-    setSaid(null);
     const to = ({ play: 'playing', pause: 'paused', stop: 'idle' } as const)[action as 'play'];
     if (to) { setMeant(to); setNow((n) => n && { ...n, state: to }); }
+    if (set.volume !== undefined) setNow((n) => n && { ...n, ...set });
     try {
       await api.press(id, action, set);
-      if (action === 'wake') setSaid('已唤醒，直接说话就行');
-      if (set.mode) setSaid(playModes[set.mode].name);
+      if (action === 'wake') say({ tone: 'ok', text: '已唤醒，直接说话就行' });
+      if (set.mode) say({ tone: 'ok', text: playModes[set.mode].name });
       setNow((n) => n && { ...n, ...set });
     } catch (e) {
       setMeant(null);
-      setError((e as ApiError).message);
+      say({ tone: 'bad', text: (e as ApiError).message });
     } finally {
       setBusy((b) => (b === action ? null : b));
-      setDrag(null);
       clearTimeout(again.current);
       again.current = setTimeout(load, 900); // what was pressed takes a moment
     }
   };
-  const commit = () => { if (drag !== null && drag !== now?.volume) press('volume', { volume: drag }); else setDrag(null); };
-  const button = (a: Press, label: string, off = false, main = false) => <button type="button" className={main ? 'ctl ctl-main' : 'ctl'} onClick={() => press(a)} disabled={off || busy === a} title={label} aria-label={`${deviceTitle(device)}${label}`}>{busy === a ? <span className="spinner spinner-tiny" /> : icons[a as keyof typeof icons]}</button>;
-  const mode = now?.mode ? playModes[now.mode] : null;
-  const alone = now !== null && !now.queue; // nothing of ours to move in
-  const list = now?.queue?.list;
-  const volume = drag ?? now?.volume ?? null;
+  const q = now?.queue;
   return (
-    <div className="ctls">
-      <div className="ctl-row">
-        {(name || list) && <span className="ctl-name">{name && <b>{name}</b>}{list && <span>{list}</span>}{list && now?.queue && <small className="num">{now.queue.at} / {now.queue.total}</small>}</span>}
-        {now?.queue?.next?.length ? <span className="ctl-name"><span>接着放《{now.queue.next[0] || '点的歌'}》{now.queue.next.length > 1 && `等 ${now.queue.next.length} 首`}</span></span> : null}
-        <div className="ctl-play" role="group" aria-label="播放控制">
-          {mode && <button type="button" className="ctl ctl-bare" onClick={() => press('mode', { mode: mode.next })} disabled={busy === 'mode'} title={mode.name} aria-label={`${deviceTitle(device)}播放方式：${mode.name}，点一下换成${playModes[mode.next].name}`}>{mode.icon}</button>}
-          {button('previous', '上一首', alone)}
-          {state === 'playing' ? button('pause', '暂停', false, true) : button('play', '播放', false, true)}
-          {button('next', '下一首', alone)}
-          {button('stop', '停止')}
-        </div>
-        {device.can_wake && button('wake', '唤醒')}
-        <label className="ctl-vol">
-          {icons.volume}
-          <input type="range" min={0} max={100} value={volume ?? 0} style={{ '--v': `${volume ?? 0}%` } as React.CSSProperties} disabled={volume === null} aria-label={`${deviceTitle(device)}音量`}
-            onChange={(e) => setDrag(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} onBlur={commit} />
-          <small className="num">{volume ?? '–'}</small>
-        </label>
-      </div>
-      {error && <p className="field-error" role="alert">{error}</p>}
-      {lost && !error && <p className="ctl-said" role="status">暂时读不到音箱，会自动重试：{lost}</p>}
-      {said && <p className="ctl-said" role="status">{said}</p>}
-    </div>
+    <>
+      <Deck name={name} state={state} waiting={!!flow && !phase && !meant} busy={busy} alone={now !== null && !q} mode={now?.mode ?? ''} count={(q?.total ?? 0) + (q?.next?.length ?? 0)}
+        onMode={(mode) => press('mode', { mode })} onToggle={() => press(state === 'playing' ? 'pause' : 'play')} onPrevious={() => press('previous')} onNext={() => press('next')} onList={() => setOpen(true)}
+        vol={{ value: now?.volume ?? null, set: (volume) => press('volume', { volume }) }} onWake={device.can_wake ? () => press('wake') : undefined}
+        foot={foot ?? (q?.list ? <span className="foot-list">{q.list}</span> : null)} tail={tail} note={lost && <p className="ctl-said" role="status">暂时读不到音箱，会自动重试：{lost}</p>} />
+      {open && <SpeakerQueue device={device} onStop={() => press('stop')} onClose={() => setOpen(false)} />}
+      {toast}
+    </>
+  );
+}
+
+/** The hands of this device. */
+export function HereButtons({ foot, tail }: { foot?: ReactNode; tail?: ReactNode }) {
+  const h = useHere();
+  const [open, setOpen] = useState(false);
+  const [toast, say] = useToast();
+  return (
+    <>
+      <Deck name={hereName} state={h.on ? 'playing' : 'paused'} waiting={h.waiting} off={!h.songs.length} alone={h.songs.length < 2} mode={h.mode} count={h.songs.length}
+        onMode={(m) => { here.mode(m); say({ tone: 'ok', text: playModes[m].name }); }} onToggle={here.toggle} onPrevious={here.previous} onNext={here.next} onList={() => setOpen(true)}
+        vol={h.canVolume ? { value: h.volume, live: here.volume, set: here.volume } : null} foot={foot} tail={tail} />
+      {open && <HereQueue onClose={() => setOpen(false)} />}
+      {toast}
+    </>
   );
 }

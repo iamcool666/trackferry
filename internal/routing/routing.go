@@ -223,7 +223,9 @@ func (r *Router) Decide(ctx context.Context, in intent.Intent, query string) *Ro
 		return rt
 	}
 	if r.Online == nil {
-		rt.Reason = "曲库没有这首歌"
+		if version || !r.near(rt, in, query) {
+			rt.Reason = "曲库没有这首歌"
+		}
 		return rt
 	}
 	if !version {
@@ -249,14 +251,26 @@ func (r *Router) Decide(ctx context.Context, in intent.Intent, query string) *Ro
 		ctx = online.WithProgress(ctx, func(o online.Outcome) { tr.Layer(o.Source, opinion(layer(o), rivals)) })
 	}
 	found, outs := r.Online.Find(ctx, Readings(in), query)
-	restricted := false
+	restricted, exact := false, false
 	for _, o := range outs {
 		restricted = restricted || o.State == online.StateRestricted
+		exact = exact || o.State == online.StateRestricted && !o.Near
 		rt.Layers = append(rt.Layers, opinion(layer(o), rivals))
 	}
 	if len(rivals) > 0 {
+		if found != nil && found.Near {
+			found = nil
+		}
 		r.settle(rt, rivals, found)
 		return rt
+	}
+	// Nothing is as it was said: the library may have what was meant.
+	if (found == nil || found.Near) && !exact && !version && r.near(rt, in, query) {
+		tr.Layer("library", rt.Layers[0])
+		return rt
+	}
+	if found != nil && found.Near {
+		rt.asked = "" // a guess is not kept as the answer
 	}
 	if found == nil {
 		rt.Reason = reason(outs, restricted)
@@ -481,6 +495,36 @@ func (r *Router) local(rt *Route, in intent.Intent, query string) (bool, []libra
 	return false, nil
 }
 
+// near plays the song of the library that was meant, if a character of it was misheard.
+func (r *Router) near(rt *Route, in intent.Intent, query string) bool {
+	start := time.Now()
+	for _, rd := range Readings(in) {
+		res := r.Library.Near(rd.Title, rd.Artist, query)
+		if len(res.Matches) == 0 {
+			continue
+		}
+		was, basis := rt.Layers[0], len(rt.Basis)
+		rt.Layers[0].Candidates = show(res.Matches)
+		if res.Ambiguous {
+			for i := range rt.Layers {
+				rt.Layers[i].Opinion = false
+			}
+		}
+		r.settle(rt, res.Matches, nil)
+		if rt.Decision != Local {
+			rt.Layers[0], rt.Basis, rt.Reason = was, rt.Basis[:basis], ""
+			continue
+		}
+		why := "按听错一个字，放" + strings.TrimSpace(rt.Artist+"的《"+rt.Title+"》")
+		rt.Layers[0].MS += time.Since(start).Milliseconds()
+		rt.Layers[0].Detail = why
+		rt.Basis = append(rt.Basis[:basis], Fact{"选它", why})
+		rt.asked = ""
+		return true
+	}
+	return false
+}
+
 func (r *Router) openable(m library.Match) bool {
 	return r.Openable == nil || r.Openable(m.Path)
 }
@@ -493,6 +537,12 @@ func (rt *Route) take(m library.Match) {
 func (r *Router) pick(rt *Route, in intent.Intent) {
 	start := time.Now()
 	l := Layer{Name: "library", State: online.StateMiss, Candidates: []Candidate{}}
+	if in.Kind == intent.KindArtist && len(r.Library.ArtistIDs(in.Artist)) == 0 {
+		if a := r.Library.NearArtist(in.Artist); a != "" {
+			rt.Because("改成找", "曲库里没有%s，按听错一个字找%s", in.Artist, a)
+			in.Artist = a
+		}
+	}
 	for range 5 {
 		var m library.Match
 		n := 0

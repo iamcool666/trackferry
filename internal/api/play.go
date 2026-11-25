@@ -50,6 +50,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		Name   string `json:"name"`   // the artist
 		Track  int64  `json:"track_id"`
 		Title  string `json:"title"`
+		Artist string `json:"artist"`
 		Next   bool   `json:"next"` // after the song that is on
 	}
 	if !readJSON(w, r, &req) {
@@ -60,7 +61,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Next {
-		w0 := takeover.Wish{Title: req.Title}
+		w0 := takeover.Wish{Title: req.Title, Artist: req.Artist}
 		switch req.Source {
 		case "track":
 			rt, ok := s.Router.Next(req.Track, "")
@@ -68,7 +69,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, "no_audio", "这首歌暂时读不到")
 				return
 			}
-			w0.Title = rt.Title
+			w0.Track, w0.Title, w0.Artist = rt.TrackID, rt.Title, rt.Artist
 			w0.Route = func(context.Context) (*routing.Route, error) {
 				rt, ok := s.Router.Next(req.Track, "")
 				if !ok {
@@ -91,6 +92,9 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		if len(w0.Title) > 300 {
 			w0.Title = ""
 		}
+		if len(w0.Artist) > 300 {
+			w0.Artist = ""
+		}
 		queued, err := s.Dispatcher.Want(d.DeviceID, w0)
 		if err != nil {
 			writeError(w, http.StatusConflict, "full", err.Error())
@@ -108,29 +112,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		s.answerRun(w, d)(s.Dispatcher.Push(r.Context(), d, rt))
 		return
 	}
-	var list string
-	var ids []int64
-	switch req.Source {
-	case "favorites":
-		list, ids = "我的收藏", s.Library.FavoriteIDs()
-	case "playlist":
-		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-		defer cancel()
-		name, got, err := s.Router.Collect(ctx, req.ID)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, "feiniu", err.Error())
-			return
-		}
-		list, ids = "歌单“"+name+"”", got
-	case "artist":
-		list, ids = req.Name+"的歌", s.Library.ArtistIDs(req.Name)
-	case "album":
-		a, ts := s.Library.AlbumTracks(req.ID)
-		list = "专辑“" + a.Name + "”"
-		for _, t := range ts {
-			ids = append(ids, t.ID)
-		}
-	case "online":
+	if req.Source == "online" {
 		found, err := s.Router.Online.Take(r.Context(), req.ID)
 		if errors.Is(err, online.ErrGone) {
 			writeError(w, http.StatusNotFound, "gone", err.Error())
@@ -142,6 +124,36 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		}
 		s.answerRun(w, d)(s.Dispatcher.Push(r.Context(), d, routing.FromOnline(found)))
 		return
+	}
+	list, ids, ok := s.collect(w, r, req.Source, req.ID, req.Name)
+	if !ok {
+		return
+	}
+	s.answerRun(w, d)(s.Dispatcher.PlayList(r.Context(), d, list, ids))
+}
+
+// collect lists the songs of something that can be played through.
+func (s *Server) collect(w http.ResponseWriter, r *http.Request, source, id, name string) (list string, ids []int64, ok bool) {
+	switch source {
+	case "favorites":
+		list, ids = "我的收藏", s.Library.FavoriteIDs()
+	case "playlist":
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		got, all, err := s.Router.Collect(ctx, id)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "feiniu", err.Error())
+			return
+		}
+		list, ids = "歌单“"+got+"”", all
+	case "artist":
+		list, ids = name+"的歌", s.Library.ArtistIDs(name)
+	case "album":
+		a, ts := s.Library.AlbumTracks(id)
+		list = "专辑“" + a.Name + "”"
+		for _, t := range ts {
+			ids = append(ids, t.ID)
+		}
 	default:
 		writeError(w, http.StatusBadRequest, "bad_source", "source 只能是 favorites、playlist、artist、album 或 online")
 		return
@@ -150,7 +162,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "empty", list+"里没有可放的歌")
 		return
 	}
-	s.answerRun(w, d)(s.Dispatcher.PlayList(r.Context(), d, list, ids))
+	return list, ids, true
 }
 
 func (s *Server) answerRun(w http.ResponseWriter, d store.Device) func(store.TakeoverRun, error) {

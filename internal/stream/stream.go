@@ -149,6 +149,7 @@ type item struct {
 	head       []byte
 	off, total int64
 	expires    time.Time
+	here       bool // heard in a browser, not on a speaker
 }
 
 // Server registers and serves streams.
@@ -161,8 +162,9 @@ type Server struct {
 	Remote       func(rel string) (Opener, string)
 	RemotePrefix string
 
-	mu    sync.Mutex
-	items map[string]*item
+	mu      sync.Mutex
+	items   map[string]*item
+	indexes indexes
 
 	toneOnce sync.Once
 	tone     []byte
@@ -223,27 +225,49 @@ type Opener func(ctx context.Context, rng string) (*http.Response, error)
 
 // Proxy registers remote MP3 audio, fetched on demand. The speaker never sees its address.
 func (s *Server) Proxy(open Opener, label string, d time.Duration) (*Handle, error) {
-	return s.register(&item{h: &Handle{Label: label, Duration: d}, open: open, ctype: "audio/mpeg"}, ".mp3")
+	return s.register(proxied(open, label, d), ".mp3")
+}
+
+func proxied(open Opener, label string, d time.Duration) *item {
+	return &item{h: &Handle{Label: label, Duration: d}, open: open, ctype: "audio/mpeg"}
 }
 
 // Song registers a library file whose play length is known (0 = unknown).
 func (s *Server) Song(rel, label string, d time.Duration) (*Handle, error) {
+	it, ext, err := s.song(rel, label, d)
+	if err != nil {
+		return nil, err
+	}
+	return s.register(it, ext)
+}
+
+func (s *Server) song(rel, label string, d time.Duration) (*item, string, error) {
 	if s.Remote != nil && strings.HasPrefix(rel, s.RemotePrefix) {
 		open, ext := s.Remote(rel)
 		if open == nil {
-			return nil, errors.New("song is no longer in the library")
+			return nil, "", errors.New("song is no longer in the library")
 		}
 		ctype := audioTypes[ext]
 		if ctype == "" {
 			ctype = "application/octet-stream"
 		}
-		return s.register(&item{h: &Handle{Label: label, Duration: d}, open: open, ctype: ctype}, ext)
+		return &item{h: &Handle{Label: label, Duration: d}, open: open, ctype: ctype}, ext, nil
 	}
-	h, err := s.File(rel, label)
+	it, ext, err := s.file(rel, label)
 	if err == nil {
-		h.Duration = d
+		it.h.Duration = d
 	}
-	return h, err
+	return it, ext, err
+}
+
+// ProxyHere answers a browser's request for remote MP3 audio.
+func (s *Server) ProxyHere(w http.ResponseWriter, r *http.Request, open Opener, label string) {
+	s.heard(w, r, proxied(open, label, 0))
+}
+
+func (s *Server) heard(w http.ResponseWriter, r *http.Request, it *item) {
+	it.here, it.h.fetched, it.h.restarted = true, make(chan struct{}), make(chan struct{})
+	s.serve(w, r, it)
 }
 
 // Openable reports whether a song can be opened right now.
@@ -272,16 +296,24 @@ func (s *Server) Openable(rel string) bool {
 
 // File registers a file below the music directory. rel must stay inside it.
 func (s *Server) File(rel, label string) (*Handle, error) {
-	root, err := filepath.Abs(s.musicDir)
+	it, ext, err := s.file(rel, label)
 	if err != nil {
 		return nil, err
 	}
+	return s.register(it, ext)
+}
+
+func (s *Server) file(rel, label string) (*item, string, error) {
+	root, err := filepath.Abs(s.musicDir)
+	if err != nil {
+		return nil, "", err
+	}
 	p := filepath.Join(root, filepath.FromSlash(rel))
 	if p != root && !strings.HasPrefix(p, root+string(filepath.Separator)) {
-		return nil, errors.New("path escapes the music directory")
+		return nil, "", errors.New("path escapes the music directory")
 	}
 	if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() {
-		return nil, errors.New("not a readable file")
+		return nil, "", errors.New("not a readable file")
 	}
 	ext := strings.ToLower(filepath.Ext(p))
 	ctype := mime.TypeByExtension(ext)
@@ -291,7 +323,7 @@ func (s *Server) File(rel, label string) (*Handle, error) {
 	if label == "" {
 		label = filepath.Base(p)
 	}
-	return s.register(&item{h: &Handle{Label: label}, path: p, ctype: ctype, name: filepath.Base(p)}, ext)
+	return &item{h: &Handle{Label: label}, path: p, ctype: ctype, name: filepath.Base(p)}, ext, nil
 }
 
 var audioTypes = map[string]string{".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".wav": "audio/wav"}
@@ -360,6 +392,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.serve(w, r, it)
+}
+
+func (s *Server) serve(w http.ResponseWriter, r *http.Request, it *item) {
 	h := it.h
 	rng := r.Header.Get("Range")
 	now := time.Now()
@@ -377,7 +413,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.count++
 	n, since := h.count, now.Sub(h.first.At)
 	h.mu.Unlock()
-	if s.Log != nil {
+	if s.Log != nil && !it.here {
 		s.Log.Info("音频　音箱来取", "音频", h.Label, "第几次", n, "投放后ms", since.Milliseconds(), "方式", r.Method, "范围", rng, "来自", remoteIP(r))
 	}
 
@@ -441,7 +477,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, it *item) {
 			body = st
 		}
 		n, err := io.Copy(w, body)
-		if s.Log != nil {
+		if s.Log != nil && !it.here {
 			s.Log.Info("音频　传完", "音频", it.h.Label, "字节", n, "完整", err == nil)
 		}
 	}

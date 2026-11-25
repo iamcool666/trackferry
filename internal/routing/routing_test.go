@@ -38,6 +38,12 @@ func TestLocalRouting(t *testing.T) {
 		"播放我的天空":        {Local, "南征北战"},
 		"播放周杰伦的歌":       {Local, "周杰伦"},
 		"播放陈奕迅的晴天":      {Native, ""},
+		"播放周结伦的晴天":      {Local, "周杰伦"}, // misheard by a character
+		"播放海扩天空":        {Local, "Beyond"},
+		"播放信乐团的海扩天空":    {Local, "信乐团"},
+		"播放我的天宫":        {Local, "南征北战"},
+		"播放周结伦的歌":       {Local, "周杰伦"},
+		"播放周结伦的睛天":      {Native, ""}, // both: too far
 		"播放不存在的歌名":      {Native, ""},
 		"下一首":           {Native, ""},
 	} {

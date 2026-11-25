@@ -10,8 +10,9 @@ import { SourceIcon } from '../components/SourceIcon';
 import { SpeakerChip } from '../components/SpeakerChip';
 import { useToast } from '../components/Toast';
 import { deviceTitle, length, singer } from '../copy';
-import { connected, useTarget } from '../ear';
-import { onSpeaker, useLive } from '../live';
+import { connected, HERE, lookAt, useTarget } from '../ear';
+import { hereName, hereSong, listHere, onlineHere, playHere, trackHere, useHere } from '../here';
+import { onDeck, songOf, useLive } from '../live';
 import type { Place } from '../nav';
 import { stopLabel } from '../route';
 import { useBackdrop } from '../stage/Stage';
@@ -42,6 +43,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
   const [target, setTarget] = useTarget(devices);
   const speaker = connected(devices).find((d) => d.device_id === target);
   const { flows } = useLive();
+  const mine = hereSong(useHere());
   const [q, setQ] = useState(keptQ);
   const key = q.trim();
   const [found, setFound] = useState<{ q: string; tracks: Track[] } | null>(null);
@@ -89,6 +91,12 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
     if (key) { const w = [key, ...words.filter((x) => x !== key)].slice(0, 12); setWords(w); write(WORDS, w); }
   };
   const play = async (s: Song, how: 'now' | 'next' = 'now', dev = target) => {
+    if (dev === HERE) {
+      playHere(s.track ? trackHere(s.track) : onlineHere(s.online!), how);
+      if (how === 'next') say({ tone: 'ok', text: `《${s.title}》排在下一首` });
+      remember(s);
+      return;
+    }
     const d = connected(devices).find((x) => x.device_id === dev);
     if (!d) { say({ tone: 'bad', text: '没有接入的音箱，先到音箱页接入一台' }); return; }
     if (busy) return;
@@ -103,6 +111,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
         await (s.track ? api.playTrack(dev, s.track.id) : api.play(dev, what));
         say({ tone: 'ok', text: `已送往${deviceTitle(d)}` });
       }
+      lookAt(dev);
       remember(s);
     } catch (e) {
       const x = e as ApiError;
@@ -113,13 +122,18 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
     }
   };
   const send = async (what: Sendable, name: string) => {
+    if (target === HERE) {
+      setBusy(name);
+      try { await listHere(what); } catch (e) { say({ tone: 'bad', text: (e as Error).message }); } finally { setBusy(''); }
+      return;
+    }
     if (!speaker) { say({ tone: 'bad', text: '没有接入的音箱，先到音箱页接入一台' }); return; }
     setBusy(name);
-    try { await api.play(target, what); say({ tone: 'ok', text: `${name}已送往${deviceTitle(speaker)}` }); } catch (e) { say({ tone: 'bad', text: (e as ApiError).message }); } finally { setBusy(''); }
+    try { await api.play(target, what); lookAt(target); say({ tone: 'ok', text: `${name}已送往${deviceTitle(speaker)}` }); } catch (e) { say({ tone: 'bad', text: (e as ApiError).message }); } finally { setBusy(''); }
   };
 
-  const on = target ? onSpeaker(flows, target) : null;
-  const song = on?.route?.decision !== 'native' && on?.route?.title ? on.route : on?.run?.song;
+  const on = target && target !== HERE ? onDeck(flows, target) : null;
+  const song = target === HERE ? mine : on && songOf(on);
   const sounds = (s: Song) => !!song && (s.track ? song.track_id === s.track.id : !song.track_id && low(song.title ?? '') === low(s.title) && low(song.artist ?? '') === low(s.artist));
 
   const tracks = found?.tracks ?? [];
@@ -149,7 +163,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
   return (
     <div className="search">
       <div className="search-top">
-        <header><h1>搜索</h1>{connected(devices).length > 0 && <SpeakerChip devices={devices} value={target} onChange={setTarget} title="送到哪台音箱" />}</header>
+        <header><h1>搜索</h1><SpeakerChip devices={devices} value={target} onChange={setTarget} title="送到哪里" /></header>
         <form role="search" className="search-box glass" onSubmit={(e) => { e.preventDefault(); ask(); if (fresh && !tracks.length) setSide('online'); input.current?.blur(); }}>
           <svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><circle cx="8.5" cy="8.5" r="6" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M13 13l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           <input ref={input} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="歌名、歌手、专辑" enterKeyHint="search" autoComplete="off" autoCorrect="off" aria-label="搜索曲库和在线源" maxLength={100} />
@@ -163,7 +177,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
           {words.length > 0 && <section><header className="search-head"><h2>最近搜过</h2><button type="button" className="shelf-more" onClick={() => { setWords([]); write(WORDS, []); }}>清空</button></header><div className="word-chips">{words.map((w) => <button key={w} type="button" onClick={() => look(w)}>{w}</button>)}</div></section>}
           {sent.length > 0 && <section><header className="search-head"><h2>最近送过</h2><button type="button" className="shelf-more" onClick={() => { setSent([]); write(SENT, []); }}>清空</button></header><ol className="hits">{sent.map(row)}</ol></section>}
           {artists.length > 0 && <section><header className="search-head"><h2>歌手</h2></header><div className="singers">{artists.slice(0, 12).map((a) => <button key={a.name} type="button" onClick={() => look(a.name)}><Cover cover={a.cover} title={a.name} /><b>{a.name}</b></button>)}</div></section>}
-          {!words.length && !sent.length && <p className="muted search-tip">搜到后点一下，就在音箱上放。</p>}
+          {!words.length && !sent.length && <p className="muted search-tip">搜到后点一下就放。</p>}
         </>
       )}
 
@@ -196,7 +210,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
       {more && (
         <Sheet title={more.title} onClose={() => setMore(null)}>
           <p className="sheet-by">{[more.artist, more.track ? length(more.track.duration_ms) : more.online && `${stopLabel[more.online.source]}　${length(more.online.duration_ms)}`].filter(Boolean).join('　')}{more.track && <Heart trackID={more.track.id} title={more.title} />}</p>
-          {connected(devices).length > 1 && <div className="send-to" role="radiogroup" aria-label="放在哪台音箱">{connected(devices).map((d) => <button key={d.device_id} type="button" role="radio" aria-checked={d.device_id === target} onClick={() => setTarget(d.device_id)}>{deviceTitle(d)}</button>)}</div>}
+          {connected(devices).length > 0 && <div className="send-to" role="radiogroup" aria-label="放在哪里"><button type="button" role="radio" aria-checked={target === HERE} onClick={() => setTarget(HERE)}>{hereName}</button>{connected(devices).map((d) => <button key={d.device_id} type="button" role="radio" aria-checked={d.device_id === target} onClick={() => setTarget(d.device_id)}>{deviceTitle(d)}</button>)}</div>}
           <div className="send">
             <button type="button" onClick={() => { play(more); setMore(null); }}><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M8 5.2v13.6L19 12z" /></svg>现在放</button>
             <button type="button" onClick={() => { play(more, 'next'); setMore(null); }}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 7h10M4 12h7M4 17h7M15 11.5v7l5.5-3.5z" /></svg>下一首放</button>

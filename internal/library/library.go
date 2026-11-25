@@ -15,7 +15,9 @@ import (
 	"path"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -79,12 +81,13 @@ type Library struct {
 	cur     *Report
 	last    *Report
 	trigger chan struct{}
+	retimed chan struct{}      // the interval was changed
 	cancel  context.CancelFunc // stops the running scan
 }
 
 // New returns a Library over dir. Call Run to load the index and keep it fresh.
 func New(dir string, st *store.Store, log *slog.Logger) *Library {
-	return &Library{dir: dir, st: st, log: log, idx: newIndex(nil), trigger: make(chan struct{}, 1)}
+	return &Library{dir: dir, st: st, log: log, idx: newIndex(nil), trigger: make(chan struct{}, 1), retimed: make(chan struct{}, 1)}
 }
 
 // Load fills the in-memory index from the database.
@@ -100,8 +103,53 @@ func (l *Library) Load(ctx context.Context) error {
 	return nil
 }
 
+// How often the library is read again, in minutes. 0: only when asked, and at the start.
+const (
+	settingEvery = "library.every_minutes"
+	DefaultEvery = 6 * 60
+)
+
+// Minutes lists what may be set.
+var Minutes = []int{0, 5, 15, 30, 60, 180, 360, 720, 1440}
+
+// Every is how often the library is read again, in minutes.
+func (l *Library) Every(ctx context.Context) int {
+	v, _ := l.st.Setting(ctx, settingEvery)
+	if n, err := strconv.Atoi(v); err == nil && slices.Contains(Minutes, n) {
+		return n
+	}
+	return DefaultEvery
+}
+
+// SetEvery changes it.
+func (l *Library) SetEvery(ctx context.Context, minutes int) error {
+	if err := l.st.SetSetting(ctx, settingEvery, strconv.Itoa(minutes)); err != nil {
+		return err
+	}
+	select {
+	case l.retimed <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// until is the wait until the next scan; nil: none is due.
+func (l *Library) until(ctx context.Context, since time.Time, retry time.Duration) <-chan time.Time {
+	wait := retry
+	if m := l.Every(ctx); m > 0 {
+		every := time.Duration(m) * time.Minute
+		if retry == 0 || every < retry {
+			wait = every
+		}
+	}
+	if wait == 0 {
+		return nil
+	}
+	return time.After(time.Until(since.Add(wait)))
+}
+
 // Run loads the index, scans once, then again every interval or when asked.
-func (l *Library) Run(ctx context.Context, every time.Duration) {
+func (l *Library) Run(ctx context.Context) {
 	if raw, err := l.st.LastScan(ctx); err == nil && raw != "" {
 		var r Report
 		if json.Unmarshal([]byte(raw), &r) == nil {
@@ -119,21 +167,26 @@ func (l *Library) Run(ctx context.Context, every time.Duration) {
 		l.mu.Lock()
 		l.cancel = cancel
 		l.mu.Unlock()
-		wait := every
+		retry := time.Duration(0)
 		if err := l.guarded(sctx); err != nil && sctx.Err() == nil {
 			l.log.Warn("曲库　同步失败", "原因", err)
 			// 飞牛 may simply not be up yet: it starts along with us.
-			wait = min(every, retryAfter<<min(failed, 6))
+			retry = retryAfter << min(failed, 6)
 			failed++
 		} else {
 			failed = 0
 		}
 		cancel()
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(wait):
-		case <-l.trigger:
+		for since, due := time.Now(), false; !due; {
+			select {
+			case <-ctx.Done():
+				return
+			case <-l.until(ctx, since, retry):
+				due = true
+			case <-l.trigger:
+				due = true
+			case <-l.retimed:
+			}
 		}
 	}
 }

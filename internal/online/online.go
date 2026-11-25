@@ -90,12 +90,14 @@ type Outcome struct {
 	MS         int64       `json:"ms"`
 	Detail     string      `json:"detail,omitempty"`
 	Candidates []Candidate `json:"candidates"`
+	Near       bool        `json:"-"` // what it has is only like what was said
 }
 
 // Found is a playable song.
 type Found struct {
 	Candidate Candidate
 	Stream    Stream
+	Near      bool // only if a character was misheard
 }
 
 // Health is a platform's recent record.
@@ -252,6 +254,7 @@ const StateAsking = "asking"
 type hit struct {
 	c     Candidate
 	named bool // the request names the artist
+	near  bool // only if a character was misheard
 }
 
 // Find looks a song up on every enabled platform. request is the whole utterance.
@@ -320,6 +323,20 @@ func (s *Service) Find(ctx context.Context, readings []Reading, request string) 
 	}
 	wg.Wait()
 
+	// A platform that has what was said outweighs those that only have something like it.
+	exact := slices.ContainsFunc(hits, func(hs []hit) bool { return len(hs) > 0 && !hs[0].near })
+	for i := range hits {
+		if len(hits[i]) == 0 || !hits[i][0].near {
+			continue
+		}
+		outs[i].Near = true
+		if exact {
+			hits[i] = nil
+			outs[i].State, outs[i].Detail = StateMiss, "只有差一个字的，另一家有完全对得上的"
+			tell(outs[i])
+		}
+	}
+
 	// Nobody named the singer: the platforms' first choices should agree whose song it is.
 	// When they do not, the more preferred platform's choice is tried first.
 	split := false
@@ -365,6 +382,9 @@ func (s *Service) Find(ctx context.Context, readings []Reading, request string) 
 			f, state, detail := s.resolve(rctx, e, hits[i])
 			outs[i].State, outs[i].Detail = state, detail
 			outs[i].MS += time.Since(start).Milliseconds()
+			if f != nil && f.Near {
+				outs[i].Detail = "按听错一个字找到《" + f.Candidate.Title + "》"
+			}
 			if split && f != nil {
 				outs[i].Detail = "没说歌手，原唱说法不一，先放这家的首选"
 				stop()
@@ -402,15 +422,15 @@ func shareArtist(a, b string) bool {
 
 // choose keeps the candidates that are the requested song, in the platform's order.
 func choose(cands []Candidate, readings []Reading, request string) []hit {
-	var named, plain []hit
-	canon := ""
+	var named, plain, nearNamed, nearPlain []hit
+	canon, nearCanon := "", ""
 	for _, c := range cands {
 		if names.VersionPenalty(c.Title, request) > 0 || strings.Contains(c.Title, "免费试听") {
 			continue
 		}
 		t, _ := names.SplitTitle(c.Title)
 		titles := []string{names.Norm(c.Title), names.Norm(t)}
-		ok, withArtist := false, false
+		ok, withArtist, near, nearArtist := false, false, false, false
 		for _, r := range readings {
 			want := names.Norm(r.Title)
 			for _, title := range titles {
@@ -418,27 +438,44 @@ func choose(cands []Candidate, readings []Reading, request string) []hit {
 					continue
 				}
 				if r.Artist != "" {
-					withArtist = withArtist || title == want && names.ArtistMatch(c.Artist, r.Artist)
+					if names.ArtistMatch(c.Artist, r.Artist) {
+						withArtist = withArtist || title == want
+						nearArtist = nearArtist || names.NearTitle(title, want, true)
+					} else if title == want {
+						nearArtist = nearArtist || names.CreditNear(c.Artist, r.Artist)
+					}
 					continue
 				}
 				ok = ok || title == want
+				near = near || names.NearTitle(title, want, false)
 				for _, a := range names.Artists(c.Artist) {
 					withArtist = withArtist || a+title == want || title+a == want
+					if rest, cut := strings.CutPrefix(want, a); cut {
+						nearArtist = nearArtist || names.NearTitle(title, rest, true)
+					}
 				}
 			}
 		}
 		switch {
 		case withArtist:
-			named = append(named, hit{c, true})
+			named = append(named, hit{c: c, named: true})
 		case ok && (canon == "" || shareArtist(canon, c.Artist)):
 			canon = c.Artist
-			plain = append(plain, hit{c, false})
+			plain = append(plain, hit{c: c})
+		case nearArtist:
+			nearNamed = append(nearNamed, hit{c: c, named: true, near: true})
+		case near && (nearCanon == "" || shareArtist(nearCanon, c.Artist)):
+			nearCanon = c.Artist
+			nearPlain = append(nearPlain, hit{c: c, near: true})
 		}
 	}
-	if len(named) > 0 {
-		return named
+	// What was misheard only counts when nothing is as it was said.
+	for _, hs := range [][]hit{named, plain, nearNamed, nearPlain} {
+		if len(hs) > 0 {
+			return hs
+		}
 	}
-	return plain
+	return nil
 }
 
 // explain notes why shown candidates are not the song asked for.
@@ -481,7 +518,7 @@ func (s *Service) resolve(ctx context.Context, e *entry, hs []hit) (*Found, stri
 		}
 		st, err := s.resolveOne(ctx, e.src, h.c)
 		if err == nil {
-			return &Found{Candidate: h.c, Stream: st}, StateHit, ""
+			return &Found{Candidate: h.c, Stream: st, Near: h.near}, StateHit, ""
 		}
 		state, detail = StateError, describe(err)
 		switch {

@@ -4,13 +4,14 @@ import { SourceIcon } from '../components/SourceIcon';
 import { Cover } from '../components/Cover';
 import { Ears } from '../components/Ears';
 import { Notice } from '../components/Notice';
+import { playHere, routeHere } from '../here';
 import { Play } from '../components/Play';
 import { River } from '../components/River';
 import { Basis, RouteDetail } from '../components/RouteLine';
 import { RunSteps } from '../components/Run';
 import { watchText } from '../components/Speaker';
 import { clock, secs, singer } from '../copy';
-import { useEar } from '../ear';
+import { HERE, useEar } from '../ear';
 import { serverNow, useLive } from '../live';
 import { stepLabel, stopLabel } from '../route';
 import { fishPicture, songPicture, useBackdrop } from '../stage/Stage';
@@ -62,7 +63,8 @@ function Scrub({ story, t, now, playing, live, onSeek, onToggle }: { story: Stor
 
 export function FlowPage({ id, devices }: { id?: string; devices: Device[] }) {
   const live = useLive();
-  const [ear, setEar] = useEar(devices);
+  const [at, setEar] = useEar(devices);
+  const ear = at === HERE ? '' : at; // nothing of this device is followed here
   const [cmds, setCmds] = useState<Command[] | null>(null);
   const [runs, setRuns] = useState<TakeoverRun[]>([]);
   const [picked, setPicked] = useState<string | null>(id ? (id[0] === 'r' ? id : `c${id}`) : null);
@@ -178,7 +180,7 @@ export function FlowPage({ id, devices }: { id?: string; devices: Device[] }) {
         {error && <Notice tone="error" title={error} />}
         {!live.on && cmds && <p className="muted">实时连接断开，正在重连</p>}
         <div className="flow-cols">
-          {story?.route && story.kind !== 'test' && story.kind !== 'push' && <div>{story.route.basis?.length ? <><h2>为什么这样</h2><Basis route={story.route} /></> : null}{story.route.layers.some((l) => l.name !== 'xiaomi') && <><h2>问过谁</h2><RouteDetail route={story.route} /></>}{story.route.track_id && story.route.decision !== 'native' ? <div className="flow-play"><Play key={story.route.track_id} send={(d) => api.playTrack(d, story.route!.track_id!)} title={story.route.title ?? ''} devices={devices} /></div> : null}</div>}
+          {story?.route && story.kind !== 'test' && story.kind !== 'push' && <div>{story.route.basis?.length ? <><h2>为什么这样</h2><Basis route={story.route} /></> : null}{story.route.layers.some((l) => l.name !== 'xiaomi') && <><h2>问过谁</h2><RouteDetail route={story.route} /></>}{story.route.track_id && story.route.decision !== 'native' ? <div className="flow-play"><Play key={story.route.track_id} here={() => playHere(routeHere(story.route!))} send={(d) => api.playTrack(d, story.route!.track_id!)} title={story.route.title ?? ''} devices={devices} /></div> : null}</div>}
           <div>
             {run && <><h2>接管</h2><RunSteps run={run} /></>}
             {command && <><h2>小爱</h2><p>{command.answer || '没有语音回答'}{command.answer_types.includes('AUDIO') && '（播放了音频）'}</p></>}

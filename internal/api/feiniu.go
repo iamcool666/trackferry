@@ -156,5 +156,40 @@ func (s *Server) libraryLyrics(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"track": t, "lyrics": text})
+	writeJSON(w, http.StatusOK, map[string]any{"track": t, "lyrics": text, "offset_ms": s.offset(r, id)})
+}
+
+const settingOffset = "lyrics.offset."
+
+// maxOffset bounds how far lyrics can be moved, in ms.
+const maxOffset = 60_000
+
+// offset is how much sooner than they say the lines of a song's lyrics come, in ms.
+func (s *Server) offset(r *http.Request, id int64) int {
+	v, _ := s.Store.Setting(r.Context(), settingOffset+strconv.FormatInt(id, 10))
+	n, _ := strconv.Atoi(v)
+	return n
+}
+
+func (s *Server) lyricsOffset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OffsetMS int `json:"offset_ms"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if _, ok := s.Library.Track(id); !ok {
+		writeError(w, http.StatusNotFound, "no_track", "曲库里没有这首歌了")
+		return
+	}
+	if req.OffsetMS < -maxOffset || req.OffsetMS > maxOffset {
+		writeError(w, http.StatusBadRequest, "bad_offset", "歌词最多提前或延后 60 秒")
+		return
+	}
+	if err := s.Store.SetSetting(r.Context(), settingOffset+strconv.FormatInt(id, 10), strconv.Itoa(req.OffsetMS)); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"offset_ms": req.OffsetMS})
 }

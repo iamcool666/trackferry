@@ -80,7 +80,7 @@ func (s *Server) takeoverTest(w http.ResponseWriter, r *http.Request) {
 	}
 	run, err := s.Engine.Start(r.Context(), takeover.Request{DeviceID: d.DeviceID, Hardware: d.Hardware, Kind: kind, Trace: tr, Song: song, Ended: ended,
 		Track: takeover.Track{URL: h.URL, Label: h.Label, Fetched: h.Fetched(), Restarted: h.Restarted(), Duration: length,
-			Length: h.Duration, Lost: h.Lost, Resume: takeover.Resumer(h, tr)}})
+			Length: h.Duration, Lost: h.Lost, Resume: takeover.Resumer(h, tr), Seekable: h.Seekable()}})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
