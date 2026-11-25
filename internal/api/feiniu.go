@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"trackferry/internal/online"
 
 	"trackferry/internal/feiniu"
 	"trackferry/internal/library"
+	"trackferry/internal/online"
 	"trackferry/internal/store"
 )
 
@@ -118,6 +118,11 @@ func (s *Server) cover(w http.ResponseWriter, r *http.Request) {
 	size := r.URL.Query().Get("size")
 	if size != "160" && size != "600" && size != "1024" {
 		size = "600"
+	}
+	// A cover id like "kw_12" belongs to an online song, which only 洛雪 has a picture for.
+	if online.IsOnlineID(r.PathValue("id")) {
+		s.lxCover(w, r, r.PathValue("id"), size)
+		return
 	}
 	resp, err := s.Feiniu.Cover(r.Context(), r.PathValue("id"), size)
 	if err != nil {

@@ -20,7 +20,7 @@ export interface TVResult { id: string; state: 'pending' | 'done' | 'failed' | '
 export interface HomeStatus { enabled: boolean; has_token: boolean; connected: number }
 export interface Playing { single: boolean; pool: 'library' | 'favorites'; hours: number }
 export type Hush = 'normal' | 'strong' | 'wait';
-export interface OnlineSong { key: string; source: 'kuwo' | 'kugou' | 'migu' | 'netease'; title: string; artist: string; album?: string; cover?: string; duration_ms: number; restricted: boolean; note?: string }
+export interface OnlineSong { key: string; source: 'lx' | 'kuwo' | 'kugou' | 'migu' | 'netease'; title: string; artist: string; album?: string; cover?: string; duration_ms: number; restricted: boolean; note?: string }
 /** Covers found online for the library: how far it is. */
 export interface FillStatus { on: boolean; running: boolean; left: number; asked: number; found: number; last_ms?: number; missing: number }
 export interface OnlineOutcome { source: string; state: string; detail?: string }
@@ -143,7 +143,7 @@ export interface Command {
 /** Online audio: about 128 kbps, or 320 kbps where the platform has it. */
 export type Quality = 'standard' | 'high';
 
-export type LayerName = 'library' | 'kuwo' | 'kugou' | 'migu' | 'netease' | 'xiaomi';
+export type LayerName = 'library' | 'lx' | 'kuwo' | 'kugou' | 'migu' | 'netease' | 'xiaomi';
 export type LayerState = 'hit' | 'miss' | 'ambiguous' | 'restricted' | 'error' | 'timeout' | 'disabled' | 'open' | 'skipped' | 'asking';
 
 export interface Candidate {
@@ -173,7 +173,10 @@ export interface Route {
   preview: boolean;
   decision: 'local' | 'online' | 'native';
   reason?: string;
-  source?: 'library' | 'kuwo' | 'kugou' | 'migu' | 'netease';
+  source?: 'library' | 'lx' | 'kuwo' | 'kugou' | 'migu' | 'netease';
+  /** For 洛雪: the platform whose song this is, and its name. */
+  platform?: string;
+  platform_name?: string;
   title?: string;
   artist?: string;
   path?: string;
@@ -483,6 +486,9 @@ export const api = {
   neteaseCancel: () => request<void>('DELETE', '/api/sources/netease/qr'),
   setQuality: (quality: Quality) => request<{ quality: Quality }>('PUT', '/api/sources/quality', { quality }),
   setSource: (name: string, enabled: boolean) => request<{ sources: SourceHealth[] }>('PATCH', `/api/sources/${name}`, { enabled }),
+  setSourceOrder: (order: string[]) => request<{ sources: SourceHealth[] }>('PUT', '/api/sources/order', { order }),
+  lx: () => request<{ lx: LxSetting }>('GET', '/api/lx'),
+  saveLx: (url: string, user: string, password: string) => request<{ lx: LxSetting; sources: SourceHealth[] }>('PUT', '/api/lx', { url, user, password }),
   press: (id: string, action: Press, with_: { volume?: number; mode?: PlayMode; position?: number; run_id?: number } = {}, signal?: AbortSignal) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/control`, { action, ...with_ }, signal),
   controls: (id: string) => request<Controls>('GET', `/api/devices/${encodeURIComponent(id)}/control`),
   queue: (id: string, from = 0) => request<Queue>('GET', `/api/devices/${encodeURIComponent(id)}/queue?from=${from}`).then((q) => {
@@ -517,3 +523,5 @@ export function captchaURL(rev: number) {
 export function qrImageURL(id: string, backup = false) {
   return `/api/xiaomi/qr.png?id=${encodeURIComponent(id)}${backup ? '&backup=1' : ''}`;
 }
+
+export interface LxSetting { url: string; user: string; has_password: boolean; ready: boolean }

@@ -12,6 +12,9 @@
 | `TRACKFERRY_FFMPEG` | `ffmpeg` | 空 | “无损转 MP3”用的 ffmpeg。空着时用 PATH 里的；默认镜像里没有，见下面“无损转 MP3” |
 | `TRACKFERRY_MP3_CACHE_MB` | `mp3_cache_mb` | `2048` | 转好的 MP3 最多占多少 MB，放在 `data/mp3`，超出先删最久没放的 |
 | `TRACKFERRY_UPDATE_CHECK` | `update_check` | 开 | `off` 关闭定时检查新版本；页面上的手动检查仍可用 |
+| `TRACKFERRY_LX_URL` | `lx.url` | 空 | 自己部署的洛雪音乐（LX Music 服务端）的 Subsonic 地址，如 `http://192.168.1.10:9527/rest`。填了才会用它一起找歌 |
+| `TRACKFERRY_LX_USER` | `lx.user` | 空 | 洛雪账号 |
+| `TRACKFERRY_LX_PASSWORD` | `lx.password` | 空 | 洛雪账号的密码 |
 | 无，在管理页设置 | 无 | 直接连接 | 更新代理，“设置 → 关于”，只用于检查和下载更新 |
 | `TRACKFERRY_LOG` | 无 | 文字 | `json` 输出机器可读的日志 |
 | `TRACKFERRY_DEBUG` | 无 | 关 | 任意值打开调试日志，包含每个页面请求 |

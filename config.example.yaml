@@ -24,6 +24,12 @@ cast: true
 # 转好的 MP3 最多占多少 MB（TRACKFERRY_MP3_CACHE_MB）
 mp3_cache_mb: 2048
 
+# 自己部署的洛雪音乐：填了就和其他平台一起找歌（TRACKFERRY_LX_URL 等）
+# lx:
+#   url: "http://192.168.1.10:9527/rest"
+#   user: "admin"
+#   password: ""
+
 # 容器内的目录，一般不用改
 data_dir: /data
 music_dir: /music  # 只读挂载的音乐文件夹（TRACKFERRY_MUSIC_DIR），连了飞牛音乐时不读

@@ -26,7 +26,7 @@ type Decider interface {
 // Streams prepares audio for speakers (stream.Server).
 type Streams interface {
 	Song(rel, label string, d time.Duration) (*stream.Handle, error)
-	Proxy(open stream.Opener, label string, d time.Duration) (*stream.Handle, error)
+	Proxy(open stream.Opener, label string, d time.Duration, ctype string) (*stream.Handle, error)
 	SongMP3(ctx context.Context, rel, label string, d time.Duration) (*stream.Handle, error)
 	WarmMP3(rel string)
 }
@@ -59,6 +59,8 @@ type Dispatcher struct {
 	Online func(ctx context.Context, key string) (*routing.Route, error)
 	// Keep stores an online song that is being heard; optional.
 	Keep    func(*routing.Route)
+	// SilentWhenMissing: nothing found, so stop the speaker instead of leaving the song to Xiao AI.
+	SilentWhenMissing bool
 	Allowed func(deviceID string) bool // the speaker is released for takeover
 	Log     *slog.Logger
 	Live    *live.Hub // optional
@@ -195,7 +197,13 @@ func (d *Dispatcher) begin(ctx context.Context, dev string) (context.Context, fu
 func (d *Dispatcher) TrackOf(dev string, rt *routing.Route, tr *live.Trace) (Track, bool, error) {
 	var h *stream.Handle
 	var err error
-	length := time.Duration(rt.DurationMS) * time.Millisecond
+	var length time.Duration
+	if f := rt.Found(); f != nil && f.Unprobed {
+		// Nothing vouches for the length: the song ends when the speaker asks for it again.
+		length = time.Duration(f.Candidate.DurationMS) * time.Millisecond
+	} else {
+		length = time.Duration(rt.DurationMS) * time.Millisecond
+	}
 	switch {
 	case rt.Match() != nil:
 		if d.MP3 != nil && d.MP3(dev) {
@@ -227,7 +235,12 @@ func (d *Dispatcher) TrackOf(dev string, rt *routing.Route, tr *live.Trace) (Tra
 			}
 		}
 	case rt.Found() != nil:
-		if h, err = d.Streams.Proxy(d.Open(rt), rt.Label(), length); err == nil && d.Keep != nil {
+		// Unprobed audio is announced by whatever its bytes turn out to be.
+		ctype := "audio/mpeg"
+		if rt.Found().Unprobed {
+			ctype = ""
+		}
+		if h, err = d.Streams.Proxy(d.Open(rt), rt.Label(), length, ctype); err == nil && d.Keep != nil {
 			go d.keep(h, rt)
 		}
 	default:
@@ -504,6 +517,21 @@ func (d *Dispatcher) OnCommand(ctx context.Context, c store.Command, hardware, m
 	save()
 	tr.Route(*rt)
 	if !ok {
+		// Nothing found: never leave it to Xiao AI. Her own version of the song is what the
+		// owner does not want, so the speaker is stopped and kept quiet instead.
+		if d.SilentWhenMissing {
+			rt.Reason = "曲库和线上都没有，没有出声"
+			rt.Because("没出声", "%s", rt.Reason)
+			save()
+			if _, err := d.Engine.Start(ctx, Request{DeviceID: c.DeviceID, Hardware: hardware, Kind: "quiet",
+				CommandID: c.ID, UpstreamMS: c.UpstreamMS, Trace: tr, Quiet: true}); err != nil {
+				d.Log.Warn("没出声　停不下来", "记录", c.ID, "原因", err)
+			}
+			tr.Done(rt.Reason)
+			stage(store.StageNative, rt.Reason)
+			return
+		}
+
 		tr.Done("")
 		if in.Kind == intent.KindVersion && !slices.Contains(c.AnswerTypes, "AUDIO") {
 			// Nothing to change to: the song goes on once Xiao AI has answered.

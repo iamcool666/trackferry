@@ -340,7 +340,20 @@ func serve() error {
 		log.Warn("网易云　登录记录读不出来，按没登录处理")
 	}
 	go netease.Run(ctx)
-	sources := online.New(log, client, &online.Kuwo{Client: client}, &online.Kugou{Client: client}, &online.Migu{Client: client}, netease)
+	// A server set in the page wins over the environment: it is the one the owner last chose.
+	if f, ok := online.LoadLx(filepath.Join(private, "lx.json")); ok {
+		cfg.Lx = config.LxConfig{URL: f.URL, User: f.User, Password: f.Password}
+	}
+
+	set := []online.Source{&online.Kuwo{Client: client}, &online.Kugou{Client: client}, &online.Migu{Client: client}, netease}
+	if cfg.Lx.Ready() {
+		// The server is usually on this network: its own client may reach it, and follow the
+		// redirect to a platform address while its cache is cold.
+		set = append(set, &online.Lx{BaseURL: cfg.Lx.URL, User: cfg.Lx.User, Password: cfg.Lx.Password,
+			Client: online.ClientForServer(cfg.Lx.URL)})
+		log.Info("洛雪　已配置", "地址", cfg.Lx.URL, "账号", cfg.Lx.User)
+	}
+	sources := online.New(log, client, set...)
 	// Online songs once shown stay playable by their key: across restarts, and long after the search.
 	sources.Remember = func(songs map[string]online.Saved) {
 		rows := make(map[string]string, len(songs))
@@ -382,7 +395,7 @@ func serve() error {
 		}
 		return d.Name
 	}
-	dispatcher := &takeover.Dispatcher{Live: hub, Name: speakerName, Engine: engine, Store: st, Router: router, Streams: streams, Log: log,
+	dispatcher := &takeover.Dispatcher{Live: hub, Name: speakerName, Engine: engine, Store: st, Router: router, Streams: streams, Log: log, SilentWhenMissing: true,
 		MP3: func(id string) bool {
 			if streams.MP3 == nil {
 				return false
@@ -475,7 +488,7 @@ func serve() error {
 	go atHome.Run(ctx)
 	tvEndpoint := listenTV(cfg.TVListen, private, st, log)
 	options := api.Options{
-		Config: cfg, Store: st, Token: token, SetupCodePath: setupCodePath,
+		Config: cfg, Store: st, Token: token, SetupCodePath: setupCodePath, LxFile: filepath.Join(private, "lx.json"),
 		Build: api.Build{Version: version, Commit: commit}, Boot: boot,
 		Xiaomi: xm, Observer: obs, Engine: engine, Stream: streams, Library: lib, NetCovers: covers, Fill: filler, Cache: kept, Router: router, Feiniu: fn, Netease: netease, Live: hub, Home: atHome, Played: played, Dispatcher: dispatcher, Web: webui.Handler(), Log: log, Update: checker, SetupLog: showCode,
 	}
@@ -511,7 +524,12 @@ func serve() error {
 					return cast.Media{}, err
 				}
 				d := time.Duration(rt.DurationMS) * time.Millisecond
-				h, err := streams.Proxy(dispatcher.Open(rt), rt.Label(), d)
+				// Unprobed audio announces itself by its bytes; the rest is MP3 as announced.
+				ctype := ""
+				if f := rt.Found(); f == nil || !f.Unprobed {
+					ctype = "audio/mpeg"
+				}
+				h, err := streams.Proxy(dispatcher.Open(rt), rt.Label(), d, ctype)
 				if err != nil {
 					return cast.Media{}, err
 				}

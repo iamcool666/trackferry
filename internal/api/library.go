@@ -183,3 +183,19 @@ var (
 	folderAt   time.Time
 	folderLast fscheck.Music
 )
+
+// sourceOrder puts the platforms in the order they are asked in. The library is always asked
+// before any of them, so this only orders the online sources among themselves.
+func (s *Server) sourceOrder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Order []string `json:"order"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if err := s.Router.SetSourceOrder(r.Context(), s.Store, req.Order); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sources": s.Router.Online.Health()})
+}

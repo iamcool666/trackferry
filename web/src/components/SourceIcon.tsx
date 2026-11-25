@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import type { LayerName } from '../api';
+import lx from '../assets/sources/lx.svg';
 import feiniu from '../assets/sources/feiniu.jpg';
 import kuwo from '../assets/sources/kuwo.jpg';
 import kugou from '../assets/sources/kugou.jpg';
@@ -7,7 +8,7 @@ import migu from '../assets/sources/migu.jpg';
 import netease from '../assets/sources/netease.jpg';
 import xiaoai from '../assets/sources/xiaoai.jpg';
 
-const src: Record<Exclude<LayerName, 'library'> | 'feiniu', string> = { feiniu, kuwo, kugou, migu, netease, xiaomi: xiaoai };
+const src: Record<Exclude<LayerName, 'library'> | 'feiniu', string> = { feiniu, lx, kuwo, kugou, migu, netease, xiaomi: xiaoai };
 
 // The library may be 飞牛音乐 or a music folder, so it has a mark of its own; 飞牛's logo is only for 飞牛 itself.
 // Drawn like the brand icons beside it: a full colour tile with a solid white glyph.
