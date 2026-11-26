@@ -12,6 +12,7 @@ services:
     network_mode: !reset null
     ports:
       - "18561:18561"
+      - "18562:18562"
     volumes:
       - relay:/run/trackferry
 

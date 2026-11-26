@@ -1,17 +1,20 @@
 package xiaomi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"image/png"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/skip2/go-qrcode"
 
 	"trackferry/internal/logx"
 )
@@ -227,28 +230,53 @@ func (m *Manager) CancelQR() {
 	}
 }
 
-// QRImage streams the QR image for the current login.
-func (m *Manager) QRImage(ctx context.Context, w io.Writer) (string, error) {
+// QRImage prefers the official picture. The backup encodes the same pending login URL.
+func (m *Manager) QRImage(ctx context.Context, id string, backup bool) ([]byte, string, error) {
 	m.mu.Lock()
-	if m.qr == nil || m.qr.status.State != QRPending {
-		m.mu.Unlock()
-		return "", errf(KindExpired, "no QR login is pending")
-	}
-	src, deviceID := m.qr.code.ImageURL, m.qr.code.DeviceID
+	login := m.qr
 	m.mu.Unlock()
-	resp, body, err := m.client.get(ctx, src, nil, deviceID)
-	if err != nil {
-		return "", errf(KindNetwork, "QR image: %v", err)
+	if !m.qrPending(login, id) {
+		return nil, "", errf(KindExpired, "no QR login is pending for this image")
 	}
-	if resp.StatusCode != http.StatusOK {
-		return "", errf(KindUpstream, "QR image: HTTP %d", resp.StatusCode)
+	var image []byte
+	var ct string
+	if !backup && login.code.ImageURL != "" {
+		resp, body, err := m.client.get(ctx, login.code.ImageURL, nil, login.code.DeviceID)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			image, ct = officialQR(body)
+		}
 	}
-	ct := resp.Header.Get("Content-Type")
-	if ct == "" {
+	if image == nil && login.code.LoginURL != "" {
+		image, _ = qrcode.Encode(login.code.LoginURL, qrcode.Medium, 320)
 		ct = "image/png"
 	}
-	_, err = w.Write(body)
-	return ct, err
+	if !m.qrPending(login, id) {
+		return nil, "", errf(KindExpired, "no QR login is pending for this image")
+	}
+	if image == nil {
+		return nil, "", errf(KindUpstream, "could not read or encode the Xiaomi login QR image")
+	}
+	return image, ct, nil
+}
+
+func (m *Manager) qrPending(login *qrLogin, id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return login != nil && m.qr == login && login.status.ID == id && login.status.State == QRPending && time.Now().Before(login.status.ExpiresAt)
+}
+
+func officialQR(body []byte) ([]byte, string) {
+	switch ct := http.DetectContentType(body); ct {
+	case "image/png":
+		if config, err := png.DecodeConfig(bytes.NewReader(body)); err == nil && config.Width <= 1024 && config.Height <= 1024 {
+			if _, err := png.Decode(bytes.NewReader(body)); err == nil {
+				return body, ct
+			}
+		}
+	case "image/jpeg", "image/gif", "image/webp":
+		return body, ct
+	}
+	return nil, ""
 }
 
 func (m *Manager) setQR(login *qrLogin, f func(*QRStatus)) {

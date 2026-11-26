@@ -58,6 +58,10 @@ TrackFerry 让小爱音箱播放你 NAS 上的歌，也把手机变成音箱的�
   <img src="docs/images/m-missing.webp" alt="缺歌清单" width="24%">
 </p>
 
+## 📺 电视端
+
+Android 电视应用已发布，在 [Releases](https://github.com/madrays/trackferry/releases) 下载（32 位 armeabi-v7a、64 位 arm64-v8a）。电视在同一局域网里自动找到 NAS，网页上输入配对码就连上，之后曲库、搜索、歌词都在电视上，声音从电视出；网页也能把歌推到电视或从电视接回来。说明见 [docs/android-tv.md](docs/android-tv.md)。
+
 ## 功能
 
 <table>

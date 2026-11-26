@@ -25,6 +25,9 @@ func minutes(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
+// cutInWords is about what she says then: "暂时没有识别这条指令，请再说一次".
+const cutInWords = 18
+
 // startLag is from the speaker's first request to the first sound.
 const startLag = 500 * time.Millisecond
 
@@ -35,6 +38,10 @@ const startLag = 500 * time.Millisecond
 func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan seek) (how End) {
 	e, t := r.e, r.req.Track
 	tm := e.timing
+	cutIn := tm.CutIn
+	if cutIn <= 0 {
+		cutIn = 30 * time.Second
+	}
 	if tm.Look <= 0 {
 		tm.Look, tm.LookClose = DefaultTiming.Look, DefaultTiming.LookClose
 	}
@@ -52,7 +59,7 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 	limit := time.NewTimer(tm.MaxWatch)
 	defer limit.Stop()
 
-	base := time.Duration(0)          // played before anchor
+	base := r.req.StartAt             // played before anchor
 	anchor := fetchedAt.Add(startLag) // sounding since
 	sounding := true
 	at := func() time.Duration {
@@ -74,6 +81,7 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 		pausedAt    time.Time
 		resumes     int
 		sought      bool // base is where the listener put it
+		rescued     bool // a stop early on, with nothing heard, was taken for Xiao AI cutting in
 		lastOK      = e.now()
 	)
 	pause := func(when time.Time) {
@@ -151,24 +159,49 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 		r.step(StepEnded, err == nil, why+"，停止循环 "+describe(err))
 	}
 	// put has the speaker play n, the song from start on.
-	put := func(n Track, start time.Duration) bool {
-		err := e.sp.PlayURL(r.ctx, r.req.DeviceID, r.req.Hardware, n.URL)
-		for i := 0; err != nil && i < 3 && e.sleep(r.ctx, time.Duration(i+1)*400*time.Millisecond) == nil; i++ {
-			err = e.sp.PlayURL(r.ctx, r.req.DeviceID, r.req.Hardware, n.URL)
+	put := func(ctx context.Context, n Track, start time.Duration, seek bool) bool {
+		if ctx.Err() != nil {
+			return false
 		}
-		if err != nil {
+		err := e.sp.PlayURL(ctx, r.req.DeviceID, r.req.Hardware, n.URL)
+		for i := 0; !seek && err != nil && i < 3 && e.sleep(ctx, time.Duration(i+1)*400*time.Millisecond) == nil; i++ {
+			err = e.sp.PlayURL(ctx, r.req.DeviceID, r.req.Hardware, n.URL)
+		}
+		if err != nil && !seek {
 			r.step(StepResume, false, describe(err))
 			return false
 		}
+		timeout := time.NewTimer(6 * time.Second)
+		defer timeout.Stop()
 		select {
 		case <-n.Fetched: // nil when starting over: wait a moment instead
-		case <-time.After(6 * time.Second):
+		case <-timeout.C:
 			if n.Fetched != nil {
 				r.step(StepResume, false, "音箱没有来取流")
 				return false
 			}
-		case <-r.ctx.Done():
+		case <-ctx.Done():
 			return false
+		}
+		if seek {
+			for {
+				if ctx.Err() != nil {
+					return false
+				}
+				// A speaker reading the URL is not proof that its player started.
+				p, err := e.sp.PlayStatus(ctx, r.req.DeviceID)
+				if err == nil && p.Playing() && !r.foreign(p) {
+					r.player = &p
+					break
+				}
+				select {
+				case <-timeout.C:
+					return false
+				case <-ctx.Done():
+					return false
+				case <-time.After(150 * time.Millisecond):
+				}
+			}
 		}
 		track = n
 		play(start, e.now().Add(startLag))
@@ -191,7 +224,7 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 			start = 0
 			n = Track{URL: t.URL, Lost: t.Lost}
 		}
-		if !put(n, start) {
+		if !put(r.ctx, n, start, false) {
 			return false
 		}
 		sought = false
@@ -212,7 +245,10 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 		e.mu.Unlock()
 	}
 	// move goes to another point of the song. What cannot start there plays on as it is.
-	move := func(to time.Duration) error {
+	move := func(ctx context.Context, to time.Duration) error {
+		if ctx.Err() != nil {
+			return ErrSeekLate
+		}
 		if t.Resume == nil || !t.Seekable || length <= 0 {
 			return ErrCannotSeek
 		}
@@ -221,23 +257,31 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 			base, sought = to, true
 			setCut(true) // it goes on from there when it goes on
 			r.elapsed = base
+			r.elapsedAt = e.now()
 			r.step(StepSeek, true, "停着，放到 "+minutes(to))
+			r.publishClock()
 			return nil
 		}
-		n, start, err := t.Resume(r.ctx, to)
+		n, start, err := t.Resume(ctx, to)
+		if ctx.Err() != nil {
+			return ErrSeekLate
+		}
 		if err != nil {
 			r.step(StepSeek, false, "这个格式不能拖动")
 			return ErrCannotSeek
 		}
 		was, since, held, stopped := base, anchor, !sounding, pausedAt
-		if !put(n, start) {
+		if !put(ctx, n, start, true) {
 			base, anchor, sounding, pausedAt = was, since, !held, stopped
+			r.step(StepSeek, false, "音箱没有确认定位")
 			return ErrSeekLate
 		}
 		talkedUntil, silent, foreign, sought = time.Time{}, 0, 0, false
 		byUser, deaf, yield = false, false, false
 		r.elapsed, r.held = at(), false
+		r.elapsedAt = e.now()
 		r.step(StepSeek, true, "拖到 "+minutes(start))
+		r.publishClock()
 		return nil
 	}
 	defer func() {
@@ -276,6 +320,10 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 				r.step(StepStopped, true, "按了停止")
 				return
 			}
+			if context.Cause(r.ctx) == errHandoff {
+				r.step(StepCancelled, true, "接力超时或取消")
+				return
+			}
 			r.step(StepCancelled, true, "")
 			return
 		case <-limit.C:
@@ -292,7 +340,14 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 			finish("音箱又从头放了")
 			return
 		case s := <-seeks:
-			s.done <- move(s.to)
+			ctx, cancel := context.WithCancel(s.ctx)
+			stop := context.AfterFunc(r.ctx, cancel)
+			if r.ctx.Err() != nil {
+				cancel()
+			}
+			s.done <- move(ctx, s.to)
+			stop()
+			cancel()
 			soon = true
 			continue
 		case h := <-heard:
@@ -313,6 +368,7 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 					if sounding {
 						pause(e.now())
 						r.phase, r.elapsed, r.held = phasePaused, base, true
+						r.elapsedAt = e.now()
 						r.step(StepPaused, true, "按了暂停")
 					}
 				}
@@ -353,6 +409,7 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 			r.phase = phasePaused
 		}
 		r.elapsed, r.held = at(), !sounding
+		r.elapsedAt = e.now()
 		p, err := r.status()
 		if err != nil {
 			continue
@@ -410,7 +467,16 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 					r.phase = phaseTalking
 				}
 				r.elapsed = base
+				r.elapsedAt = e.now()
 				r.step(StepPaused, true, "")
+				// Soon after the start, a stop nobody asked for is Xiao AI cutting in: she
+				// heard the song as words she did not understand, and says so without a
+				// record we could read. The song goes on once she is done, one time.
+				if !rescued && !byUser && !yield && !deaf && !cut && talkedUntil.IsZero() && !p.Playing() &&
+					now.Sub(fetchedAt) < cutIn {
+					rescued, talkedUntil = true, now.Add(tm.Pause+cutInWords*tm.Speak)
+					r.step(StepTalked, true, "没听到原因就停了，当作小爱插话，说完接着放")
+				}
 			}
 			switch {
 			case yield && foreign >= 2, yield && now.Sub(pausedAt) > 15*time.Second:
@@ -438,5 +504,9 @@ func (r *runner) watch(fetchedAt time.Time, heard <-chan Heard, seeks <-chan see
 
 // foreign reports that the speaker plays something that is certainly not ours.
 func (r *runner) foreign(p xiaomi.PlayStatus) bool {
-	return p.Playing() && xiaomi.UsesMusicAPI(r.req.Hardware) && p.AudioID != "" && p.AudioID != xiaomi.OurAudioID
+	return foreign(r.req.Hardware, p)
+}
+
+func foreign(hardware string, p xiaomi.PlayStatus) bool {
+	return p.Playing() && xiaomi.UsesMusicAPI(hardware) && p.AudioID != "" && p.AudioID != xiaomi.OurAudioID
 }

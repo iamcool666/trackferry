@@ -55,7 +55,13 @@ function subscribe(f: () => void) {
 export const useLive = () => useSyncExternalStore(subscribe, () => state);
 export const serverNow = () => Date.now() + state.skew;
 
-export interface Sounding { phase: 'playing' | 'paused' | 'talking' | 'resuming'; at: number; since: number; /** Can be moved in. */ seek?: boolean }
+export interface Sounding {
+  phase: 'playing' | 'paused' | 'talking' | 'resuming';
+  at: number;
+  since: number;
+  seek?: boolean;
+  read?: () => number;
+}
 /** The song a run has on its speaker now, as followed by the server. null: not playing any more. */
 export function sounding(flows: Flow[], runID?: number): Sounding | null {
   const f = runID ? flows.find((x) => x.run?.id === runID) : undefined;
@@ -63,7 +69,7 @@ export function sounding(flows: Flow[], runID?: number): Sounding | null {
   if (!f || f.done || !p?.phase) return null;
   return { phase: p.phase, at: p.elapsed, since: p.at_ms, seek: p.seek };
 }
-export const position = (s: Sounding) => s.at + (s.phase === 'playing' ? Math.max(0, serverNow() - s.since) : 0);
+export const position = (s: Sounding) => s.read?.() ?? s.at + (s.phase === 'playing' ? Math.max(0, serverNow() - s.since) : 0);
 export const phaseText = { playing: '正在播放', paused: '停着', talking: '小爱在说话', resuming: '正在接着放' } as const;
 
 /** The song a speaker has on now. */

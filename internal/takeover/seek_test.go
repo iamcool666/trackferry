@@ -70,3 +70,101 @@ func TestSeekWhilePausedWaitsForPlay(t *testing.T) {
 	}
 	e.Press(ctx, "d1", ControlStop)
 }
+
+func TestQueuedSeekHonorsCancellationAndRun(t *testing.T) {
+	e, speaker, _ := quick(t)
+	request := req(speaker)
+	request.Track.Length, request.Track.Seekable = time.Hour, true
+	calls := make(chan time.Duration, 2)
+	unblock := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(unblock)
+		}
+		e.Press(context.Background(), "d1", ControlStop)
+	}()
+	request.Track.Resume = func(ctx context.Context, at time.Duration) (Track, time.Duration, error) {
+		calls <- at
+		if at == time.Minute {
+			select {
+			case <-unblock:
+			case <-ctx.Done():
+				return Track{}, 0, ctx.Err()
+			}
+		}
+		fetched := make(chan struct{})
+		close(fetched)
+		return Track{URL: "http://nas/stream/new.wav", Fetched: fetched}, at, nil
+	}
+	run := playing(t, e, speaker, request)
+	if err := e.Seek(context.Background(), "d1", time.Minute, run.ID+1); !errors.Is(err, ErrSeekMoved) {
+		t.Fatal(err)
+	}
+	first, second := make(chan error, 1), make(chan error, 1)
+	go func() { first <- e.Seek(context.Background(), "d1", time.Minute, run.ID) }()
+	select {
+	case <-calls:
+	case <-time.After(time.Second):
+		t.Fatal("first seek did not start")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { second <- e.Seek(ctx, "d1", 2*time.Minute, run.ID) }()
+	until(t, "second seek did not enter the queue", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return len(e.devs["d1"].seeks) > 0
+	})
+	cancel()
+	if err := <-second; !errors.Is(err, ErrSeekLate) {
+		t.Fatal(err)
+	}
+	close(unblock)
+	released = true
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Seek(context.Background(), "d1", 3*time.Minute, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if at := <-calls; at != 3*time.Minute {
+		t.Fatalf("cancelled seek reached the speaker: %v", at)
+	}
+}
+
+func TestSeekDoesNotSucceedOnFetchAlone(t *testing.T) {
+	e, speaker, _ := quick(t)
+	request := req(speaker)
+	request.Track.Length, request.Track.Seekable = time.Hour, true
+	resume := make(chan struct{})
+	request.Track.Resume = func(context.Context, time.Duration) (Track, time.Duration, error) {
+		speaker.mu.Lock()
+		speaker.statusOK = false
+		speaker.mu.Unlock()
+		close(resume)
+		fetched := make(chan struct{})
+		close(fetched)
+		return Track{URL: "http://nas/stream/new.wav", Fetched: fetched}, time.Minute, nil
+	}
+	run := playing(t, e, speaker, request)
+	defer e.Press(context.Background(), "d1", ControlStop)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- e.Seek(ctx, "d1", time.Minute, run.ID) }()
+	select {
+	case <-resume:
+	case <-time.After(time.Second):
+		t.Fatal("seek did not start")
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("seek completed without a successful readback: %v", err)
+	case <-time.After(80 * time.Millisecond):
+	}
+	cancel()
+	if err := <-result; !errors.Is(err, ErrSeekLate) {
+		t.Fatal(err)
+	}
+}

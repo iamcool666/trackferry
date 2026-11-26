@@ -53,6 +53,7 @@ type Checker struct {
 	asking chan struct{}
 
 	installing bool
+	tv         *tvApps // nil: no television app is handed out
 	proxy      atomic.Pointer[url.URL]
 	proxyPath  string
 }

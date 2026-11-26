@@ -129,7 +129,7 @@ func TestLinkUseAndExpiry(t *testing.T) {
 	if s, err := m.Favorites(ctx); err != nil || len(s) != 2 || s[1].GUID != "f2" {
 		t.Errorf("favourites: %v %v", s, err)
 	}
-	if p, err := m.Playlists(ctx); err != nil || len(p) != 1 || p[0] != (Playlist{"p1", "测试"}) {
+	if p, err := m.Playlists(ctx); err != nil || len(p) != 1 || p[0] != (Playlist{GUID: "p1", Name: "测试"}) {
 		t.Errorf("playlists: %v %v", p, err)
 	}
 	for _, x := range []struct{ on, changed bool }{{true, true}, {true, false}, {false, true}, {false, false}} {

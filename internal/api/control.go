@@ -19,6 +19,7 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		Mode   string `json:"mode"` // loop | shuffle | one
 		// Where the song goes to with seek, in ms.
 		Position *int64 `json:"position"`
+		RunID    *int64 `json:"run_id"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -38,6 +39,10 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	case takeover.ControlSeek:
 		if req.Position == nil || *req.Position < 0 || *req.Position > 24*60*60*1000 {
 			writeError(w, http.StatusBadRequest, "bad_position", "position 是要拖到的位置，单位毫秒")
+			return
+		}
+		if req.RunID != nil && *req.RunID <= 0 {
+			writeError(w, http.StatusBadRequest, "bad_run", "run_id 必须是当前播放记录的 ID")
 			return
 		}
 	default:
@@ -61,7 +66,15 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	case takeover.ControlVolume:
 		err = s.Engine.SetVolume(r.Context(), d.DeviceID, *req.Volume)
 	case takeover.ControlSeek:
-		err = s.Engine.Seek(r.Context(), d.DeviceID, time.Duration(*req.Position)*time.Millisecond)
+		var run []int64
+		if req.RunID != nil {
+			run = append(run, *req.RunID)
+		}
+		err = s.Engine.Seek(r.Context(), d.DeviceID, time.Duration(*req.Position)*time.Millisecond, run...)
+		if errors.Is(err, takeover.ErrSeekMoved) {
+			writeError(w, http.StatusConflict, "moved", err.Error())
+			return
+		}
 		if errors.Is(err, takeover.ErrCannotSeek) || errors.Is(err, takeover.ErrNoSeek) {
 			writeError(w, http.StatusConflict, "cannot_seek", err.Error())
 			return

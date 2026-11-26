@@ -5,6 +5,8 @@ import { onDeck, useLive } from '../live';
 import { Deck, playModes } from './Deck';
 import { HereQueue, SpeakerQueue } from './Queue';
 import { useToast } from './Toast';
+import { Sheet } from './Sheet';
+import { EQ_PRESETS, eqPreset } from '../eq';
 import { Pick } from './Pick';
 import { deviceSubtitle, deviceTitle, isOnline, modeHint, modeLabel } from '../copy';
 
@@ -108,7 +110,7 @@ export function SpeakerRow({ device, watch, onChange }: { device: Device; watch?
             : <span className="off-dot">已不在账号中</span>}
           <span>{deviceSubtitle(device)}</span>
         </p>
-        {device.in_account && device.mode !== 'off' && <Buttons device={device} />}
+        {device.in_account && device.mode !== 'off' && <Buttons device={device} inlineVolume />}
         <details className="spk-set" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
           <summary><span>{device.in_account ? modeLabel[device.mode] : '设置'}</span>{device.in_account && device.mode === 'takeover' && <small>压住小爱：{hushes.find((h) => h.value === device.hush)?.label}</small>}<svg viewBox="0 0 12 8" width="11" height="8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></summary>
           <ModeSwitch device={device} onChange={onChange} />
@@ -124,7 +126,7 @@ export function SpeakerRow({ device, watch, onChange }: { device: Device; watch?
 }
 
 /** The hands of a speaker. foot stands left of the second line; without it, what list is on. */
-export function Buttons({ device, foot, tail }: { device: Device; foot?: ReactNode; tail?: ReactNode }) {
+export function Buttons({ device, foot, tail, inlineVolume }: { device: Device; foot?: ReactNode; tail?: ReactNode; inlineVolume?: boolean }) {
   const id = device.device_id;
   const name = deviceTitle(device);
   const flow = onDeck(useLive().flows, id);
@@ -177,7 +179,7 @@ export function Buttons({ device, foot, tail }: { device: Device; foot?: ReactNo
     <>
       <Deck name={name} state={state} waiting={!!flow && !phase && !meant} busy={busy} alone={now !== null && !q} mode={now?.mode ?? ''} count={(q?.total ?? 0) + (q?.next?.length ?? 0)}
         onMode={(mode) => press('mode', { mode })} onToggle={() => press(state === 'playing' ? 'pause' : 'play')} onPrevious={() => press('previous')} onNext={() => press('next')} onList={() => setOpen(true)}
-        vol={{ value: now?.volume ?? null, set: (volume) => press('volume', { volume }) }} onWake={device.can_wake ? () => press('wake') : undefined}
+        vol={{ value: now?.volume ?? null, set: (volume) => press('volume', { volume }) }} inlineVolume={inlineVolume} onWake={device.can_wake ? () => press('wake') : undefined}
         foot={foot ?? (q?.list ? <span className="foot-list">{q.list}</span> : null)} tail={tail} note={lost && <p className="ctl-said" role="status">暂时读不到音箱，会自动重试：{lost}</p>} />
       {open && <SpeakerQueue device={device} onStop={() => press('stop')} onClose={() => setOpen(false)} />}
       {toast}
@@ -189,13 +191,24 @@ export function Buttons({ device, foot, tail }: { device: Device; foot?: ReactNo
 export function HereButtons({ foot, tail }: { foot?: ReactNode; tail?: ReactNode }) {
   const h = useHere();
   const [open, setOpen] = useState(false);
+  const [sound, setSound] = useState(false);
   const [toast, say] = useToast();
+  const eq = h.canEQ && <button type="button" className={`foot-btn foot-eq${h.eq !== 'flat' ? ' on' : ''}`} onClick={() => setSound(true)} aria-haspopup="dialog" aria-label={`音效：${eqPreset(h.eq).label}`} title="音效">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M5 4v16M12 4v16M19 4v16" opacity=".35" /><path d="M3 15h4M10 8h4M17 13h4" /></svg>
+  </button>;
   return (
     <>
       <Deck name={hereName} state={h.on ? 'playing' : 'paused'} waiting={h.waiting} off={!h.songs.length} alone={h.songs.length < 2} mode={h.mode} count={h.songs.length}
         onMode={(m) => { here.mode(m); say({ tone: 'ok', text: playModes[m].name }); }} onToggle={here.toggle} onPrevious={here.previous} onNext={here.next} onList={() => setOpen(true)}
-        vol={h.canVolume ? { value: h.volume, live: here.volume, set: here.volume } : null} foot={foot} tail={tail} />
+        vol={h.canVolume ? { value: h.volume, live: here.volume, set: here.volume } : null} foot={foot} tail={<>{eq}{tail}</>} />
       {open && <HereQueue onClose={() => setOpen(false)} />}
+      {sound && <Sheet title="音效" onClose={() => setSound(false)}>
+        <div className="picks eq-picks">{EQ_PRESETS.map((p) => <button type="button" key={p.name} aria-pressed={h.eq === p.name} onClick={() => { if (!here.eq(p.name)) say({ tone: 'bad', text: '这个浏览器不能调音效' }); }}>
+          <i><svg viewBox="0 0 40 24" width="34" height="20" aria-hidden="true">{p.gains.map((g, n) => <rect key={n} x={2 + n * 8} y={12 - Math.max(0, g) * 1.6} width="4" height={Math.max(1.5, Math.abs(g) * 1.6)} rx="2" fill="currentColor" opacity={g === 0 ? .35 : 1} />)}</svg></i>
+          <span><b>{p.label}</b>{p.name === 'stereo' && <small>声场更宽，耳机里最明显</small>}{p.name === 'flat' && <small>不加处理</small>}</span>
+        </button>)}</div>
+        <p className="eq-note">只作用在这台设备上。小爱音箱不接受外来音效；电视在电视上选。</p>
+      </Sheet>}
       {toast}
     </>
   );

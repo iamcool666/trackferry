@@ -18,30 +18,35 @@ export const playModes: Record<PlayMode, { name: string; icon: ReactNode; next: 
 
 export interface Vol { value: number | null; /** While it is dragged. */ live?: (v: number) => void; set: (v: number) => void }
 
-/** The volume, in the place of the line it came from; it goes by itself. */
-function Volume({ vol, name, onClose }: { vol: Vol; name: string; onClose: () => void }) {
+/** The same slider can stay visible on a settings page or close on the player. */
+function Volume({ vol, name, onClose }: { vol: Vol; name: string; onClose?: () => void }) {
   const [drag, setDrag] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const v = drag ?? vol.value ?? 0;
-  useEffect(() => { input.current?.focus({ preventScroll: true }); }, []);
+  const transient = !!onClose;
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => { if (transient) input.current?.focus({ preventScroll: true }); }, [transient]);
   useEffect(() => {
-    const t = setTimeout(onClose, 5000);
+    if (!transient) return;
+    const t = setTimeout(() => close.current?.(), 5000);
     return () => clearTimeout(t);
-  }, [v]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [v, transient]);
   useEffect(() => {
-    const off = (e: Event) => { if (e instanceof KeyboardEvent ? e.key === 'Escape' : !box.current?.contains(e.target as Node)) onClose(); };
+    if (!transient) return;
+    const off = (e: Event) => { if (e instanceof KeyboardEvent ? e.key === 'Escape' : !box.current?.contains(e.target as Node)) close.current?.(); };
     addEventListener('pointerdown', off);
     addEventListener('keydown', off);
     return () => { removeEventListener('pointerdown', off); removeEventListener('keydown', off); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [transient]);
   useEffect(() => { if (drag !== null && vol.value === drag) setDrag(null); }, [vol.value, drag]);
   const commit = () => { if (drag !== null && drag !== vol.value) vol.set(drag); };
   return (
-    <div className="ctl-vol" ref={box}>
-      <button type="button" className="foot-btn" onClick={onClose} aria-label="收起音量">{v ? icons.volume : icons.mute}</button>
-      <input ref={input} type="range" min={0} max={100} value={v} style={{ '--v': `${v}%` } as React.CSSProperties} aria-label={`${name}音量`} onChange={(e) => { const n = Number(e.target.value); setDrag(n); vol.live?.(n); }} onPointerUp={commit} onKeyUp={commit} onBlur={commit} />
-      <small className="num">{v}</small>
+    <div className={`ctl-vol${transient ? '' : ' ctl-vol-inline'}`} ref={box}>
+      {onClose ? <button type="button" className="foot-btn" onClick={onClose} aria-label="收起音量">{v ? icons.volume : icons.mute}</button> : <span aria-hidden="true">{icons.volume}</span>}
+      <input ref={input} type="range" min={0} max={100} value={v} disabled={vol.value === null} style={{ '--v': `${v}%` } as React.CSSProperties} aria-label={`${name}音量`} onChange={(e) => { const n = Number(e.target.value); setDrag(n); vol.live?.(n); }} onPointerUp={commit} onKeyUp={commit} onBlur={commit} />
+      <small className="num">{vol.value === null ? '–' : v}</small>
     </div>
   );
 }
@@ -49,7 +54,7 @@ function Volume({ vol, name, onClose }: { vol: Vol; name: string; onClose: () =>
 export interface Hands {
   name: string; state: 'playing' | 'paused' | 'idle'; waiting?: boolean; busy?: string | null; off?: boolean; alone?: boolean;
   mode: PlayMode | ''; onMode: (m: PlayMode) => void; onToggle: () => void; onPrevious: () => void; onNext: () => void;
-  onList: () => void; count: number; vol: Vol | null; onWake?: () => void;
+  onList: () => void; count: number; vol: Vol | null; inlineVolume?: boolean; onWake?: () => void;
   /** The left of the second line, and more signs at its right. */
   foot?: ReactNode; tail?: ReactNode; note?: ReactNode;
 }
@@ -70,9 +75,9 @@ export function Deck(h: Hands) {
       </div>
       <div className="deck-foot">
         {loud && h.vol ? <Volume vol={h.vol} name={h.name} onClose={() => setLoud(false)} /> : <>
-          <span className="foot-who">{h.foot}</span>
+          {h.inlineVolume && h.vol ? <Volume vol={h.vol} name={h.name} /> : <span className="foot-who">{h.foot}</span>}
           <span className="foot-acts">
-            {h.vol && <button type="button" className="foot-btn" disabled={h.vol.value === null} onClick={() => setLoud(true)} title="音量" aria-label={`${h.name}音量 ${h.vol.value ?? ''}`}>{h.vol.value === 0 ? icons.mute : icons.volume}</button>}
+            {h.vol && !h.inlineVolume && <button type="button" className="foot-btn" disabled={h.vol.value === null} onClick={() => setLoud(true)} title="音量" aria-label={`${h.name}音量 ${h.vol.value ?? ''}`}>{h.vol.value === 0 ? icons.mute : icons.volume}</button>}
             {h.onWake && <button type="button" className="foot-btn" disabled={h.busy === 'wake'} onClick={h.onWake} title="唤醒" aria-label={`${h.name}唤醒`}>{h.busy === 'wake' ? <span className="spinner spinner-tiny" /> : icons.wake}</button>}
             {h.tail}
           </span>

@@ -39,8 +39,9 @@ type queue struct {
 	solo  bool           // a single song: nothing follows it on its own
 	move  sync.Mutex     // one move at a time
 
-	wishes []Wish // asked for by hand, before the list goes on
-	aside  bool   // what plays is one of these; pos is where the list stands
+	wishes    []Wish // asked for by hand, before the list goes on
+	aside     bool   // what plays is one of these; pos is where the list stands
+	keepOrder bool   // a removed first song wraps to the next one without a shuffle
 }
 
 // Wish is a song to play after the one that is on.
@@ -71,9 +72,36 @@ func (d *Dispatcher) Want(dev string, w Wish) (bool, error) {
 	}
 	d.wished++
 	w.ID = d.wished
-	q.wishes = append(q.wishes, w)
+	q.wishes = append([]Wish{w}, q.wishes...)
 	q.web = true
 	return true, nil
+}
+
+// QueueTrack inserts a library song next or at the end. A song already there moves.
+func (d *Dispatcher) QueueTrack(dev string, id int64, next bool) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	q := d.queues[dev]
+	if q == nil {
+		return false
+	}
+	q.web = true
+	if q.ids[q.pos] == id {
+		return true
+	}
+	if at := slices.Index(q.ids, id); at >= 0 {
+		q.removeSlot(at)
+	}
+	if next {
+		at := slices.Index(q.order, q.ids[q.pos])
+		q.ids = slices.Insert(q.ids, q.pos+1, id)
+		q.order = slices.Insert(q.order, at+1, id)
+	} else {
+		q.ids = append(q.ids, id)
+		q.order = append(q.order, id)
+	}
+	q.solo = false
+	return true
 }
 
 // wish takes the next wish that can be played.
@@ -131,10 +159,10 @@ const settingMode = "play.mode."
 
 // PlayMode is how a speaker goes through a list.
 func (d *Dispatcher) PlayMode(ctx context.Context, dev string) string {
-	if m, _ := d.Store.Setting(ctx, settingMode+dev); m == ModeLoop || m == ModeOne {
+	if m, _ := d.Store.Setting(ctx, settingMode+dev); m == ModeShuffle || m == ModeOne {
 		return m
 	}
-	return ModeShuffle
+	return ModeLoop
 }
 
 // SetPlayMode changes it. The song that plays goes on.
@@ -343,21 +371,34 @@ func (d *Dispatcher) Remove(dev string, p Pick) error {
 	case at == q.pos:
 		return errors.New("这首正在放")
 	}
+	q.removeSlot(at)
+	return nil
+}
+
+func (q *queue) removeSlot(at int) {
+	id := q.ids[at]
 	q.ids = slices.Delete(slices.Clone(q.ids), at, at+1)
 	if at < q.pos {
 		q.pos--
+	} else if at == q.pos && q.aside {
+		q.keepOrder = at == 0
+		q.pos = (q.pos + len(q.ids) - 1) % len(q.ids)
 	}
-	if i := slices.Index(q.order, p.ID); i >= 0 {
+	if i := slices.Index(q.order, id); i >= 0 {
 		q.order = slices.Delete(slices.Clone(q.order), i, i+1)
 	}
-	return nil
 }
 
 // RemoveCurrent plays the next song and takes the one that was on off the list.
 func (d *Dispatcher) RemoveCurrent(ctx context.Context, dev string) error {
-	d.mu.Lock()
-	q := d.queues[dev]
+	q := d.queued(dev)
 	if q == nil {
+		return ErrNoQueue
+	}
+	q.move.Lock()
+	defer q.move.Unlock()
+	d.mu.Lock()
+	if d.queues[dev] != q {
 		d.mu.Unlock()
 		return ErrNoQueue
 	}
@@ -367,11 +408,20 @@ func (d *Dispatcher) RemoveCurrent(ctx context.Context, dev string) error {
 	if alone {
 		return errors.New("列表里只剩这一首了")
 	}
-	if err := d.Skip(ctx, dev, 1); err != nil || !listed {
+	rt, ok := d.choose(ctx, q, 1)
+	if !ok {
+		return ErrNoSong
+	}
+	d.lasts(q)
+	if err := d.play(ctx, q, rt, false); err != nil || !listed {
 		return err
 	}
-	if err := d.Remove(dev, p); err != nil && !errors.Is(err, ErrMoved) {
-		return errors.New("列表里只剩这一首了")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.queues[dev] == q {
+		if at, ok := q.find(p); ok && len(q.ids) > 1 && (at != q.pos || q.aside) {
+			q.removeSlot(at)
+		}
 	}
 	return nil
 }
@@ -391,7 +441,7 @@ func (d *Dispatcher) song(q *queue, id int64) (*routing.Route, bool) {
 // more draws songs to come after a single one that was skipped.
 func (d *Dispatcher) more(q *queue) {
 	d.mu.Lock()
-	dry := q.solo && q.pos == len(q.ids)-1
+	dry := !q.web && q.solo && q.pos == len(q.ids)-1
 	d.mu.Unlock()
 	if !dry || d.Random == nil {
 		return
@@ -522,18 +572,36 @@ func (d *Dispatcher) After(dev, hardware string, track int64, rt *routing.Route,
 }
 
 // PlayList plays a list on a speaker until something else is asked for.
-func (d *Dispatcher) PlayList(ctx context.Context, dev store.Device, list string, ids []int64) (store.TakeoverRun, error) {
+func (d *Dispatcher) PlayList(ctx context.Context, dev store.Device, list string, ids []int64, start int64) (store.TakeoverRun, error) {
 	order := slices.Clone(ids)
 	ids = slices.Clone(ids)
-	if d.PlayMode(ctx, dev.DeviceID) != ModeLoop {
-		rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+	at := 0
+	if start != 0 {
+		at = slices.Index(ids, start)
+		if at < 0 {
+			return store.TakeoverRun{}, ErrMoved
+		}
 	}
-	for i, id := range ids[:min(10, len(ids))] {
+	if d.PlayMode(ctx, dev.DeviceID) == ModeShuffle {
+		if start != 0 {
+			ids[0], ids[at] = ids[at], ids[0]
+			rest := ids[1:]
+			rand.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] })
+			at = 0
+		} else {
+			rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+		}
+	}
+	tries := min(10, len(ids))
+	if start != 0 {
+		tries = 1
+	}
+	for i, id := range ids[at : at+tries] {
 		rt, ok := d.Next(id, list)
 		if !ok {
 			continue
 		}
-		q := &queue{dev: dev.DeviceID, hardware: dev.Hardware, list: list, ids: ids, pos: i, order: order, web: true}
+		q := &queue{dev: dev.DeviceID, hardware: dev.Hardware, list: list, ids: ids, pos: at + i, order: order, web: true}
 		return d.push(ctx, dev, rt, func() func(End) { return d.follow(q) })
 	}
 	return store.TakeoverRun{}, errors.New(list + "里的歌暂时读不到")
@@ -544,8 +612,21 @@ func (d *Dispatcher) Push(ctx context.Context, dev store.Device, rt *routing.Rou
 	return d.push(ctx, dev, rt, func() func(End) { return d.After(dev.DeviceID, dev.Hardware, rt.TrackID, rt, true) })
 }
 
+func (d *Dispatcher) lockStart(dev string) func() {
+	lock, _ := d.startLocks.LoadOrStore(dev, &sync.Mutex{})
+	mu := lock.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 func (d *Dispatcher) push(ctx context.Context, dev store.Device, rt *routing.Route, ended func() func(End)) (store.TakeoverRun, error) {
-	d.Halt(dev.DeviceID) // it wins over what is being prepared
+	return d.pushAt(ctx, dev, rt, ended, 0, false)
+}
+
+func (d *Dispatcher) pushAt(ctx context.Context, dev store.Device, rt *routing.Route, ended func() func(End), at time.Duration, handoff bool) (store.TakeoverRun, error) {
+	if err := ctx.Err(); err != nil {
+		return store.TakeoverRun{}, err
+	}
 	tr := d.Live.Begin(live.Flow{Kind: "push", DeviceID: dev.DeviceID, Device: d.name(dev.DeviceID), Said: rt.Label()})
 	t, ok, err := d.TrackOf(rt, tr)
 	if err == nil && !ok {
@@ -555,9 +636,31 @@ func (d *Dispatcher) push(ctx context.Context, dev store.Device, rt *routing.Rou
 		tr.Done("准备音频失败")
 		return store.TakeoverRun{}, err
 	}
+	var actual time.Duration
+	if at > 0 {
+		if !t.Seekable || t.Resume == nil {
+			tr.Done("歌曲不能定位")
+			return store.TakeoverRun{}, ErrCannotSeek
+		}
+		var next Track
+		next, actual, err = t.Resume(ctx, at)
+		if err != nil {
+			tr.Done("准备接续音频失败")
+			return store.TakeoverRun{}, err
+		}
+		// The cut stream provides the initial bytes; further seeks still address the original song.
+		t.URL, t.Fetched, t.Restarted, t.Lost = next.URL, next.Fetched, next.Restarted, next.Lost
+	}
+	unlock := d.lockStart(dev.DeviceID)
+	defer unlock()
+	if err := ctx.Err(); err != nil {
+		tr.Done("有了更新的播放请求")
+		return store.TakeoverRun{}, err
+	}
+	d.Halt(dev.DeviceID) // prepared successfully; it wins over the prior queue
 	d.Remember(dev.DeviceID, rt.Title, rt.Artist, rt.TrackID)
 	song := &store.Song{TrackID: rt.TrackID, Title: rt.Title, Artist: rt.Artist, Album: rt.Album, Cover: rt.Cover, DurationMS: rt.DurationMS, List: rt.List}
-	run, err := d.Engine.Start(ctx, Request{DeviceID: dev.DeviceID, Hardware: dev.Hardware, Kind: "push", Track: t, Song: song, Trace: tr, Ended: ended()})
+	run, err := d.Engine.Start(ctx, Request{DeviceID: dev.DeviceID, Hardware: dev.Hardware, Kind: "push", Track: t, StartAt: actual, Song: song, Trace: tr, Ended: ended(), Handoff: handoff})
 	if err != nil {
 		d.Drop(dev.DeviceID)
 		tr.Done("没能开始")
@@ -599,7 +702,7 @@ func (d *Dispatcher) step(q *queue, by int) (*routing.Route, bool) {
 	if !back {
 		d.more(q)
 	}
-	shuffled := d.PlayMode(context.Background(), q.dev) != ModeLoop
+	shuffled := d.PlayMode(context.Background(), q.dev) == ModeShuffle
 	d.mu.Lock()
 	was, n := q.ids[q.pos], len(q.ids)
 	d.mu.Unlock()
@@ -611,9 +714,10 @@ func (d *Dispatcher) step(q *queue, by int) (*routing.Route, bool) {
 			by = 1 // if the first song cannot be read, the one after it
 		}
 		if q.pos >= len(q.ids) {
-			if shuffled {
+			if shuffled && !q.keepOrder {
 				rand.Shuffle(len(q.ids), func(i, j int) { q.ids[i], q.ids[j] = q.ids[j], q.ids[i] })
 			}
+			q.keepOrder = false
 			q.pos = 0
 		}
 		id := q.ids[q.pos]
@@ -635,7 +739,7 @@ func (d *Dispatcher) advance(q *queue, n int) {
 	defer q.move.Unlock()
 	d.mu.Lock()
 	moved := d.queues[q.dev] != q || q.turn != n
-	id, until, fails := q.ids[q.pos], q.until, q.fails
+	id, until, fails, web := q.ids[q.pos], q.until, q.fails, q.web
 	d.mu.Unlock()
 	if moved {
 		return
@@ -645,7 +749,7 @@ func (d *Dispatcher) advance(q *queue, n int) {
 		d.Log.Info("连播　结束", "说明", why)
 	}
 	dev, err := d.Store.Device(ctx, q.dev)
-	if err != nil || dev.Mode == store.ModeOff || !dev.InAccount || !q.web && (dev.Mode != store.ModeTakeover || !d.Allowed(q.dev)) {
+	if err != nil || dev.Mode == store.ModeOff || !dev.InAccount || !web && (dev.Mode != store.ModeTakeover || !d.Allowed(q.dev)) {
 		end("音箱不再接管")
 		return
 	}
@@ -666,11 +770,12 @@ func (d *Dispatcher) advance(q *queue, n int) {
 	}
 	d.mu.Lock()
 	q.aside = false
+	solo, count := q.solo, len(q.ids)
 	d.mu.Unlock()
-	if d.PlayMode(ctx, q.dev) == ModeOne && (q.solo || fails == 0) {
+	if d.PlayMode(ctx, q.dev) == ModeOne && (solo || fails == 0) {
 		rt, ok = d.song(q, id)
 	}
-	if !ok && q.solo {
+	if !ok && (solo || web && count == 1) {
 		d.finished(q, n)
 		return
 	}
@@ -703,6 +808,8 @@ func (d *Dispatcher) play(ctx context.Context, q *queue, rt *routing.Route, over
 		tr.Done("准备音频失败")
 		return errors.New("准备音频失败：" + err.Error())
 	}
+	unlock := d.lockStart(q.dev)
+	defer unlock()
 	if d.queued(q.dev) != q {
 		tr.Done("有了更新的口令")
 		return ErrNoQueue
@@ -809,4 +916,47 @@ func skipped(q *queue) string {
 		return "放的是单曲，切到别的歌"
 	}
 	return q.list + "正在连播"
+}
+
+// Snapshot captures the currently sounding local recording and the future queue.
+func (d *Dispatcher) Snapshot(dev string, current int64) ([]int64, int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	q := d.queues[dev]
+	if q == nil || q.pos >= len(q.ids) {
+		return []int64{current}, 0
+	}
+	var ids []int64
+	for _, id := range q.ids[:q.pos] {
+		if id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	at := len(ids)
+	ids = append(ids, current)
+	for _, w := range q.wishes {
+		if w.Track > 0 {
+			ids = append(ids, w.Track)
+		}
+	}
+	for _, id := range q.ids[q.pos+1:] {
+		if id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids, at
+}
+
+// Receive keeps the incoming order and starts the selected occurrence at a measured offset.
+func (d *Dispatcher) Receive(ctx context.Context, dev store.Device, ids []int64, index int, at time.Duration) (store.TakeoverRun, error) {
+	const list = "接力播放"
+	if index < 0 || index >= len(ids) {
+		return store.TakeoverRun{}, ErrMoved
+	}
+	rt, ok := d.Next(ids[index], list)
+	if !ok {
+		return store.TakeoverRun{}, ErrNoSong
+	}
+	q := &queue{dev: dev.DeviceID, hardware: dev.Hardware, list: list, ids: slices.Clone(ids), pos: index, web: true, solo: len(ids) == 1}
+	return d.pushAt(ctx, dev, rt, func() func(End) { return d.follow(q) }, at, true)
 }

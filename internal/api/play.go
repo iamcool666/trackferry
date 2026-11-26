@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -45,13 +47,15 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request) (store.Device, b
 // play sends a list, or an online song, to a speaker.
 func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Source string `json:"source"` // favorites | playlist | artist | album | online
-		ID     string `json:"id"`     // the playlist, album or online song
-		Name   string `json:"name"`   // the artist
-		Track  int64  `json:"track_id"`
-		Title  string `json:"title"`
-		Artist string `json:"artist"`
-		Next   bool   `json:"next"` // after the song that is on
+		Source string  `json:"source"` // favorites | playlist | artist | album | picks | track | online
+		ID     string  `json:"id"`     // the playlist, album or online song
+		Name   string  `json:"name"`   // the artist
+		Track  int64   `json:"track_id"`
+		Tracks []int64 `json:"track_ids"` // the discovery draw already on screen
+		Title  string  `json:"title"`
+		Artist string  `json:"artist"`
+		Next   bool    `json:"next"` // after the song that is on
+		Last   bool    `json:"last"` // add a library song at the end of the queue
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -60,23 +64,26 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if req.Last && (req.Next || req.Source != "track") {
+		writeError(w, http.StatusBadRequest, "bad_source", "只有曲库歌曲可以放到队尾")
+		return
+	}
+	if req.Source == "track" {
+		rt, ok := s.Router.Next(req.Track, "")
+		if !ok {
+			writeError(w, http.StatusNotFound, "no_track", "这首歌暂时读不到")
+			return
+		}
+		if (req.Next || req.Last) && s.Dispatcher.QueueTrack(d.DeviceID, req.Track, req.Next) {
+			writeJSON(w, http.StatusOK, map[string]bool{"queued": true})
+			return
+		}
+		s.answerRun(w, d)(s.Dispatcher.Push(r.Context(), d, rt))
+		return
+	}
 	if req.Next {
 		w0 := takeover.Wish{Title: req.Title, Artist: req.Artist}
 		switch req.Source {
-		case "track":
-			rt, ok := s.Router.Next(req.Track, "")
-			if !ok {
-				writeError(w, http.StatusNotFound, "no_audio", "这首歌暂时读不到")
-				return
-			}
-			w0.Track, w0.Title, w0.Artist = rt.TrackID, rt.Title, rt.Artist
-			w0.Route = func(context.Context) (*routing.Route, error) {
-				rt, ok := s.Router.Next(req.Track, "")
-				if !ok {
-					return nil, errors.New("暂时读不到")
-				}
-				return rt, nil
-			}
 		case "online":
 			w0.Route = func(ctx context.Context) (*routing.Route, error) {
 				f, err := s.Router.Online.Take(ctx, req.ID)
@@ -125,18 +132,30 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		s.answerRun(w, d)(s.Dispatcher.Push(r.Context(), d, routing.FromOnline(found)))
 		return
 	}
-	list, ids, ok := s.collect(w, r, req.Source, req.ID, req.Name)
+	list, ids, ok := s.collect(w, r, req.Source, req.ID, req.Name, req.Tracks)
 	if !ok {
 		return
 	}
-	s.answerRun(w, d)(s.Dispatcher.PlayList(r.Context(), d, list, ids))
+	if req.Track != 0 && !slices.Contains(ids, req.Track) {
+		writeError(w, http.StatusConflict, "track_moved", "这首已不在播放列表里，刷新后再试")
+		return
+	}
+	s.answerRun(w, d)(s.Dispatcher.PlayList(r.Context(), d, list, ids, req.Track))
 }
 
 // collect lists the songs of something that can be played through.
-func (s *Server) collect(w http.ResponseWriter, r *http.Request, source, id, name string) (list string, ids []int64, ok bool) {
+func (s *Server) collect(w http.ResponseWriter, r *http.Request, source, id, name string, picks []int64) (list string, ids []int64, ok bool) {
+	return s.collectTracks(w, r, source, id, name, picks, true)
+}
+
+func (s *Server) collectTracks(w http.ResponseWriter, r *http.Request, source, id, name string, picks []int64, deduplicate bool) (list string, ids []int64, ok bool) {
 	switch source {
 	case "favorites":
-		list, ids = "我的收藏", s.Library.FavoriteIDs()
+		list = "我的收藏"
+		tracks, _ := s.Library.Favorites(0, math.MaxInt)
+		for _, t := range tracks {
+			ids = append(ids, t.ID)
+		}
 	case "playlist":
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
@@ -147,16 +166,41 @@ func (s *Server) collect(w http.ResponseWriter, r *http.Request, source, id, nam
 		}
 		list, ids = "歌单“"+got+"”", all
 	case "artist":
-		list, ids = name+"的歌", s.Library.ArtistIDs(name)
+		list = name + "的歌"
+		for _, t := range s.Library.ArtistTracks(name, math.MaxInt) {
+			ids = append(ids, t.ID)
+		}
 	case "album":
 		a, ts := s.Library.AlbumTracks(id)
 		list = "专辑“" + a.Name + "”"
 		for _, t := range ts {
 			ids = append(ids, t.ID)
 		}
+	case "picks":
+		if len(picks) > 12 {
+			writeError(w, http.StatusBadRequest, "bad_list", "随手翻到的最多 12 首")
+			return
+		}
+		list = "随手翻到的"
+		for _, id := range picks {
+			if _, ok := s.Library.Track(id); ok {
+				ids = append(ids, id)
+			}
+		}
 	default:
-		writeError(w, http.StatusBadRequest, "bad_source", "source 只能是 favorites、playlist、artist、album 或 online")
+		writeError(w, http.StatusBadRequest, "bad_source", "不支持这种播放来源")
 		return
+	}
+	if deduplicate {
+		seen := make(map[int64]bool, len(ids))
+		unique := make([]int64, 0, len(ids))
+		for _, id := range ids {
+			if !seen[id] {
+				unique = append(unique, id)
+				seen[id] = true
+			}
+		}
+		ids = unique
 	}
 	if len(ids) == 0 {
 		writeError(w, http.StatusNotFound, "empty", list+"里没有可放的歌")
@@ -270,7 +314,7 @@ func (s *Server) libraryPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ts := []store.TrackRow{}
-	for _, id := range ids[:min(500, len(ids))] {
+	for _, id := range ids {
 		if t, ok := s.Library.Track(id); ok {
 			ts = append(ts, t)
 		}

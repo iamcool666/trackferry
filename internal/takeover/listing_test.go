@@ -13,6 +13,9 @@ func TestListingJumpAndRemove(t *testing.T) {
 	d, sp, q, asked := queueSetup(t)
 	ctx := context.Background()
 	q.ids, q.order, q.pos = []int64{1, 2, 5, 4}, []int64{1, 2, 4, 5}, 1
+	if err := d.Store.SetSetting(ctx, settingMode+"d1", ModeShuffle); err != nil {
+		t.Fatal(err)
+	}
 	songs := func() (out []int64) {
 		l, _ := d.Listing(ctx, "d1")
 		for _, s := range l.Songs {
@@ -64,7 +67,7 @@ func TestWishesCanBePickedAndTakenBack(t *testing.T) {
 	d, sp, q, _ := queueSetup(t)
 	ctx := context.Background()
 	var took []string
-	for _, n := range []string{"甲", "乙", "丙"} {
+	for _, n := range []string{"丙", "乙", "甲"} {
 		if ok, err := d.Want("d1", Wish{Title: n, Route: func(context.Context) (*routing.Route, error) {
 			took = append(took, n)
 			return routing.ForTest(n, "人"), nil
@@ -87,5 +90,23 @@ func TestWishesCanBePickedAndTakenBack(t *testing.T) {
 	}
 	if l, _ = d.Listing(ctx, "d1"); len(l.Wishes) != 1 || l.Wishes[0].Title != "乙" || !l.Aside {
 		t.Fatalf("%+v", l)
+	}
+}
+
+func TestRemoveCurrentContinuesThroughPendingWish(t *testing.T) {
+	d, speaker, queue, requested := queueSetup(t)
+	queue.ids, queue.order = []int64{1, 2, 4}, []int64{1, 2, 4}
+	ctx := context.Background()
+	if accepted, err := d.Want("d1", Wish{Title: "插播", Route: func(context.Context) (*routing.Route, error) {
+		return routing.ForTest("插播", "歌手"), nil
+	}}); err != nil || !accepted {
+		t.Fatal(accepted, err)
+	}
+	if err := d.RemoveCurrent(ctx, "d1"); err != nil || !slices.Equal(queue.ids, []int64{2, 4}) || speaker.last().Song.Title != "插播" {
+		t.Fatal(err, queue.ids)
+	}
+	speaker.last().Ended(EndPlayed)
+	if !slices.Equal(*requested, []int64{2}) {
+		t.Fatal(*requested)
 	}
 }

@@ -1,9 +1,9 @@
 import { flushSync } from 'react-dom';
 
-export type Page = 'welcome' | 'home' | 'search' | 'flow' | 'say' | 'library' | 'speakers' | 'account' | 'more';
+export type Page = 'welcome' | 'home' | 'search' | 'flow' | 'say' | 'library' | 'speakers' | 'account' | 'more' | 'tv';
 export interface Place { page: Page; kind?: 'album' | 'artist' | 'playlist' | 'favorites' | 'playlists' | 'missing'; id?: string }
 
-const pages: Page[] = ['welcome', 'home', 'search', 'flow', 'say', 'library', 'speakers', 'account', 'more'];
+const pages: Page[] = ['welcome', 'home', 'search', 'flow', 'say', 'library', 'speakers', 'account', 'more', 'tv'];
 
 export function readPlace(): Place | null {
   const [p, kind, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
@@ -13,6 +13,7 @@ export function readPlace(): Place | null {
     try { return { page, kind, id: decodeURIComponent(rest.join('/')) }; } catch { return { page }; }
   }
   if (page === 'library' && (kind === 'missing' || kind === 'favorites' || kind === 'playlists')) return { page, kind };
+  if (page === 'tv' && /^[a-f0-9]{32}$/.test(kind ?? '')) return { page: 'home', id: kind };
   if (page === 'flow' && /^r?\d+$/.test(kind ?? '')) return { page, id: kind };
   return { page };
 }

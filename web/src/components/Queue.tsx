@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError, type Coming, type Device, type PlayMode, type Queue as Q } from '../api';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { api, ApiError, type Coming, type Device, type PlayMode, type Queue as Q, type TVCommand, type TVOutput, type TVTrack } from '../api';
 import { deviceTitle, length } from '../copy';
 import { here, hereName, hereSong, useHere } from '../here';
 import { onDeck, songOf, useLive } from '../live';
@@ -7,7 +7,7 @@ import { Cover } from './Cover';
 import { icons, playModes } from './Deck';
 import { Sheet } from './Sheet';
 
-interface Row { key: string; title: string; artist: string; cover?: string; duration_ms?: number }
+interface Row { key: string; title: string; artist: string; cover?: string; duration_ms?: number; automatic?: boolean }
 
 /** Comes near the end of what is shown: more is asked for. */
 function End({ onSeen }: { onSeen: () => void }) {
@@ -22,29 +22,32 @@ function End({ onSeen }: { onSeen: () => void }) {
   return <li className="q-end" ref={box}><span className="spinner spinner-tiny" /></li>;
 }
 
-function Songs({ rows, busy, onPlay, onRemove }: { rows: Row[]; busy: string; onPlay: (r: Row) => void; onRemove: (r: Row) => void }) {
+function Songs({ rows, busy, onPlay, onRemove, order }: { rows: Row[]; busy: string; onPlay: (r: Row) => void; onRemove: (r: Row) => void; order?: (row: Row) => ReactNode }) {
   return <>{rows.map((r) => (
     <li key={r.key} className={busy === r.key ? 'q-busy' : ''}>
-      <button type="button" className="q-song" disabled={!!busy} onClick={() => onPlay(r)} aria-label={`现在放${r.title}`}><Cover cover={r.cover} title={r.title} artist={r.artist} /><span><b>{r.title}</b><small>{[r.artist, length(r.duration_ms)].filter(Boolean).join('　')}</small></span></button>
+      <button type="button" className="q-song" disabled={!!busy} onClick={() => onPlay(r)} aria-label={`现在放${r.title}`}><Cover cover={r.cover} title={r.title} artist={r.artist} /><span><b>{r.title}</b><small>{[r.artist, length(r.duration_ms), r.automatic && '自动续播'].filter(Boolean).join('　')}</small></span></button>
+      {order?.(r)}
       <button type="button" className="q-x" disabled={!!busy} onClick={() => onRemove(r)} aria-label={`移出${r.title}`}>{busy === r.key ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>}</button>
     </li>
   ))}</>;
 }
 
 /** What is on, what comes, and the way out of either. */
-function Frame({ where, list, mode, now, onRemoveNow, wishes, songs, total, busy, error, loading, lost, playing, onPlay, onRemove, onMore, onStop, onClose }: {
-  where: string; list: string; mode: PlayMode | ''; now: Row | null; onRemoveNow: () => void; wishes: Row[]; songs: Row[]; total: number; busy: string; error: string | null; loading: boolean; lost?: boolean; playing: boolean;
+function Frame({ where, list, mode, now, onRemoveNow, wishes, songs, total, busy, error, loading, lost, playing, onPlay, onRemove, onMore, onStop, onClose, tools, order }: {
+  where: string; list: string; mode: PlayMode | ''; now: Row | null; onRemoveNow?: () => void; wishes: Row[]; songs: Row[]; total: number; busy: string; error: string | null; loading: boolean; lost?: boolean; playing: boolean;
   onPlay: (r: Row) => void; onRemove: (r: Row) => void; onMore?: () => void; onStop: () => void; onClose: () => void;
+  tools?: ReactNode; order?: (row: Row) => ReactNode;
 }) {
   return (
     <Sheet title="播放列表" onClose={onClose}>
       <div className="q">
         <p className="q-of"><span>{[where, list].filter(Boolean).join('　')}</span><span className="num">{[mode && playModes[mode].name, total ? `${total} 首` : ''].filter(Boolean).join('　')}</span></p>
+        {tools}
         {error && <p className="field-error" role="alert">{error}</p>}
         {now && <ol className="q-now"><li className={busy === 'now' ? 'q-busy' : ''}><span className="q-song"><Cover cover={now.cover} title={now.title} artist={now.artist} />{playing && <em className="eq" aria-hidden="true"><u /><u /><u /></em>}<span><b>{now.title}</b><small>{now.artist}</small></span></span>
-          <button type="button" className="q-x" disabled={!!busy} onClick={onRemoveNow} aria-label={`移出${now.title}，放下一首`}>{busy === 'now' ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>}</button></li></ol>}
+          {onRemoveNow && <button type="button" className="q-x" disabled={!!busy} onClick={onRemoveNow} aria-label={`移出${now.title}，放下一首`}>{busy === 'now' ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>}</button>}</li></ol>}
         {wishes.length > 0 && <><h3>下一首放</h3><ol><Songs rows={wishes} busy={busy} onPlay={onPlay} onRemove={onRemove} /></ol></>}
-        {songs.length > 0 && <><h3>接下来</h3><ol><Songs rows={songs} busy={busy} onPlay={onPlay} onRemove={onRemove} />{onMore && <End onSeen={onMore} />}</ol></>}
+        {songs.length > 0 && <><h3>接下来</h3><ol><Songs rows={songs} busy={busy} onPlay={onPlay} onRemove={onRemove} order={order} />{onMore && <End onSeen={onMore} />}</ol></>}
         {loading && <p className="center"><span className="spinner" /></p>}
         {!loading && !lost && !now && !wishes.length && !songs.length && <p className="q-none">没有在放的歌</p>}
         {!loading && !lost && now && !wishes.length && !songs.length && <p className="q-none">后面没有歌了</p>}
@@ -114,9 +117,32 @@ const STEP = 60;
 export function HereQueue({ onClose }: { onClose: () => void }) {
   const h = useHere();
   const [n, setN] = useState(STEP);
+  const [editing, setEditing] = useState(false);
   const on = hereSong(h);
-  // In order it goes round; one that is repeated has the same songs after it.
-  const rest = h.mode === 'shuffle' ? h.songs.slice(h.i + 1) : [...h.songs.slice(h.i + 1), ...h.songs.slice(0, h.i)];
+  const pending = h.songs.slice(h.i + 1);
+  const rest = h.mode === 'loop' && !editing ? [...pending, ...h.songs.slice(0, h.i)] : pending;
   return <Frame where={hereName} list={h.list} mode={h.mode} total={h.songs.length} busy="" error={null} loading={false} playing={h.on} now={on} wishes={[]} songs={rest.slice(0, n)}
+    tools={<div className="q-tools"><label><input type="checkbox" checked={h.autoplay} onChange={(event) => here.autoplay(event.target.checked)} /> 自动续播</label>{pending.length > 1 && <button type="button" aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? '完成排序' : '调整顺序'}</button>}{h.songs.length > 1 && <button type="button" onClick={() => { here.clearUpcoming(); setEditing(false); }}>仅保留当前曲目</button>}</div>}
+    order={editing ? (row) => {
+      const at = pending.findIndex((item) => item.key === row.key);
+      return <span className="q-order"><button type="button" disabled={at <= 0} aria-label={`上移${row.title}`} onClick={() => here.moveUpcoming(row.key, -1)}>↑</button><button type="button" disabled={at >= pending.length - 1} aria-label={`下移${row.title}`} onClick={() => here.moveUpcoming(row.key, 1)}>↓</button></span>;
+    } : undefined}
     onRemoveNow={() => on && here.remove(on.key)} onPlay={(r) => here.jump(r.key)} onRemove={(r) => here.remove(r.key)} onMore={rest.length > n ? () => setN((x) => x + STEP) : undefined} onStop={here.stop} onClose={onClose} />;
+}
+
+export function TVQueue({ device, items, error, busy, send, onClose }: {
+  device: TVOutput; items: TVTrack[] | undefined; error: string | null; busy: string;
+  send: (command: TVCommand, key?: string) => void; onClose: () => void;
+}) {
+  const [n, setN] = useState(STEP);
+  const p = device.playback;
+  const rows = (items ?? []).map((item, index) => ({ ...item, key: String(index) }));
+  const pending = rows.slice(p.index + 1);
+  const songs = p.mode === 'one' ? pending : [...pending, ...rows.slice(0, p.index)];
+  const now = rows[p.index] ?? (p.current.title ? { key: 'now', title: p.current.title, artist: p.current.artist ?? '' } : null);
+  return <Frame where={device.name} list="" mode={p.mode} total={p.count} busy={busy} error={error}
+    loading={p.count > 0 && !items && !error} lost={!items && !!error} playing={p.phase === 'playing'} now={now} wishes={[]} songs={songs.slice(0, n)}
+    onPlay={(row) => send({ action: 'jump', index: Number(row.key) }, row.key)}
+    onRemove={(row) => send({ action: 'remove', index: Number(row.key) }, row.key)}
+    onMore={songs.length > n ? () => setN((x) => x + STEP) : undefined} onStop={() => send({ action: 'stop' })} onClose={onClose} />;
 }

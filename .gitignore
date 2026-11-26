@@ -14,3 +14,8 @@ data/
 *.private.json
 *.sqlite*
 .DS_Store
+/android-tv/.gradle/
+/android-tv/.kotlin/
+/android-tv/.idea/
+/android-tv/local.properties
+/android-tv/**/build/

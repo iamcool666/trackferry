@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, ApiError, type Album, type Artist, type Device, type OnlineSong, type Sendable, type Track } from '../api';
+import { api, ApiError, type Album, type Artist, type Collection, type Device, type OnlineSong, type Track } from '../api';
 import { AddToSheet } from '../components/AddTo';
 import { Cover } from '../components/Cover';
 import { Heart } from '../components/Heart';
@@ -10,11 +10,14 @@ import { SourceIcon } from '../components/SourceIcon';
 import { SpeakerChip } from '../components/SpeakerChip';
 import { useToast } from '../components/Toast';
 import { deviceTitle, length, singer } from '../copy';
-import { connected, HERE, lookAt, useTarget } from '../ear';
-import { hereName, hereSong, listHere, onlineHere, playHere, trackHere, useHere } from '../here';
+import { connected, HERE } from '../ear';
+import { useTarget } from '../outputs';
+import { hereSong, onlineHere, trackHere, useHere } from '../here';
 import { onDeck, songOf, useLive } from '../live';
 import type { Place } from '../nav';
+import { playOn } from '../playback';
 import { stopLabel } from '../route';
+import { activeTV, useTVOutputs } from '../tv';
 import { useBackdrop } from '../stage/Stage';
 
 type Nav = (p: Place, from?: Element | null) => void;
@@ -42,6 +45,9 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
   useBackdrop();
   const [target, setTarget] = useTarget(devices);
   const speaker = connected(devices).find((d) => d.device_id === target);
+  const tvs = useTVOutputs();
+  const tv = activeTV(target);
+  const output = tv?.name ?? (speaker ? deviceTitle(speaker) : undefined);
   const { flows } = useLive();
   const mine = hereSong(useHere());
   const [q, setQ] = useState(keptQ);
@@ -90,29 +96,16 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
     write(SENT, next);
     if (key) { const w = [key, ...words.filter((x) => x !== key)].slice(0, 12); setWords(w); write(WORDS, w); }
   };
-  const play = async (s: Song, how: 'now' | 'next' = 'now', dev = target) => {
-    if (dev === HERE) {
-      playHere(s.track ? trackHere(s.track) : onlineHere(s.online!), how);
-      if (how === 'next') say({ tone: 'ok', text: `《${s.title}》排在下一首` });
-      remember(s);
-      return;
-    }
-    const d = connected(devices).find((x) => x.device_id === dev);
-    if (!d) { say({ tone: 'bad', text: '没有接入的音箱，先到音箱页接入一台' }); return; }
+  const play = async (s: Song, how: 'now' | 'next' | 'last' = 'now') => {
     if (busy) return;
     setBusy(s.key);
-    (document.activeElement as HTMLElement | null)?.blur();
     try {
-      const what: Sendable = s.track ? { source: 'track', track_id: s.track.id, title: s.title } : { source: 'online', id: s.key, title: s.title };
-      if (how === 'next') {
-        const r = await api.playNext(dev, what);
-        say({ tone: 'ok', text: r.queued ? `《${s.title}》排在下一首` : `已送往${deviceTitle(d)}` });
-      } else {
-        await (s.track ? api.playTrack(dev, s.track.id) : api.play(dev, what));
-        say({ tone: 'ok', text: `已送往${deviceTitle(d)}` });
-      }
-      lookAt(dev);
-      remember(s);
+      const result = await playOn(target, s.track
+        ? { single: { source: 'track', track_id: s.track.id }, song: trackHere(s.track) }
+        : { single: { source: 'online', id: s.key, title: s.title, artist: s.artist }, song: onlineHere(s.online!) }, how);
+      if (result === 'queued') say({ tone: 'ok', text: `《${s.title}》已排到${how === 'next' ? '下一首' : '队尾'}` });
+      else if (result === 'started' && output) say({ tone: 'ok', text: tv ? `${output} 已确认播放` : `已送往${output}` });
+      if (result) remember(s);
     } catch (e) {
       const x = e as ApiError;
       if (x.code === 'gone' || x.code === 'no_track') look(`${s.title} ${s.artist}`.trim());
@@ -121,19 +114,15 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
       setBusy('');
     }
   };
-  const send = async (what: Sendable, name: string) => {
-    if (target === HERE) {
-      setBusy(name);
-      try { await listHere(what); } catch (e) { say({ tone: 'bad', text: (e as Error).message }); } finally { setBusy(''); }
-      return;
-    }
-    if (!speaker) { say({ tone: 'bad', text: '没有接入的音箱，先到音箱页接入一台' }); return; }
+  const send = async (collection: Collection, name: string) => {
     setBusy(name);
-    try { await api.play(target, what); lookAt(target); say({ tone: 'ok', text: `${name}已送往${deviceTitle(speaker)}` }); } catch (e) { say({ tone: 'bad', text: (e as ApiError).message }); } finally { setBusy(''); }
+    try {
+      if (await playOn(target, { collection }) && output) say({ tone: 'ok', text: `${name}已送往${output}` });
+    } catch (e) { say({ tone: 'bad', text: (e as Error).message }); } finally { setBusy(''); }
   };
 
   const on = target && target !== HERE ? onDeck(flows, target) : null;
-  const song = target === HERE ? mine : on && songOf(on);
+  const song = target === HERE ? mine : tv ? { ...tv.playback.current, track_id: tv.playback.current.id } : on && songOf(on);
   const sounds = (s: Song) => !!song && (s.track ? song.track_id === s.track.id : !song.track_id && low(song.title ?? '') === low(s.title) && low(song.artist ?? '') === low(s.artist));
 
   const tracks = found?.tracks ?? [];
@@ -163,7 +152,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
   return (
     <div className="search">
       <div className="search-top">
-        <header><h1>搜索</h1><SpeakerChip devices={devices} value={target} onChange={setTarget} title="送到哪里" /></header>
+        <header><h1>搜索</h1><SpeakerChip devices={devices} value={target} onChange={setTarget} title="播放到" showTitle televisions /></header>
         <form role="search" className="search-box glass" onSubmit={(e) => { e.preventDefault(); ask(); if (fresh && !tracks.length) setSide('online'); input.current?.blur(); }}>
           <svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><circle cx="8.5" cy="8.5" r="6" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M13 13l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           <input ref={input} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="歌名、歌手、专辑" enterKeyHint="search" autoComplete="off" autoCorrect="off" aria-label="搜索曲库和在线源" maxLength={100} />
@@ -208,14 +197,15 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
       )}
 
       {more && (
-        <Sheet title={more.title} onClose={() => setMore(null)}>
+        <Sheet title={more.title} className="track-menu-sheet" onClose={() => setMore(null)}>
           <p className="sheet-by">{[more.artist, more.track ? length(more.track.duration_ms) : more.online && `${stopLabel[more.online.source]}　${length(more.online.duration_ms)}`].filter(Boolean).join('　')}{more.track && <Heart trackID={more.track.id} title={more.title} />}</p>
-          {connected(devices).length > 0 && <div className="send-to" role="radiogroup" aria-label="放在哪里"><button type="button" role="radio" aria-checked={target === HERE} onClick={() => setTarget(HERE)}>{hereName}</button>{connected(devices).map((d) => <button key={d.device_id} type="button" role="radio" aria-checked={d.device_id === target} onClick={() => setTarget(d.device_id)}>{deviceTitle(d)}</button>)}</div>}
+          {(connected(devices).length > 0 || tvs.some((item) => item.online)) && <div className="track-menu-output"><SpeakerChip devices={devices} value={target} onChange={setTarget} title="播放到" showTitle televisions inline /></div>}
           <div className="send">
             <button type="button" onClick={() => { play(more); setMore(null); }}><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M8 5.2v13.6L19 12z" /></svg>现在放</button>
             <button type="button" onClick={() => { play(more, 'next'); setMore(null); }}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 7h10M4 12h7M4 17h7M15 11.5v7l5.5-3.5z" /></svg>下一首放</button>
           </div>
           <div className="picks plain">
+            {more.track && <button type="button" onClick={() => { play(more, 'last'); setMore(null); }}><i><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M4 6h16M4 11h16M4 16h6M17 14v7M13.5 17.5h7" /></svg></i><span><b>放到队尾</b></span></button>}
             {more.track && <button type="button" onClick={() => { setAdding(more.track!); setMore(null); }}><i><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M2 4.5h13M2 10h9M2 15.5h7M15.5 10.5v8M11.5 14.5h8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg></i><span><b>加入歌单</b></span></button>}
             {more.track?.album_id && <button type="button" onClick={() => { setMore(null); navigate({ page: 'library', kind: 'album', id: more.track!.album_id! }); }}><i><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="2.4" /></svg></i><span><b>看专辑</b><small>{more.track.album}</small></span></button>}
             {more.artist && <button type="button" onClick={() => { const s = more; setMore(null); if (s.track) navigate({ page: 'library', kind: 'artist', id: s.track.artist }); else look(s.artist); }}><i><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4.5 20c1-4.4 4-6 7.5-6s6.5 1.6 7.5 6" /></svg></i><span><b>{more.track ? '看歌手' : '搜这位歌手'}</b><small>{more.artist}</small></span></button>}

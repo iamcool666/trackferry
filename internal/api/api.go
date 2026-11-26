@@ -2,7 +2,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -31,6 +30,7 @@ import (
 	"trackferry/internal/store"
 	"trackferry/internal/stream"
 	"trackferry/internal/takeover"
+	"trackferry/internal/tv"
 	"trackferry/internal/update"
 	"trackferry/internal/xiaomi"
 )
@@ -43,6 +43,7 @@ type Build struct {
 
 // Options holds everything the handlers need.
 type Options struct {
+	TV            *tv.Pairer // optional, enabled with the TV TLS listener
 	Config        config.Config
 	Store         *store.Store
 	Token         string // bearer token for scripts
@@ -115,6 +116,17 @@ func (s *Server) Handler() http.Handler {
 	authed := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.auth(h)) }
 	authed("POST /api/password", s.changePassword)
 	authed("GET /api/status", s.status)
+	if s.TV != nil {
+		authed("GET /api/tv/devices", s.tvDevices)
+		authed("POST /api/tv/devices", s.tvApprove)
+		authed("PUT /api/tv/devices/{id}", s.tvRename)
+		authed("DELETE /api/tv/devices/{id}", s.tvRevoke)
+		authed("GET /api/tv/outputs", s.tvOutputs)
+		authed("GET /api/tv/outputs/{id}/snapshot", s.tvSnapshot)
+		authed("POST /api/tv/outputs/{id}/commands", s.tvCommand)
+		authed("GET /api/tv/outputs/{id}/commands/{command}", s.tvCommandStatus)
+		authed("DELETE /api/tv/outputs/{id}/commands/{command}", s.tvCommandCancel)
+	}
 	if s.Update != nil {
 		authed("GET /api/update", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.Update.Status()) })
 		authed("POST /api/update", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.Update.Check(r.Context())) })
@@ -171,6 +183,11 @@ func (s *Server) Handler() http.Handler {
 	if s.Dispatcher != nil {
 		authed("POST /api/devices/{id}/play", s.play)
 		authed("GET /api/devices/{id}/queue", s.queue)
+		if s.Engine != nil && s.Live != nil {
+			authed("GET /api/devices/{id}/handoff", s.speakerSnapshot)
+			authed("POST /api/devices/{id}/handoff", s.speakerReceive)
+			authed("POST /api/devices/{id}/handoff/pause", s.speakerPauseRun)
+		}
 		authed("POST /api/devices/{id}/queue", s.queueChange)
 	}
 	if s.Engine != nil {
@@ -603,20 +620,18 @@ func (s *Server) qrCancel(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) qrImage(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	var buf bytes.Buffer
-	ct, err := s.Xiaomi.QRImage(ctx, &buf)
+	q := r.URL.Query()
+	image, ct, err := s.Xiaomi.QRImage(ctx, q.Get("id"), q.Get("backup") == "1")
 	if err != nil {
 		xiaomiError(w, err)
 		return
 	}
-	if !strings.HasPrefix(ct, "image/") {
-		ct = "image/png"
-	}
 	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Write(buf.Bytes())
+	w.Write(image)
 }
 
 // --- devices ---

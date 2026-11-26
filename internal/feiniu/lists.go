@@ -10,8 +10,10 @@ import (
 
 // Playlist is one of the account's playlists.
 type Playlist struct {
-	GUID string `json:"guid"`
-	Name string `json:"name"`
+	GUID   string `json:"guid"`
+	Name   string `json:"name"`
+	Cover  string `json:"coverId,omitempty"`
+	Tracks int    `json:"trackCount,omitempty"`
 }
 
 const (

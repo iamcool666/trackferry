@@ -288,7 +288,7 @@ export class Water {
   private look() {
     if (this.still) return false;
     // Only what stays put: the canvas is a frame behind a scroll. Off 此刻 a pane is frosted by CSS, nothing of this would show.
-    const els = document.documentElement.classList.contains('bend') ? [] : document.querySelectorAll<HTMLElement>('.at-home .dock .glass');
+    const els = document.documentElement.classList.contains('bend') ? [] : document.querySelectorAll<HTMLElement>('.at-home .dock-glass');
     let n = 0, changed = false;
     const put = (a: Float32Array, i: number, v: number) => { if (Math.abs(a[i] - v) > .1) { if (Math.abs(a[i] - v) > 1) changed = true; a[i] = v; } };
     for (const el of els) {

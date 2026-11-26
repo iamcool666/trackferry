@@ -25,6 +25,38 @@ const (
 // pressed is how long a speaker gets to do what a button asked before it is looked at.
 const pressed = 350 * time.Millisecond
 
+// PauseRun pauses the source of a handoff while holding off replacement runs on that speaker.
+func (e *Engine) PauseRun(ctx context.Context, dev, hardware string, id int64) error {
+	d := e.device(dev)
+	d.control.Lock()
+	defer d.control.Unlock()
+
+	e.mu.Lock()
+	current, gen := id > 0 && d.cancel != nil && d.runID == id && d.watching, d.gen
+	e.mu.Unlock()
+	if !current {
+		return ErrSeekMoved
+	}
+	p, err := e.sp.PlayStatus(ctx, dev)
+	if err != nil {
+		return err
+	}
+	if foreign(hardware, p) {
+		return ErrSeekMoved
+	}
+	if !p.Playing() {
+		return nil
+	}
+	if err := e.pause(ctx, dev, d, gen, true); err != nil {
+		return err
+	}
+	p, err = e.sp.PlayStatus(ctx, dev)
+	if err == nil && p.Playing() {
+		err = errors.New("小爱仍在播放")
+	}
+	return err
+}
+
 // Press does what a button asks for, and makes sure it was done: speakers confirm a pause
 // they then ignore.
 func (e *Engine) Press(ctx context.Context, dev, action string) error {
@@ -113,6 +145,7 @@ func (e *Engine) pause(ctx context.Context, dev string, d *device, gen int, ours
 
 // seek asks a run to move to a point of its song.
 type seek struct {
+	ctx  context.Context
 	to   time.Duration
 	done chan error
 }
@@ -122,19 +155,29 @@ var (
 	ErrCannotSeek = errors.New("这首歌的格式不能拖动")
 	ErrNoSeek     = errors.New("没有能拖动的歌")
 	ErrSeekLate   = errors.New("音箱没有跟上，稍后再试")
+	ErrSeekMoved  = errors.New("音箱已经换歌，请对当前歌曲操作")
 )
 
 // seekFor is how long a speaker may take to move.
 const seekFor = 14 * time.Second
 
 // Seek moves the song on a speaker to a point. A paused song stays paused.
-func (e *Engine) Seek(ctx context.Context, dev string, to time.Duration) error {
-	s := seek{max(0, to), make(chan error, 1)}
+func (e *Engine) Seek(ctx context.Context, dev string, to time.Duration, runID ...int64) error {
+	ctx, cancel := context.WithTimeout(ctx, seekFor)
+	defer cancel()
+	if ctx.Err() != nil {
+		return ErrSeekLate
+	}
+	s := seek{ctx, max(0, to), make(chan error, 1)}
 	e.mu.Lock()
 	d := e.devs[dev]
 	if d == nil || d.seeks == nil {
 		e.mu.Unlock()
 		return ErrNoSeek
+	}
+	if len(runID) != 0 && runID[0] != d.runID {
+		e.mu.Unlock()
+		return ErrSeekMoved
 	}
 	sent := false
 	select {
@@ -147,8 +190,6 @@ func (e *Engine) Seek(ctx context.Context, dev string, to time.Duration) error {
 	if !sent {
 		return ErrSeekLate
 	}
-	ctx, cancel := context.WithTimeout(ctx, seekFor)
-	defer cancel()
 	select {
 	case err := <-s.done:
 		return err

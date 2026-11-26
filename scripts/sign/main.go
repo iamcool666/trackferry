@@ -3,6 +3,7 @@
 //	go run ./scripts/sign keygen              makes the key once and prints its public half
 //	go run ./scripts/sign check               the key is here and is the one the program trusts
 //	go run ./scripts/sign 1.2.3 amd64 FILE    prints the signature
+//	go run ./scripts/sign 1.2.3 android/arm64-v8a FILE   the same for the television app
 package main
 
 import (

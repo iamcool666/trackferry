@@ -29,9 +29,9 @@
 | `GET /api/intent` · `POST /api/intent` | 说法示例；解释一句话 |
 | `GET /api/devices` · `POST /api/devices/sync` · `PATCH /api/devices/{id}` | 音箱列表、同步、改模式、别名，或压住小爱的方式 `{"hush":"normal\|strong\|wait"}` |
 | `POST /api/devices/{id}/takeover-test` | 接管测试，会出声 |
-| `GET·POST /api/devices/{id}/control` | 播放状态与音量；控制：`{"action":"play\|pause\|stop\|next\|previous\|wake"}`、`{"action":"volume","volume":35}`、`{"action":"seek","position":毫秒}` 或 `{"action":"mode","mode":"loop\|shuffle\|one"}`，成功返回 204；没有歌可切返回 409 |
+| `GET·POST /api/devices/{id}/control` | 播放状态与音量；控制：`{"action":"play\|pause\|stop\|next\|previous\|wake"}`、`{"action":"volume","volume":35}`、`{"action":"seek","position":毫秒,"run_id":播放记录ID}` 或 `{"action":"mode","mode":"loop\|shuffle\|one"}`。`run_id` 可选，控制端应传当前记录 ID；换歌后该定位返回 409。成功返回 204；播放中的定位要等音箱回读，暂停中的定位留到恢复播放时生效 |
 | `GET·POST /api/devices/{id}/queue` | 播放列表；点一首放、移出 |
-| `POST /api/devices/{id}/play` `{"source":"favorites\|playlist\|artist\|album\|track\|online","id":"","name":"","next":false}` | 把收藏、歌单、专辑、歌手或一首线上的歌送到音箱；`id` 为歌单、专辑或线上歌曲，`name` 为歌手；`next` 排到下一首（曲库的歌或线上的歌） |
+| `POST /api/devices/{id}/play` | `source` 支持 `favorites`、`playlist`、`artist`、`album`、`picks`、`track`、`online`。`id` 为歌单、专辑或线上歌曲，`name` 为歌手，`track_ids` 为本次“随手翻到的”列表（最多 12 首）。列表可用 `track_id` 指定从哪首开始，`track` 用 `track_id` 指定单曲。单曲可用 `next: true` 排到下一首，曲库歌曲也可用 `last: true` 放到队尾。 |
 | `GET·PUT /api/playing` `{"artist":true,"after":false,"hours":3}` | 连续播放的设置，`hours` 为 0 不限；没写的不变 |
 | `GET /api/takeover/runs?limit=` | 接管经过 |
 | `GET /api/observer` | 监听状态 |
@@ -58,6 +58,16 @@
 | `GET / POST / DELETE /api/sources/netease/account` | 网易云登录状态 / 用浏览器的 MUSIC_U 登录（`cookie`）/ 退出 |
 | `POST / GET / DELETE /api/sources/netease/qr` | 取二维码内容 / 查扫码进度（waiting、scanned、expired、done）/ 取消 |
 | `GET·POST·DELETE /api/feiniu` · `GET /api/feiniu/discover` | 飞牛音乐登录与查找 |
+
+## Android TV
+
+Android TV 使用独立的 HTTPS 端口（默认 `18562`）。`/api/tv/v1/info` 用于发现后的探测，`POST /api/tv/v1/pair`、`/pair/status` 和 `/pair/cancel` 用于配对。`/api/tv/v1/shelf`、`/search`、`/playlists`、`/queue`、`/cover/{id}`、`/lyrics/{id}` 和 `/audio?track=` 只接受 TV 设备凭据。管理员从 Web 端的 `/api/tv/devices` 查看或确认配对，经 `/api/tv/devices/{id}` 撤销。
+
+已配对设备可通过 `GET /api/tv/v1/tracks/{id}/favorite` 查收藏状态，通过同一路径的 `PUT` 设置 `{"on":true}` 或 `{"on":false}`，并用 `POST /api/tv/v1/playlists/{guid}/tracks` 把 `{"track_id":123}` 加入现有歌单。加入成功后返回 `changed`，歌曲已在歌单中时返回 `false`。
+
+`GET /api/tv/v1/queue?source=random` 返回随机的 30 首，电视点播单曲后用它接着放。`/lyrics/{id}` 带上这首歌的 `offset_ms`，`PUT /api/tv/v1/lyrics/{id}/offset` 用 `{"offset_ms":300}` 改它，范围是 ±60000，正数让歌词提前。这个值和网页共用。
+
+`GET /api/tv/v1/app?abi=armeabi-v7a|arm64-v8a` 说明和服务器同版本的电视应用：`version`、`phase`（空、`download`、`ready`、`failed`）、进度 `done`/`total`、就绪后的 `size` 和 `sha256`，失败时的 `error`。`POST` 同一路径让服务器从 Release 取包并核对签名。就绪后 `GET /api/tv/v1/app/apk?abi=` 下载安装包，响应头 `X-TrackFerry-SHA256` 和 `X-TrackFerry-Version` 给出校验值和版本。
 
 ## 账号与系统
 

@@ -160,11 +160,11 @@ func (s *Server) haLyrics(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no_track", "曲库里没有这首歌了")
 		return
 	}
-	text, err := s.Feiniu.Lyrics(r.Context(), t.GUID)
+	text, err := s.trackLyrics(r.Context(), t)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "lyrics", err.Error())
+		writeError(w, http.StatusBadGateway, "lyrics", "歌词暂时读不到")
 		return
 	}
 	synced, lines := home.Lyrics(text)
-	writeJSON(w, http.StatusOK, map[string]any{"schema_version": home.SchemaVersion, "track_id": id, "synced": synced, "offset_ms": 0, "lines": lines})
+	writeJSON(w, http.StatusOK, map[string]any{"schema_version": home.SchemaVersion, "track_id": id, "synced": synced, "offset_ms": s.offset(r, id), "lines": lines})
 }

@@ -2,13 +2,14 @@ import { lookFor } from './Search';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { api, ApiError, type Album, type Artist, type Device, type FeiniuInfo, type LibraryStatus, type Missing, type Playlist, type Shelf, type Track } from '../api';
+import { useOnNow } from '../onNow';
 import { Cover } from '../components/Cover';
 import { Heart } from '../components/Heart';
 import { More, useGrow } from '../components/More';
 import { Notice } from '../components/Notice';
-import { listHere, playHere, trackHere } from '../here';
-import { Play } from '../components/Play';
+import { Play, PlaybackTarget } from '../components/Play';
 import { TrackMenu } from '../components/TrackMenu';
+import type { ListPlayback } from '../playback';
 import { day, length, singer } from '../copy';
 import { href, type Place } from '../nav';
 import { songPicture, useBackdrop } from '../stage/Stage';
@@ -16,13 +17,17 @@ import { songPicture, useBackdrop } from '../stage/Stage';
 type Nav = (p: Place, from?: Element | null) => void;
 
 export function Library({ place, devices, navigate }: { place: Place; devices: Device[]; navigate: Nav }) {
-  if (place.kind === 'album') return <AlbumPage key={place.id} id={place.id!} devices={devices} navigate={navigate} />;
-  if (place.kind === 'artist') return <ArtistPage key={place.id} name={place.id!} devices={devices} navigate={navigate} />;
-  if (place.kind === 'favorites') return <FavoritesPage devices={devices} navigate={navigate} />;
-  if (place.kind === 'playlist') return <PlaylistPage key={place.id} guid={place.id!} devices={devices} navigate={navigate} />;
-  if (place.kind === 'playlists') return <PlaylistsPage devices={devices} navigate={navigate} />;
   if (place.kind === 'missing') return <MissingPage navigate={navigate} />;
-  return <Front devices={devices} navigate={navigate} />;
+  const props = { devices, navigate };
+  return <>
+    <div className="library-output"><PlaybackTarget devices={devices} /></div>
+    {place.kind === 'album' ? <AlbumPage key={place.id} id={place.id!} {...props} />
+      : place.kind === 'artist' ? <ArtistPage key={place.id} name={place.id!} {...props} />
+      : place.kind === 'favorites' ? <FavoritesPage {...props} />
+      : place.kind === 'playlist' ? <PlaylistPage key={place.id} guid={place.id!} {...props} />
+      : place.kind === 'playlists' ? <PlaylistsPage {...props} />
+      : <Front {...props} />}
+  </>;
 }
 
 // Coming back from an album or a singer should find the same page; a new visit gets a new draw, if the last is some minutes old.
@@ -67,29 +72,32 @@ function Wall({ albums, navigate }: { albums: Album[]; navigate: Nav }) {
   );
 }
 
-function Tracks({ tracks, all = tracks, list = '', devices, numbered = false, showAlbum = false, paged = false, navigate }: { tracks: Track[]; /** The whole list these are of, and its name: it is played on. */ all?: Track[]; list?: string; devices: Device[]; numbered?: boolean; paged?: boolean; showAlbum?: boolean; navigate: Nav }) {
-  const from = () => ({ list, songs: all.map(trackHere) });
+function Tracks({ tracks, from, devices, numbered = false, showAlbum = false, paged = false, navigate }: { tracks: Track[]; from: ListPlayback; devices: Device[]; numbered?: boolean; paged?: boolean; showAlbum?: boolean; navigate: Nav }) {
+  const on = useOnNow(devices);
   return (
     <ol className={`tracks ${paged ? 'paged' : ''}`}>
-      {tracks.map((t, i) => (
-        <li key={t.id}>
-          <span className="track-lead">
-            {numbered ? <span className="num track-no">{i + 1}</span> : <Cover cover={t.cover} title={t.title} artist={t.artist} />}
-            <Play send={(d) => api.playTrack(d, t.id)} here={() => playHere(trackHere(t), 'now', from())} title={t.title} devices={devices} />
-          </span>
-          <span className="track-name">
-            <b>{t.title}</b>
-            <small>
-              {singer(t.artist) ? <a href={`#/library/artist/${encodeURIComponent(t.artist)}`} onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'artist', id: t.artist }); }}>{t.artist}</a> : '没有歌手信息'}
-              {showAlbum && t.album && (t.album_id ? <a href={`#/library/album/${t.album_id}`} onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'album', id: t.album_id }); }}>{t.album}</a> : <span>{t.album}</span>)}
-            </small>
-          </span>
-          <span className="track-tech num">{t.format.toUpperCase()}{t.bits > 16 && t.format !== 'mp3' ? ` ${t.bits}bit` : ''}{t.sample_rate > 48000 ? ` ${t.sample_rate / 1000}k` : ''}</span>
-          <Heart trackID={t.id} title={t.title} on={!!t.favorite} />
-          <span className="num track-len">{length(t.duration_ms)}</span>
-          <TrackMenu track={t} from={from} devices={devices} navigate={navigate} />
-        </li>
-      ))}
+      {tracks.map((t, i) => {
+        const what = { ...from, start: t.id };
+        return (
+          <li key={t.id} className={on.has(t.id) ? 'on-now' : undefined} aria-current={on.has(t.id) || undefined}>
+            <span className="track-lead">
+              {numbered ? <span className="num track-no">{i + 1}</span> : <Cover cover={t.cover} title={t.title} artist={t.artist} />}
+              <Play what={what} title={t.title} devices={devices} />
+            </span>
+            <span className="track-name">
+              <b>{on.get(t.id) && <em className="eq" aria-hidden="true"><u /><u /><u /></em>}{t.title}</b>
+              <small>
+                {singer(t.artist) ? <a href={`#/library/artist/${encodeURIComponent(t.artist)}`} onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'artist', id: t.artist }); }}>{t.artist}</a> : '没有歌手信息'}
+                {showAlbum && t.album && (t.album_id ? <a href={`#/library/album/${t.album_id}`} onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'album', id: t.album_id }); }}>{t.album}</a> : <span>{t.album}</span>)}
+              </small>
+            </span>
+            <span className="track-tech num">{t.format.toUpperCase()}{t.bits > 16 && t.format !== 'mp3' ? ` ${t.bits}bit` : ''}{t.sample_rate > 48000 ? ` ${t.sample_rate / 1000}k` : ''}</span>
+            <Heart trackID={t.id} title={t.title} on={!!t.favorite} />
+            <span className="num track-len">{length(t.duration_ms)}</span>
+            <TrackMenu track={t} from={what} devices={devices} navigate={navigate} />
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -103,10 +111,11 @@ function Favorites({ devices, navigate }: { devices: Device[]; navigate: Nav }) 
   const [fav, setFav] = useState<{ tracks: Track[] | null; total: number } | null>(null);
   useEffect(() => { api.favorites().then(setFav).catch(() => {}); }, []);
   if (!fav?.total) return null;
+  const from = { collection: { source: 'favorites' as const }, snapshot: fav.tracks?.length === fav.total ? { list: '我的收藏', tracks: fav.tracks } : undefined };
   return (
     <section className="shelf">
-      <header className="shelf-head"><h2>收藏的<small className="num">{fav.total}</small></h2><Play send={(d) => api.play(d, { source: 'favorites' })} here={() => listHere({ source: 'favorites' })} title="收藏" devices={devices} label="播放收藏" />{fav.total > 4 && more({ page: 'library', kind: 'favorites' }, '看全部', navigate)}</header>
-      <Tracks tracks={(fav.tracks ?? []).slice(0, FEW)} all={fav.tracks ?? []} list="我的收藏" devices={devices} showAlbum paged navigate={navigate} />
+      <header className="shelf-head"><h2>收藏的<small className="num">{fav.total}</small></h2><Play what={from} title="收藏" devices={devices} label="播放收藏" />{fav.total > 4 && more({ page: 'library', kind: 'favorites' }, '看全部', navigate)}</header>
+      <Tracks tracks={(fav.tracks ?? []).slice(0, FEW)} from={from} devices={devices} showAlbum paged navigate={navigate} />
     </section>
   );
 }
@@ -117,7 +126,7 @@ function ListTile({ l, devices, navigate }: { l: Playlist; devices: Device[]; na
   return (
     <li className="list-tile">
       <a className="tile" href={href(listHref(l))} onClick={(e) => { e.preventDefault(); navigate(listHref(l)); }}><Cover title={l.name} /><b>{l.name}</b></a>
-      <Play send={(d) => api.play(d, { source: 'playlist', id: l.guid })} here={() => listHere({ source: 'playlist', id: l.guid })} title={`歌单${l.name}`} devices={devices} />
+      <Play what={{ collection: { source: 'playlist', id: l.guid } }} title={`歌单${l.name}`} devices={devices} />
     </li>
   );
 }
@@ -182,12 +191,13 @@ function FavoritesPage({ devices, navigate }: { devices: Device[]; navigate: Nav
     } catch (e) { setError((e as ApiError).message); } finally { setBusy(false); }
   };
   useEffect(() => { load(0); }, []);
+  const from = { collection: { source: 'favorites' as const }, snapshot: tracks?.length === total ? { list: '我的收藏', tracks } : undefined };
   return (
     <article className="artist">
       <Back navigate={navigate} />
-      <header className="list-head"><h1>收藏的</h1>{tracks && <span className="num">{total.toLocaleString('zh-CN')} 首</span>}{total > 0 && <Play send={(d) => api.play(d, { source: 'favorites' })} here={() => listHere({ source: 'favorites' })} title="收藏" devices={devices} label="播放收藏" />}</header>
+      <header className="list-head"><h1>收藏的</h1>{tracks && <span className="num">{total.toLocaleString('zh-CN')} 首</span>}{total > 0 && <Play what={from} title="收藏" devices={devices} label="播放收藏" />}</header>
       {error && <Notice tone="error" title={error} />}
-      {tracks ? <Tracks tracks={tracks} list="我的收藏" devices={devices} showAlbum navigate={navigate} /> : !error && <div className="boot"><span className="spinner" /></div>}
+      {tracks ? <Tracks tracks={tracks} from={from} devices={devices} showAlbum navigate={navigate} /> : !error && <div className="boot"><span className="spinner" /></div>}
       {tracks && tracks.length < total && (error ? <p className="center"><button className="btn btn-quiet" disabled={busy} onClick={() => load(tracks.length)}>重试</button></p> : <More busy={busy} onMore={() => load(tracks.length)} />)}
       {tracks && total === 0 && <p className="muted">还没有收藏。</p>}
     </article>
@@ -202,6 +212,7 @@ function PlaylistPage({ guid, devices, navigate }: { guid: string; devices: Devi
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
   const hit = within(list?.tracks ?? [], q);
+  const from = { collection: { source: 'playlist' as const, id: guid }, snapshot: list ? { list: `歌单“${list.name}”`, tracks: list.tracks } : undefined };
   useEffect(() => { api.playlist(guid).then(setList).catch((e) => setError((e as ApiError).message)); }, [guid]);
   return (
     <article className="artist">
@@ -209,9 +220,9 @@ function PlaylistPage({ guid, devices, navigate }: { guid: string; devices: Devi
       {error && <Notice tone="error" title={error} />}
       {!list && !error && <div className="boot"><span className="spinner" /></div>}
       {list && <>
-        <header className="list-head"><h1>{list.name}</h1><span className="num">{list.total.toLocaleString('zh-CN')} 首</span>{list.total > 0 && <Play send={(d) => api.play(d, { source: 'playlist', id: guid })} here={() => listHere({ source: 'playlist', id: guid })} title={`歌单${list.name}`} devices={devices} label="播放歌单" />}</header>
+        <header className="list-head"><h1>{list.name}</h1><span className="num">{list.total.toLocaleString('zh-CN')} 首</span>{list.total > 0 && <Play what={from} title={`歌单${list.name}`} devices={devices} label="播放歌单" />}</header>
         {list.tracks.length > 30 && <Filter q={q} setQ={setQ} label="在这个歌单里找" />}
-        <Tracks tracks={hit.slice(0, shown)} all={hit} list={`歌单“${list.name}”`} devices={devices} showAlbum navigate={navigate} />
+        <Tracks tracks={hit.slice(0, shown)} from={from} devices={devices} showAlbum navigate={navigate} />
         {q.trim() && !hit.length && <p className="muted">这个歌单里没有找到。</p>}
         {shown < hit.length && <More onMore={grow} />}
         {!q && shown >= list.tracks.length && list.total > list.tracks.length && <p className="muted center">只列前 {list.tracks.length} 首，播放时全都会放。</p>}
@@ -309,7 +320,7 @@ function Front({ devices, navigate }: { devices: Device[]; navigate: Nav }) {
           <Favorites devices={devices} navigate={navigate} />
           <Playlists devices={devices} navigate={navigate} />
           {shelf?.picks && shelf.picks.length > 0 && (
-            <section className="shelf"><h2>随手翻到的</h2><Tracks key={shelf.picks[0].id} tracks={shelf.picks} list="随手翻到的" devices={devices} showAlbum paged navigate={navigate} /></section>
+            <section className="shelf"><h2>随手翻到的</h2><Tracks key={shelf.picks[0].id} tracks={shelf.picks} from={{ picks: { list: '随手翻到的', tracks: shelf.picks } }} devices={devices} showAlbum paged navigate={navigate} /></section>
           )}
           {newest.length > 0 && (
             <section className="shelf">
@@ -351,6 +362,7 @@ function AlbumPage({ id, devices, navigate }: { id: string; devices: Device[]; n
   }, [id]);
   if (!album) return <>{error ? <><Back navigate={navigate} /><Notice tone="error" title={error} /></> : <div className="boot"><span className="spinner" /></div>}</>;
   const total = tracks?.reduce((a, t) => a + t.duration_ms, 0) ?? 0;
+  const from = { collection: { source: 'album' as const, id }, snapshot: tracks ? { list: `专辑“${album.name}”`, tracks } : undefined };
   return (
     <article className="album">
       <div className="album-side">
@@ -359,9 +371,9 @@ function AlbumPage({ id, devices, navigate }: { id: string; devices: Device[]; n
       </div>
       <div className="album-main">
         <h1>{album.name}</h1>
-        <p className="album-by"><a href={`#/library/artist/${encodeURIComponent(album.artist)}`} onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'artist', id: album.artist }); }}>{album.artist}</a><span className="num">{album.tracks} 首{total > 0 && `，${Math.round(total / 60000)} 分钟`}</span><Play send={(d) => api.play(d, { source: 'album', id })} here={() => listHere({ source: 'album', id })} title={album.name} devices={devices} label="播放专辑" /></p>
+        <p className="album-by"><a href={`#/library/artist/${encodeURIComponent(album.artist)}`} onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'artist', id: album.artist }); }}>{album.artist}</a><span className="num">{album.tracks} 首{total > 0 && `，${Math.round(total / 60000)} 分钟`}</span><Play what={from} title={album.name} devices={devices} label="播放专辑" /></p>
         {error && <Notice tone="error" title={error} />}
-        {tracks && <Tracks tracks={tracks.slice(0, shown)} all={tracks} list={`专辑“${album.name}”`} devices={devices} numbered navigate={navigate} />}
+        {tracks && <Tracks tracks={tracks.slice(0, shown)} from={from} devices={devices} numbered navigate={navigate} />}
         {tracks && shown < tracks.length && <More onMore={grow} />}
       </div>
     </article>
@@ -375,6 +387,7 @@ function ArtistPage({ name, devices, navigate }: { name: string; devices: Device
   const { shown, grow } = useGrow();
   const [q, setQ] = useState('');
   const hit = within(tracks ?? [], q);
+  const from = { collection: { source: 'artist' as const, name }, snapshot: tracks ? { list: `${name}的歌`, tracks } : undefined };
   useEffect(() => {
     api.artist(name).then((r) => setTracks(r.tracks ?? [])).catch((e) => setError((e as ApiError).message));
   }, [name]);
@@ -394,13 +407,13 @@ function ArtistPage({ name, devices, navigate }: { name: string; devices: Device
       <Back navigate={navigate} />
       <header className="artist-head">
         <Cover key={lead?.cover} className="hero" cover={lead?.cover} title={name} size={600} eager />
-        <div><h1>{name}</h1>{tracks && <p className="album-by"><span className="num">{tracks.length.toLocaleString('zh-CN')} 首，{list.length} 张专辑</span>{tracks.length > 0 && <Play send={(d) => api.play(d, { source: 'artist', name })} here={() => listHere({ source: 'artist', name })} title={`${name}的歌`} devices={devices} label="播放这位歌手" />}</p>}</div>
+        <div><h1>{name}</h1>{tracks && <p className="album-by"><span className="num">{tracks.length.toLocaleString('zh-CN')} 首，{list.length} 张专辑</span>{tracks.length > 0 && <Play what={from} title={`${name}的歌`} devices={devices} label="播放这位歌手" />}</p>}</div>
       </header>
       {error && <Notice tone="error" title={error} />}
       {list.length > 0 && <section className="shelf"><h2>专辑</h2><div className="rail">{list.map((a) => <Tile key={a.id} a={a} navigate={navigate} />)}</div></section>}
       {tracks && tracks.length > 0 && (
         <section className="shelf"><h2>歌曲</h2>{tracks.length > 30 && <Filter q={q} setQ={setQ} label={`在${name}的歌里找`} />}
-          <Tracks tracks={hit.slice(0, shown)} all={hit} list={`${name}的歌`} devices={devices} showAlbum navigate={navigate} />
+          <Tracks tracks={hit.slice(0, shown)} from={from} devices={devices} showAlbum navigate={navigate} />
           {q.trim() && !hit.length && <p className="muted">没有找到。</p>}
           {shown < hit.length && <More onMore={grow} />}
         </section>

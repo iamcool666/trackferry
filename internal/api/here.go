@@ -78,6 +78,19 @@ func (s *Server) hereAudio(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 20*time.Second)
 			defer cancel()
 			f, err := s.Router.Online.Take(ctx, key)
+			if errors.Is(err, online.ErrGone) {
+				title, artist := r.URL.Query().Get("title"), r.URL.Query().Get("artist")
+				q := strings.TrimSpace(title + " " + artist)
+				if q != "" && len([]rune(q)) <= 200 {
+					offered, _ := s.Router.Online.Search(ctx, q)
+					for _, c := range offered {
+						if c.Key == key {
+							f, err = s.Router.Online.Take(ctx, key)
+							break
+						}
+					}
+				}
+			}
 			if err != nil {
 				return nil, "", err
 			}
@@ -120,7 +133,7 @@ func (s *Server) hereList(w http.ResponseWriter, r *http.Request) {
 		list, ids = "接着随机放", s.Library.RandomIDs(30)
 	} else {
 		var ok bool
-		if list, ids, ok = s.collect(w, r, q.Get("source"), q.Get("id"), q.Get("name")); !ok {
+		if list, ids, ok = s.collect(w, r, q.Get("source"), q.Get("id"), q.Get("name"), nil); !ok {
 			return
 		}
 	}

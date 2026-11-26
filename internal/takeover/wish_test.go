@@ -22,12 +22,12 @@ func TestWishesComeFirst(t *testing.T) {
 	if ok, _ := d.Want("other", wishOf("x", nil)); ok {
 		t.Fatal("queued on a speaker that plays nothing")
 	}
-	for _, w := range []Wish{wishOf("坏的", errors.New("没了")), wishOf("甲", nil), wishOf("乙", nil)} {
+	for _, w := range []Wish{wishOf("乙", nil), wishOf("甲", nil), wishOf("坏的", errors.New("没了"))} {
 		if ok, err := d.Want("d1", w); !ok || err != nil {
 			t.Fatal(ok, err)
 		}
 	}
-	if n := d.Queue("d1").Next; len(n) != 3 || n[1] != "甲" {
+	if n := d.Queue("d1").Next; len(n) != 3 || n[0] != "坏的" || n[1] != "甲" {
 		t.Fatal(n)
 	}
 	d.turn(q)(EndPlayed) // the bad one is passed over

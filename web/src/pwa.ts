@@ -19,6 +19,26 @@ function settle() {
 }
 settle();
 standalone.addEventListener('change', settle);
+
+// Installed on iOS, the page is sometimes drawn from the top of the screen, under the status bar, yet
+// keeps the height it would have below it: the status bar's height goes missing at the bottom
+// (393x852 screen, 59 safe top, 793 viewport). A scroll makes iOS measure again; 此刻 does not scroll.
+// --vp-short is what is missing, 0 whenever the page already fills the screen.
+const top = document.createElement('div');
+top.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:0;padding-top:env(safe-area-inset-top);visibility:hidden;pointer-events:none';
+function measure() {
+  const root = document.documentElement;
+  if (!top.isConnected) document.body?.appendChild(top);
+  const tall = innerHeight >= innerWidth ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  const short = root.classList.contains('installed') ? Math.max(0, Math.min(top.offsetHeight, tall - innerHeight)) : 0;
+  if (short) root.style.setProperty('--vp-short', `${short}px`);
+  else root.style.removeProperty('--vp-short');
+}
+for (const e of ['resize', 'orientationchange', 'pageshow', 'DOMContentLoaded']) addEventListener(e, measure);
+visualViewport?.addEventListener('resize', measure);
+standalone.addEventListener('change', measure);
+new ResizeObserver(measure).observe(top); // the safe area can change with no resize
+if (document.body) measure();
 // iOS may ignore the above.
 for (const g of ['gesturestart', 'gesturechange']) document.addEventListener(g, (e) => { if (document.documentElement.classList.contains('installed')) e.preventDefault(); }, { passive: false });
 

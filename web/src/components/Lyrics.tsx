@@ -5,13 +5,15 @@ import { position, type Sounding } from '../live';
 import { lineAt, parseLRC, plainLyrics, type Line } from '../lyrics';
 import { Fish } from './Fish';
 import { useToast } from './Toast';
+import type { MediaRange } from '../media-clock';
 
-export interface Words { lines: Line[]; timed: boolean; /** How much sooner the lines come, in ms. */ offset: number; setOffset: (ms: number) => void }
+export interface Words { lines: Line[]; timed: boolean; /** How much sooner the lines come, in ms. */ offset: number; setOffset: (ms: number) => void; saveError?: boolean }
 
 /** The words of a library song; null until they are known, or when there are none. */
 export function useWords(trackID?: number): Words | null {
   const [got, setGot] = useState<{ id: number; lines: Line[]; timed: boolean; offset: number } | null>(null);
-  const later = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const writes = useRef(new Map<number, { timer?: ReturnType<typeof setTimeout>; pending?: number; saving: boolean }>());
+  const [saveError, setSaveError] = useState<number>();
   useEffect(() => {
     if (!trackID) return;
     let on = true;
@@ -25,11 +27,32 @@ export function useWords(trackID?: number): Words | null {
   const setOffset = useCallback((ms: number) => {
     if (!trackID) return;
     const to = Math.max(-60000, Math.min(60000, ms));
-    setGot((g) => g && { ...g, offset: to });
-    clearTimeout(later.current);
-    later.current = setTimeout(() => { api.setLyricsOffset(trackID, to).catch(() => {}); }, 500); // several taps are one change
+    setGot((g) => g?.id === trackID ? { ...g, offset: to } : g);
+    setSaveError(undefined);
+    const jobs = writes.current;
+    const job = jobs.get(trackID) ?? { saving: false };
+    jobs.set(trackID, job);
+    if (job.timer) clearTimeout(job.timer);
+    job.pending = to;
+    const flush = async () => {
+      job.timer = undefined;
+      if (job.saving || job.pending === undefined) return;
+      const value = job.pending;
+      job.pending = undefined;
+      job.saving = true;
+      try {
+        await api.setLyricsOffset(trackID, value);
+      } catch {
+        if (job.pending === undefined) setSaveError(trackID);
+      } finally {
+        job.saving = false;
+        if (job.pending === undefined) jobs.delete(trackID);
+        else if (!job.timer) void flush();
+      }
+    };
+    job.timer = setTimeout(flush, 350);
   }, [trackID]);
-  return trackID && got?.id === trackID && got.lines.length ? { lines: got.lines, timed: got.timed, offset: got.offset, setOffset } : null;
+  return trackID && got?.id === trackID && got.lines.length ? { lines: got.lines, timed: got.timed, offset: got.offset, setOffset, saveError: saveError === trackID } : null;
 }
 
 const SIZE = 'trackferry.lyrics.size';
@@ -38,41 +61,55 @@ const sizes = [{ v: 'small', label: '小' }, { v: '', label: '中' }, { v: 'larg
 /** All of the words. The line being sung stays in view unless the reader has scrolled away; a tap on a line goes there. */
 export function LyricSheet({ words, now, big, seek }: { words: Words; now: Sounding | null; big: boolean; seek?: (ms: number) => void }) {
   const box = useRef<HTMLOListElement>(null);
-  const hands = useRef(0);
   const [i, setI] = useState(-1);
+  const line = useRef(-1);
   const [free, setFree] = useState(false);
   const [tools, setTools] = useState(false);
   const [size, setSize] = useState(() => { try { return localStorage.getItem(SIZE) ?? ''; } catch { return ''; } });
   const { lines, timed, offset } = words;
   const follow = !!now && timed;
   useEffect(() => {
-    if (!follow) { setI(-1); return; }
-    const f = () => {
-      setI(lineAt(lines, position(now!) + offset));
-      setFree(Date.now() - hands.current < 4000);
+    if (!now || !timed) { line.current = -1; setI(-1); return; }
+    let frame = 0;
+    let last = -Infinity;
+    const sample = (time: number) => {
+      if (time - last >= 33) {
+        last = time;
+        const next = lineAt(lines, position(now) + offset);
+        if (next !== line.current) { line.current = next; setI(next); }
+      }
+      if (now.phase === 'playing' && !document.hidden) frame = requestAnimationFrame(sample);
     };
-    f();
-    const t = setInterval(f, 150);
-    return () => clearInterval(t);
-  }, [lines, offset, follow, now?.phase, now?.at, now?.since]); // eslint-disable-line react-hooks/exhaustive-deps
+    const resume = () => { cancelAnimationFrame(frame); last = -Infinity; sample(performance.now()); };
+    resume();
+    document.addEventListener('visibilitychange', resume);
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('visibilitychange', resume); };
+  }, [lines, offset, now?.phase, now?.at, now?.since, now?.read]); // eslint-disable-line react-hooks/exhaustive-deps
+  const returnTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(returnTimer.current), []);
   useEffect(() => {
     const b = box.current, el = b?.children[Math.max(i, 0)] as HTMLElement | undefined;
     if (!b || !el || !follow || free) return;
     b.scrollTo({ top: i < 0 ? 0 : el.offsetTop + el.offsetHeight / 2 - b.clientHeight * .42, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }, [i, big, size, follow, free]);
-  useEffect(() => { hands.current = 0; setFree(false); }, [lines]);
-  const mine = () => { hands.current = Date.now(); if (follow) setFree(true); };
-  const go = (l: Line) => { hands.current = 0; setFree(false); seek!(Math.max(0, l.at - offset)); };
+  useEffect(() => { clearTimeout(returnTimer.current); setFree(false); }, [lines]);
+  const mine = () => {
+    if (!follow) return;
+    setFree(true);
+    clearTimeout(returnTimer.current);
+    returnTimer.current = setTimeout(() => setFree(false), 4000);
+  };
+  const go = (l: Line) => { clearTimeout(returnTimer.current); setFree(false); seek!(Math.max(0, l.at - offset)); };
   const jump = timed && seek;
   const sized = (v: string) => { setSize(v); try { localStorage.setItem(SIZE, v); } catch { /* for this visit only */ } };
   return (
     <div className={`lyric ${size ? `lyric-${size}` : ''}`}>
       <ol ref={box} className={`sheet-words ${follow ? 'follow' : ''} ${free ? 'free' : ''} ${jump ? 'jump' : ''}`} aria-label="歌词" tabIndex={0} onWheel={mine} onTouchMove={mine} onKeyDown={mine}>
-        {lines.map((l, k) => <li key={k} className={k === i ? 'now' : ''} aria-current={k === i || undefined} onClick={jump ? () => go(l) : undefined} style={{ '--d': follow ? Math.min(5, Math.abs(k - Math.max(i, 0))) : 0 } as React.CSSProperties}>{l.text}</li>)}
+        {lines.map((l, k) => <li key={k} className={k === i ? 'now' : ''} aria-current={k === i || undefined} style={{ '--d': follow ? Math.min(5, Math.abs(k - Math.max(i, 0))) : 0 } as React.CSSProperties}>{jump ? <button type="button" onClick={() => go(l)} aria-label={`跳到 ${length(l.at) || '0:00'}：${l.text}`}>{l.text}</button> : l.text}</li>)}
       </ol>
       {tools ? (
         <div className="lyric-tools" role="group" aria-label="调整歌词">
-          {timed && <div><button type="button" onClick={() => words.setOffset(offset - 500)} aria-label="歌词慢半秒">慢 0.5</button><button type="button" className="num" onClick={() => words.setOffset(0)} disabled={!offset} aria-label="歌词时间还原">{offset ? `${offset > 0 ? '快' : '慢'} ${Math.abs(offset / 1000).toFixed(1)} 秒` : '同步'}</button><button type="button" onClick={() => words.setOffset(offset + 500)} aria-label="歌词快半秒">快 0.5</button></div>}
+          {timed && <div><button type="button" onClick={() => words.setOffset(offset - 100)} aria-label="歌词延后 0.1 秒">−0.1 秒</button><button type="button" className="num" onClick={() => words.setOffset(words.saveError ? offset : 0)} disabled={!offset && !words.saveError} aria-label={words.saveError ? '重试保存歌词校准' : '歌词时间还原'}>{words.saveError ? '重试保存' : offset ? `${offset > 0 ? '提前' : '延后'} ${Math.abs(offset / 1000).toFixed(1)} 秒` : '还原'}</button><button type="button" onClick={() => words.setOffset(offset + 100)} aria-label="歌词提前 0.1 秒">+0.1 秒</button></div>}
           <div>{sizes.map((x) => <button key={x.v} type="button" aria-pressed={size === x.v} onClick={() => sized(x.v)} aria-label={`${x.label}号字`}>{x.label}</button>)}</div>
           <button type="button" className="lyric-x" onClick={() => setTools(false)} aria-label="收起"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg></button>
         </div>
@@ -82,69 +119,45 @@ export function LyricSheet({ words, now, big, seek }: { words: Words; now: Sound
 }
 
 /** Where the listener has put a song, shown until it is there. One request at a time, the newest place wins. */
-export function useSeek(now: Sounding | null, key: string | number | undefined, to: ((ms: number) => Promise<void> | void) | null, cannot = '') {
-  const [aim, setAim] = useState<{ ms: number; at: number } | null>(null);
-  const [done, setDone] = useState(0);
+export function useSeek(key: string | number | undefined, to: ((ms: number, signal: AbortSignal) => Promise<void>) | null) {
+  const [aim, setAim] = useState<{ key: typeof key; ms: number } | null>(null);
   const [toast, say] = useToast();
-  const busy = useRef(false), next = useRef<number | null>(null);
-  const fn = useRef(to);
-  fn.current = to;
-  const no = useRef(cannot);
-  no.current = cannot;
-  const song = useRef(key);
-  useEffect(() => { song.current = key; next.current = null; setAim(null); }, [key]);
-  // It is there once the song is heard close to it.
-  useEffect(() => {
-    if (!aim || busy.current || !now || now.phase === 'resuming') return;
-    const p = position(now);
-    if (p > aim.ms - 2500 && p < aim.ms + Date.now() - aim.at + 3000) setAim(null);
-  }, [aim, done, now?.at, now?.since, now?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!aim) return;
-    const t = setTimeout(() => setAim(null), 9000);
-    return () => clearTimeout(t);
-  }, [aim]);
-  const seek = useCallback(async (ms: number) => {
-    if (no.current) { say({ tone: 'bad', text: no.current }); return; }
-    setAim({ ms, at: Date.now() });
-    next.current = ms;
-    if (busy.current) return;
-    busy.current = true;
-    const mine = song.current;
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => { abort.current?.abort(); abort.current = null; }, [key]);
+  const seek = async (ms: number) => {
+    if (!to) return;
+    abort.current?.abort();
+    const controller = abort.current = new AbortController();
+    setAim({ key, ms });
     try {
-      while (next.current !== null && song.current === mine) {
-        const want: number = next.current;
-        next.current = null;
-        await fn.current?.(want);
-      }
+      await to(ms, controller.signal);
     } catch (e) {
-      next.current = null;
-      setAim(null);
-      say({ tone: 'bad', text: (e as ApiError).message });
+      if (!controller.signal.aborted) say({ tone: 'bad', text: (e as ApiError).message });
     } finally {
-      busy.current = false;
-      setDone((n) => n + 1);
+      if (abort.current === controller) { abort.current = null; setAim(null); }
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const shown: Sounding | null = now && aim ? { ...now, at: aim.ms, since: now.since, phase: 'resuming' } : now;
-  return { seek: to ? seek : undefined, shown, toast };
+  };
+  return { seek: to ? seek : undefined, aim: aim && aim.key === key ? aim.ms : undefined, toast };
 }
 
 /** How far the song is; it can be dragged. The fish swims at its head. */
-export function Progress({ now, total, seek }: { now: Sounding; total?: number; seek?: (ms: number) => void }) {
+export function Progress({ now, total, seek, aim, buffered = [], estimated = false }: { now: Sounding; total?: number; seek?: (ms: number) => void; aim?: number | null; buffered?: MediaRange[]; estimated?: boolean }) {
   const [at, setAt] = useState(() => position(now));
   const [drag, setDrag] = useState<number | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
   const bar = useRef<HTMLDivElement>(null);
   const grip = useRef<number | null>(null);
   useEffect(() => {
     const f = () => setAt(position(now));
     f();
-    const t = setInterval(f, 250);
-    return () => clearInterval(t);
-  }, [now.phase, now.at, now.since]); // eslint-disable-line react-hooks/exhaustive-deps
-  const here = drag ?? (total ? Math.min(at, total) : at);
+    const t = now.phase === 'playing' ? setInterval(f, 100) : undefined;
+    document.addEventListener('visibilitychange', f);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', f); };
+  }, [now.phase, now.at, now.since, now.read]); // eslint-disable-line react-hooks/exhaustive-deps
+  const here = Math.max(0, total ? Math.min(at, total) : at);
   const can = !!seek && !!total;
-  const under = (x: number) => { const r = bar.current!.getBoundingClientRect(); return Math.max(0, Math.min(1, (x - r.left) / r.width)) * total!; };
+  const preview = (can ? drag : null) ?? aim ?? (can ? hover : null);
+  const under = (x: number) => { const r = bar.current!.getBoundingClientRect(); return Math.max(0, Math.min(1, (x - r.left) / Math.max(1, r.width))) * total!; };
   const down = (e: React.PointerEvent) => {
     if (!can || e.button) return;
     e.stopPropagation();
@@ -152,30 +165,35 @@ export function Progress({ now, total, seek }: { now: Sounding; total?: number; 
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag(under(e.clientX));
   };
-  const move = (e: React.PointerEvent) => { if (grip.current === e.pointerId) setDrag(under(e.clientX)); };
+  const move = (e: React.PointerEvent) => {
+    if (grip.current === e.pointerId) setDrag(under(e.clientX));
+    else if (can && e.pointerType === 'mouse') setHover(under(e.clientX));
+  };
   const up = (e: React.PointerEvent) => {
     if (grip.current !== e.pointerId) return;
     grip.current = null;
     setDrag(null);
-    if (e.type === 'pointerup') { const to = under(e.clientX); setAt(to); seek!(to); }
+    setHover(null);
+    if (e.type === 'pointerup') seek?.(under(e.clientX));
   };
   const key = (e: React.KeyboardEvent) => {
     if (!can) return;
-    const to = { ArrowLeft: here - 5000, ArrowRight: here + 5000, ArrowDown: here - 5000, ArrowUp: here + 5000, PageDown: here - 30000, PageUp: here + 30000, Home: 0, End: total! - 3000 }[e.key];
+    const from = aim ?? here;
+    const to = { ArrowLeft: from - 5000, ArrowRight: from + 5000, ArrowDown: from - 5000, ArrowUp: from + 5000, PageDown: from - 30000, PageUp: from + 30000, Home: 0, End: total! }[e.key];
     if (to === undefined) return;
     e.preventDefault();
     const ms = Math.max(0, Math.min(total!, to));
-    setAt(ms);
     seek!(ms);
   };
   return (
     <div className={`swim ${now.phase} ${can ? 'can' : ''} ${drag !== null ? 'held' : ''}`}>
-      <span className="num">{length(here) || '0:00'}</span>
-      <div ref={bar} style={{ '--f': total ? here / total : 0 } as React.CSSProperties} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}
-        {...(can ? { role: 'slider', tabIndex: 0, 'aria-label': '播放进度', 'aria-valuemin': 0, 'aria-valuemax': Math.round(total! / 1000), 'aria-valuenow': Math.round(here / 1000), 'aria-valuetext': `${length(here) || '0:00'}，共 ${length(total)}` } : {})}>
-        {total ? <><i /><b>{drag !== null && <em className="num">{length(drag) || '0:00'}</em>}<Fish mood={now.phase === 'playing' ? 'idle' : 'waiting'} /></b></> : null}
+      <span className="num" title={estimated ? '按取流和音箱回读估算，可能有延迟' : undefined}>{estimated && '≈'}{length(here) || '0:00'}</span>
+      <div ref={bar} style={{ '--f': total ? here / total : 0 } as React.CSSProperties} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onLostPointerCapture={up} onPointerLeave={() => setHover(null)} onKeyDown={key}
+        {...(can ? { role: 'slider', tabIndex: 0, 'aria-label': estimated ? '音箱估算播放进度' : '播放进度', 'aria-valuemin': 0, 'aria-valuemax': Math.round(total! / 1000), 'aria-valuenow': Math.round(here / 1000), 'aria-valuetext': `${length(here) || '0:00'}，共 ${length(total)}` } : {})}>
+        {total ? <>{buffered.filter((range) => range.from < total).map((range) => <span key={range.from} className="swim-buffer" style={{ left: `${range.from / total * 100}%`, width: `${(Math.min(total, range.to) - range.from) / total * 100}%` }} aria-hidden="true" />)}<i /><b><Fish mood={now.phase === 'playing' ? 'idle' : 'waiting'} /></b>{preview != null && <span className="swim-preview" style={{ left: `${Math.max(0, Math.min(total, preview)) / total * 100}%` }}><em className="num">{aim != null && drag === null ? '跳到 ' : ''}{length(preview) || '0:00'}</em></span>}</> : null}
       </div>
       <span className="num">{total ? length(total) : ''}</span>
+      {aim != null && <span className="sr-only" role="status">正在定位到 {length(aim) || '0:00'}</span>}
     </div>
   );
 }

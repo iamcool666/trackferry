@@ -1,0 +1,41 @@
+.tv-settings { width: min(100%, 460px); margin: 0 auto; display: grid; gap: 14px; }
+.at-tv .content { padding: 108px var(--gut) 120px; }
+.tv-settings header, .tv-settings li { display: flex; align-items: center; gap: 12px; }
+.tv-settings header { justify-content: space-between; }
+.tv-settings h1 { font-size: 32px; }
+.tv-settings ul { list-style: none; padding: 0; margin: 0; }
+.tv-settings li { min-height: 66px; border-bottom: 1px solid rgb(255 255 255 / .1); }
+.tv-settings li > span { display: grid; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tv-settings li small { color: var(--ink2); }
+.tv-settings li small[data-online=true] { color: #a9dfd9; }
+.device-pair-form { display: grid; gap: 12px; padding: 5px 14px 14px; }
+.device-pair-form p { margin: 0; color: var(--ink2); }
+.device-pair-form label { font-size: 13px; color: var(--ink2); }
+.device-pair-form input { min-width: 0; width: 100%; height: 56px; padding: 0 0 0 .35em; text-align: center; font: 600 28px/1 ui-monospace, monospace; letter-spacing: .35em; color: var(--ink); border: 1px solid rgb(255 255 255 / .19); border-radius: 14px; background: #101a20; }
+.device-pair-form .btn { width: 100%; min-height: 48px; }
+.topbar:has(.tv-arrival) { gap: 10px; }
+.topbar:has(.tv-arrival) .brand { flex: none; }
+.topbar:has(.tv-arrival) .tabs { position: static; margin-left: auto; min-width: 0; overflow: auto; scrollbar-width: none; white-space: nowrap; }
+.tv-arrival.glass { display: flex; flex: 0 1 auto; min-width: 0; max-width: 175px; margin-inline-end: auto; border-radius: 20px; }
+.tv-arrival-open, .tv-arrival-close { display: flex; align-items: center; color: inherit; background: none; border: 0; }
+.tv-arrival-open { flex: 1; min-width: 0; gap: 5px; min-height: 34px; padding: 0 0 0 9px; font-size: 12px; white-space: nowrap; }
+.tv-arrival-open svg { flex: none; width: 15px; height: 15px; color: var(--ink2); }
+.tv-arrival-open b { overflow: hidden; text-overflow: ellipsis; }
+.tv-arrival-open span { color: var(--ink2); }
+.tv-arrival-close { justify-content: center; min-height: 34px; width: 27px; flex: none; padding: 0; font-size: 17px; }
+@media (max-width: 760px) {
+  .topbar:has(.tv-arrival) .brand { display: flex; }
+  .topbar:has(.tv-arrival) .crumb { order: -1; }
+  .tv-arrival.glass { margin-inline: auto 0; }
+  .shell:is(.at-search, .at-library, .at-more):has(.tv-arrival) { padding-top: 40px; }
+  .at-tv .content { padding-top: calc(env(safe-area-inset-top) + 73px); }
+  .device-pair.sheet { inset: 0 12px; margin: auto; max-height: 75dvh; border-radius: 24px; }
+  .device-pair.sheet[open] { animation-name: sheet-in; }
+}
+
+@media (max-width: 430px) {
+  .topbar:has(.crumb):has(.tv-arrival) .brand-word { display: none; }
+}
+.tv-name-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 14px 12px; }
+.tv-name-form input { flex: 1 1 130px; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--well); font-size: 16px; }
+.tv-settings li > .btn { flex: none; padding-inline: 6px; }

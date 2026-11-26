@@ -65,11 +65,14 @@ type Request struct {
 	CommandID  int64
 	UpstreamMS int64 // Xiaomi's recognition time of the command
 	Track      Track
-	Song       *store.Song // for a song sent from the library
-	Trace      *live.Trace // tells the web UI; optional
+	StartAt    time.Duration // confirmed start offset when a stream has already been cut
+	Song       *store.Song   // for a song sent from the library
+	Trace      *live.Trace   // tells the web UI; optional
 	// Follows: our own last song just ended, so there is nothing to silence first.
 	Follows bool
 	Answer  int // characters Xiao AI says
+	// Handoff must stop its own stream if playback cannot be confirmed.
+	Handoff bool
 	// Ended is called once the run is over; optional.
 	Ended func(End)
 }
@@ -87,6 +90,9 @@ type Timing struct {
 	LookClose   time.Duration // and while something is going on
 	Speak       time.Duration // how long Xiao AI takes to say one character
 	Pause       time.Duration // after her answer
+	// CutIn: how soon after the start a stop with nothing heard is taken for Xiao AI cutting
+	// in, not for the listener; 0 is 30 s.
+	CutIn time.Duration
 }
 
 // DefaultTiming follows songloft-plugin-miot's interrupt settle (600 ms) and status
@@ -144,10 +150,12 @@ type Engine struct {
 }
 
 type device struct {
-	run    sync.Mutex // one run at a time per speaker
-	cancel context.CancelCauseFunc
-	gen    int
-	hold   int // runs and answers that own the speaker's volume right now
+	run     sync.Mutex // one run at a time per speaker
+	control sync.Mutex // scoped pause and registration of a replacement run
+	cancel  context.CancelCauseFunc
+	gen     int
+	runID   int64
+	hold    int // runs and answers that own the speaker's volume right now
 	// letGo is when the last of them ended.
 	letGo   time.Time
 	touched int // counts what was done to the volume
@@ -177,22 +185,21 @@ func New(sp Speaker, st *store.Store, log *slog.Logger, timing Timing) *Engine {
 // Start begins a takeover in the background, cancelling any run in progress on the same
 // speaker, and returns the stored run (state running).
 func (e *Engine) Start(ctx context.Context, req Request) (store.TakeoverRun, error) {
+	d := e.device(req.DeviceID)
+	d.control.Lock()
+	defer d.control.Unlock()
 	run := store.TakeoverRun{DeviceID: req.DeviceID, CommandID: req.CommandID, Kind: req.Kind, Source: req.Track.Label,
 		StartedMS: e.now().UnixMilli(), UpstreamMS: req.UpstreamMS, Steps: []store.Step{}, Song: req.Song}
 	if err := e.st.StartRun(ctx, &run); err != nil {
 		return run, err
 	}
 	e.mu.Lock()
-	d := e.devs[req.DeviceID]
-	if d == nil {
-		d = &device{}
-		e.devs[req.DeviceID] = d
-	}
 	if d.cancel != nil {
 		d.cancel(nil)
 	}
 	runCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	d.gen++
+	d.runID = run.ID
 	d.hold++ // a newer run owns the volume from here on, though the older one is still leaving
 	gen := d.gen
 	d.cancel = cancel
@@ -224,9 +231,9 @@ func (e *Engine) Start(ctx context.Context, req Request) (store.TakeoverRun, err
 			if d.gen == gen {
 				d.cancel, d.released, d.heard, d.watching = nil, nil, nil, false
 				d.hands, d.seeks = nil, nil
-				for len(seeks) > 0 {
-					(<-seeks).done <- ErrNoSeek
-				}
+			}
+			for len(seeks) > 0 {
+				(<-seeks).done <- ErrNoSeek
 			}
 			e.mu.Unlock()
 		}()
@@ -306,15 +313,17 @@ func (e *Engine) Run(ctx context.Context, req Request) (store.TakeoverRun, error
 }
 
 type runner struct {
-	e       *Engine
-	ctx     context.Context
-	req     Request
-	run     *store.TakeoverRun
-	start   time.Time
-	mu      sync.Mutex
-	elapsed time.Duration
-	phase   string
-	held    bool // the song does not sound
+	e         *Engine
+	ctx       context.Context
+	req       Request
+	run       *store.TakeoverRun
+	start     time.Time
+	mu        sync.Mutex
+	elapsed   time.Duration
+	elapsedAt time.Time // when elapsed was read off the clock
+	phase     string
+	held      bool // the song does not sound
+	player    *xiaomi.PlayStatus
 
 	saving bool // a write of the progress is on its way
 	dirty  bool // and there is more to write
@@ -385,10 +394,24 @@ func (r *runner) status() (xiaomi.PlayStatus, error) {
 		if r.e.calm(r.req.DeviceID) {
 			r.e.learn(r.req.DeviceID, p.Volume)
 		}
-		r.req.Trace.Player(live.Player{Status: p.Status, Position: p.Position, Duration: p.Duration, Volume: p.Volume,
-			Ours: p.Playing() && (p.AudioID == "" || p.AudioID == xiaomi.OurAudioID), Held: r.held, Elapsed: r.elapsed.Milliseconds(), Phase: r.phase, Seek: r.req.Track.Seekable})
+		r.player = &p
+		r.publishClock()
 	}
 	return p, err
+}
+
+func (r *runner) publishClock() {
+	if r.player == nil {
+		return
+	}
+	p := r.player
+	// The clock was read before the speaker was asked; what it says now is what the song is at now.
+	elapsed := r.elapsed
+	if !r.held && !r.elapsedAt.IsZero() {
+		elapsed += max(0, r.e.now().Sub(r.elapsedAt))
+	}
+	r.req.Trace.Player(live.Player{Status: p.Status, Position: p.Position, Duration: p.Duration, Volume: p.Volume,
+		Ours: p.Playing() && !r.foreign(*p), Held: r.held, Elapsed: elapsed.Milliseconds(), Phase: r.phase, Seek: r.req.Track.Seekable})
 }
 
 func describe(err error) string {
@@ -435,7 +458,7 @@ func (e *Engine) sleep(ctx context.Context, d time.Duration) error {
 }
 
 func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRun, released <-chan struct{}, heard <-chan Heard, hands <-chan struct{}, seeks <-chan seek, superseded func() bool, letGo func()) (how End) {
-	r := &runner{e: e, ctx: ctx, req: req, run: run, start: time.UnixMilli(run.StartedMS)}
+	r := &runner{e: e, ctx: ctx, req: req, run: run, start: time.UnixMilli(run.StartedMS), elapsed: req.StartAt}
 	defer r.settle()
 	finish := func(outcome, detail string) {
 		r.mu.Lock()
@@ -498,6 +521,10 @@ func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRu
 			finish(store.OutcomeCancelled, "按了停止")
 			return true
 		}
+		if context.Cause(ctx) == errHandoff {
+			finish(store.OutcomeCancelled, "接力超时或取消")
+			return true
+		}
 		r.step(StepCancelled, true, "同一台音箱有了更新的指令")
 		finish(store.OutcomeCancelled, "被更新的指令取代")
 		return true
@@ -535,6 +562,29 @@ func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRu
 	}
 
 	// 3. Push our stream.
+	confirmed := false
+	if req.Handoff {
+		defer func() {
+			if !confirmed || context.Cause(ctx) == errHandoff {
+				how = EndOther // an unconfirmed transfer must never advance the queue
+				if superseded() {
+					return // the replacement already owns cleanup
+				}
+				select {
+				case <-released:
+					return // the listener handed the speaker back to Xiao AI
+				default:
+				}
+				c, cancel := context.WithTimeout(bg, 4*time.Second)
+				defer cancel()
+				p, err := e.sp.PlayStatus(c, dev)
+				if err != nil || !r.foreign(p) {
+					err = e.halt(c, dev)
+					r.step(StepStopped, err == nil, "接力未完成，停止本次投放 "+describe(err))
+				}
+			}
+		}()
+	}
 	push := func(name string) error {
 		err := e.sp.PlayURL(ctx, dev, req.Hardware, req.Track.URL)
 		for i := 0; err != nil && ctx.Err() == nil && i < 2; i++ {
@@ -559,7 +609,7 @@ func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRu
 	musicAPI := xiaomi.UsesMusicAPI(req.Hardware)
 	deadline := e.now().Add(e.timing.Guard)
 	var fetchedAt time.Time
-	confirmed, left := false, false
+	left := false
 	replays := 0
 	pushed := e.now()
 	fast := e.timing.Poll / 2 // until it sounds: the mute lifts that much sooner
@@ -620,7 +670,8 @@ guard:
 		case <-tick.C:
 		}
 		if confirmed {
-			r.elapsed = max(0, e.now().Sub(fetchedAt)-startLag)
+			r.elapsed = req.StartAt + max(0, e.now().Sub(fetchedAt)-startLag)
+			r.elapsedAt = e.now()
 			tick.Reset(e.timing.Poll)
 		} else {
 			tick.Reset(fast)
@@ -672,6 +723,9 @@ guard:
 		finish(store.OutcomeConfirmed, "")
 	case !fetchedAt.IsZero():
 		finish(store.OutcomeFetched, "音箱取了流，但播放状态没有确认")
+		if req.Handoff {
+			return EndOther
+		}
 	default:
 		finish(store.OutcomeDispatched, "播放指令已受理，音箱没有来取流")
 		if left {
@@ -843,4 +897,22 @@ func (e *Engine) recoverVolume(ctx context.Context, dev string, v int) {
 	}
 	e.st.ClearPendingVolume(ctx, dev)
 	e.log.Info("接管　已恢复留下的静音", "音量", v)
+}
+
+func (e *Engine) IsRun(dev string, id int64) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	d := e.devs[dev]
+	return d != nil && d.cancel != nil && d.runID == id
+}
+
+var errHandoff = errors.New("handoff not confirmed")
+
+// CancelRun asks a failed handoff to clean up before releasing the speaker to the next run.
+func (e *Engine) CancelRun(dev string, id int64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if d := e.devs[dev]; d != nil && d.cancel != nil && d.runID == id {
+		d.cancel(errHandoff)
+	}
 }

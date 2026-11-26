@@ -41,7 +41,7 @@ func TestOneSongRepeats(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A song that is not in the library.
-	end := d.After("d1", "LX06", 0, routing.ForTest("在线的", "人"), true)
+	end := d.After("d1", "LX06", 0, routing.ForTest("在线的", "人"), false)
 	for range 3 {
 		end(EndPlayed)
 		end = sp.last().Ended
@@ -85,8 +85,8 @@ func TestOneSongThatStaysSilentIsGivenUp(t *testing.T) {
 func TestModeChangesKeepTheSong(t *testing.T) {
 	d, _, _, _ := queueSetup(t)
 	ctx := context.Background()
-	if d.PlayMode(ctx, "d1") != ModeShuffle {
-		t.Fatal("lists have always been shuffled")
+	if d.PlayMode(ctx, "d1") != ModeLoop {
+		t.Fatal("untouched speakers should play in list order")
 	}
 	q := &queue{dev: "d1", list: "x", ids: []int64{5, 2, 9, 1}, pos: 2, order: []int64{1, 2, 5, 9}}
 	d.enqueue(q)

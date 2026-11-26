@@ -215,6 +215,10 @@ func TestLyrics(t *testing.T) {
 	if ok, l = Lyrics(""); ok || l == nil {
 		t.Fatal("want an empty list")
 	}
+	ok, l = Lyrics("[00:01.25][00:02.5]<00:01.25>原文\r\n[00:01:250]译文\r\n[00:02.5]原文\r\n[offset:+150]")
+	if !ok || len(l) != 2 || *l[0].T != 1100 || l[0].Text != "原文\n译文" || *l[1].T != 2350 || l[1].Text != "原文" {
+		t.Fatal(ok, l)
+	}
 }
 
 func TestColors(t *testing.T) {

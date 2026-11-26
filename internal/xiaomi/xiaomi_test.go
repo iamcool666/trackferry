@@ -1,12 +1,14 @@
 package xiaomi
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +21,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/skip2/go-qrcode"
 )
 
 // fake imitates the account service and Mina API closely enough to drive the whole flow.
@@ -66,8 +70,7 @@ func newFake(t *testing.T) *fake {
 		fmt.Fprintf(w, `&&&START&&&{"code":0,"qr":"%s/qr.png","loginUrl":"https://login","lp":"%s/lp","timeout":60}`, f.srv.URL, f.srv.URL)
 	})
 	mux.HandleFunc("/qr.png", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/png")
-		w.Write([]byte("\x89PNG"))
+		fmt.Fprint(w, "d=not-an-image")
 	})
 	mux.HandleFunc("/lp", func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -252,9 +255,16 @@ func TestQRLoginLinksAccountAndFindsSpeakersViaMasterVariant(t *testing.T) {
 	if err != nil || st.State != QRPending {
 		t.Fatalf("start = %+v, %v", st, err)
 	}
-	var img strings.Builder
-	if ct, err := m.QRImage(context.Background(), &img); err != nil || ct != "image/png" || img.String() != "\x89PNG" {
-		t.Fatalf("image = %q %q %v", ct, img.String(), err)
+	img, ct, err := m.QRImage(context.Background(), st.ID, false)
+	if err != nil || ct != "image/png" {
+		t.Fatal(err)
+	}
+	info, err := png.DecodeConfig(bytes.NewReader(img))
+	if err != nil || info.Width != 320 || info.Height != 320 {
+		t.Fatalf("invalid QR image: %+v, %v", info, err)
+	}
+	if _, _, err := m.QRImage(context.Background(), "older-attempt", false); KindOf(err) != KindExpired {
+		t.Fatalf("image served for a different attempt: %v", err)
 	}
 	time.Sleep(300 * time.Millisecond) // at least one empty long poll
 	close(f.scanned)
@@ -282,6 +292,41 @@ func TestQRLoginLinksAccountAndFindsSpeakersViaMasterVariant(t *testing.T) {
 	m2, _ := newManager(t, f, path)
 	if !m2.Status().Linked {
 		t.Fatal("reload lost the account")
+	}
+}
+
+func TestQRUsesOfficialImageUnlessBackupIsRequested(t *testing.T) {
+	f := newFake(t)
+	official, err := qrcode.Encode("https://login", qrcode.Low, 240)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := f.srv.Config.Handler
+	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/qr.png" {
+			w.Write(official)
+			return
+		}
+		original.ServeHTTP(w, r)
+	})
+	m, _ := newManager(t, f, filepath.Join(t.TempDir(), "xiaomi.json"))
+	defer m.CancelQR()
+	ctx := context.Background()
+	st, err := m.StartQR(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	picture, ct, err := m.QRImage(ctx, st.ID, false)
+	if err != nil || ct != "image/png" || !bytes.Equal(picture, official) {
+		t.Fatal("valid official picture was replaced", ct, err)
+	}
+	backup, ct, err := m.QRImage(ctx, st.ID, true)
+	want, _ := qrcode.Encode("https://login", qrcode.Medium, 320)
+	if err != nil || ct != "image/png" || !bytes.Equal(backup, want) {
+		t.Fatal("backup did not encode the same login URL", ct, err)
+	}
+	if current, _ := m.QR(); current.ID != st.ID || current.State != QRPending {
+		t.Fatal("backup changed the pending attempt", current)
 	}
 }
 
@@ -378,9 +423,12 @@ func TestExpiredPollEndsLogin(t *testing.T) {
 		})
 	}(f.srv.Config.Handler)
 	m, _ := newManager(t, f, filepath.Join(t.TempDir(), "xiaomi.json"))
-	m.StartQR(context.Background())
+	st, err := m.StartQR(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	waitState(t, m, QRExpired)
-	if _, err := m.QRImage(context.Background(), io.Discard); KindOf(err) != KindExpired {
+	if _, _, err := m.QRImage(context.Background(), st.ID, false); KindOf(err) != KindExpired {
 		t.Fatalf("image after expiry: %v", err)
 	}
 }

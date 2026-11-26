@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,52 @@ func queueSetup(t *testing.T) (*Dispatcher, *queueStarter, *queue, *[]int64) {
 	q := &queue{dev: "d1", hardware: "LX06", list: "歌单“测试”", ids: []int64{1, 2, 3, 4}}
 	d.enqueue(q)
 	return d, sp, q, &asked
+}
+
+func TestWebListStartsAtSelectedTrackInBothModes(t *testing.T) {
+	ctx := context.Background()
+	for _, mode := range []string{ModeLoop, ModeShuffle, ModeOne} {
+		t.Run(mode, func(t *testing.T) {
+			d, _, _, asked := queueSetup(t)
+			dev, err := d.Store.Device(ctx, "d1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Store.SetSetting(ctx, settingMode+dev.DeviceID, mode); err != nil {
+				t.Fatal(err)
+			}
+			order := []int64{1, 2, 4, 5}
+			if _, err := d.PlayList(ctx, dev, "歌单", order, 4); err != nil {
+				t.Fatal(err)
+			}
+			q := d.queued(dev.DeviceID)
+			if !slices.Equal(*asked, []int64{4}) || q.ids[q.pos] != 4 || !slices.Equal(q.order, order) || len(q.ids) != len(order) {
+				t.Fatal(*asked, q.ids, q.pos, q.order)
+			}
+			if mode != ModeShuffle && !slices.Equal(q.ids, order) {
+				t.Fatal("changed the original order", q.ids)
+			}
+			if _, err := d.PlayList(ctx, dev, "歌单", order, 99); !errors.Is(err, ErrMoved) || d.queued(dev.DeviceID) != q {
+				t.Fatal("a stale selection changed playback", err)
+			}
+		})
+	}
+}
+
+func TestWebQueueMovesTracksWithNextAndLast(t *testing.T) {
+	d, _, q, asked := queueSetup(t)
+	ctx := context.Background()
+	q.order = slices.Clone(q.ids)
+	q.pos = 1
+	if !d.QueueTrack("d1", 4, true) || !d.QueueTrack("d1", 1, false) || !d.QueueTrack("d1", 2, false) {
+		t.Fatal("the active queue did not accept the edit")
+	}
+	if !slices.Equal(q.ids, []int64{2, 4, 3, 1}) || q.pos != 0 {
+		t.Fatal(q.ids, q.pos)
+	}
+	if err := d.Skip(ctx, "d1", 1); err != nil || !slices.Equal(*asked, []int64{4}) {
+		t.Fatal(err, *asked)
+	}
 }
 
 func TestListPlaysOnAndStartsOver(t *testing.T) {

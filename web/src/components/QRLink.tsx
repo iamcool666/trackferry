@@ -10,6 +10,7 @@ export function QRLink({ onLinked, compact = false }: { onLinked: (r: LinkResult
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
+  const [backup, setBackup] = useState(false);
   const [now, setNow] = useState(Date.now());
   const started = useRef(false);
   const reported = useRef<string | null>(null);
@@ -18,6 +19,8 @@ export function QRLink({ onLinked, compact = false }: { onLinked: (r: LinkResult
     setLoading(true);
     setError(null);
     setImgFailed(false);
+    setBackup(false);
+    setNow(Date.now());
     try {
       setQr(await api.startQR());
     } catch (e) {
@@ -42,19 +45,25 @@ export function QRLink({ onLinked, compact = false }: { onLinked: (r: LinkResult
   const active = qr?.state === 'pending' || qr?.state === 'confirming';
   useEffect(() => {
     if (!active) return;
-    const poll = setInterval(async () => {
+    const id = qr?.id;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
       try {
         const s = await api.qr();
-        setQr((cur) => (cur && cur.id === s.id ? s : cur));
+        if (!stopped) setQr((cur) => cur && cur.id === id ? (s.id === id ? s : { ...cur, state: 'expired' }) : cur);
       } catch (e) {
         // 404: the server no longer knows this login (e.g. it restarted). Anything else is
         // transient; keep polling.
-        if ((e as ApiError).status === 404) setQr((cur) => (cur ? { ...cur, state: 'expired' } : cur));
+        if (!stopped && (e as ApiError).status === 404) setQr((cur) => cur && cur.id === id ? { ...cur, state: 'expired' } : cur);
       }
-    }, 1500);
+      if (!stopped) timer = setTimeout(poll, 1500);
+    };
+    timer = setTimeout(poll, 1500);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => {
-      clearInterval(poll);
+      stopped = true;
+      clearTimeout(timer);
       clearInterval(tick);
     };
   }, [active, qr?.id]);
@@ -81,12 +90,13 @@ export function QRLink({ onLinked, compact = false }: { onLinked: (r: LinkResult
           </div>
         )}
         {qr && qr.state === 'pending' && !expired && !imgFailed && (
-          <img className="qr-image" src={qrImageURL(qr.id)} alt="小米登录二维码" width={240} height={240} onError={() => setImgFailed(true)} />
+          <img className="qr-image" key={`${qr.id}/${backup}`} src={qrImageURL(qr.id, backup)} alt="小米登录二维码" width={240} height={240} onError={() => { if (backup) setImgFailed(true); else setBackup(true); }} />
         )}
-        {qr && imgFailed && qr.state === 'pending' && (
+        {qr && imgFailed && qr.state === 'pending' && !expired && (
           <div className="qr-placeholder qr-error">
             <strong>二维码图片加载失败</strong>
-            <button className="btn btn-small" onClick={start}>换一张</button>
+            <span>换一张再扫，也可以切换到账号密码登录。</span>
+            <button className="btn btn-small" onClick={start} disabled={loading}>换一张</button>
           </div>
         )}
         {qr && expired && (
@@ -118,7 +128,10 @@ export function QRLink({ onLinked, compact = false }: { onLinked: (r: LinkResult
           <li>请使用 <b>绑定了小爱音箱的那个小米账号</b>。账号不对，登录会成功，但找不到音箱</li>
         </ol>
         <p className="qr-same-phone">正在用手机看这个页面？手机没法扫自己屏幕上的码，请在电脑或平板上打开这个页面再扫。</p>
-        {qr?.state === 'pending' && !expired && <p className="qr-timer">二维码 {remaining} 秒后过期 · <button className="link" onClick={start}>换一张</button></p>}
+        {qr?.state === 'pending' && !expired && <p className="qr-timer">
+          二维码 {remaining} 秒后过期 · <button className="link" onClick={start} disabled={loading}>换一张</button>
+          {!backup && <> · <button className="link" disabled={loading} onClick={() => { setImgFailed(false); setBackup(true); }}>换用备用码</button></>}
+        </p>}
         {!compact && <p className="hint">登录凭据只存在 NAS 的 <code>data/private</code>。没有米家 App 时再用账号密码。</p>}
       </div>
     </div>

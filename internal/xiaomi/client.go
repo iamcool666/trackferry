@@ -62,9 +62,13 @@ func NewClient(ep Endpoints) *Client {
 
 // transport keeps connections warm for several speakers read every second, and notices a
 // connection that silently died (router restart, changed line) instead of waiting on it.
+//
+// No proxy: these are Xiaomi's services and the speakers on this network. The proxy the owner
+// sets is for GitHub alone, as the documentation says, and reading one from the environment
+// would send these calls through it.
 func transport() *http.Transport {
 	return &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
+		Proxy:               nil,
 		DialContext:         (&net.Dialer{Timeout: 4 * time.Second, KeepAlive: 15 * time.Second}).DialContext,
 		TLSHandshakeTimeout: 4 * time.Second,
 		ForceAttemptHTTP2:   true,
@@ -224,8 +228,12 @@ func (c *Client) StartQR(ctx context.Context) (QRCode, error) {
 		return QRCode{}, errf(KindUpstream, "QR request refused: code %d %s", n, str(qr, "desc"))
 	}
 	out := QRCode{ImageURL: str(qr, "qr"), LoginURL: str(qr, "loginUrl"), PollURL: str(qr, "lp"), DeviceID: deviceID}
-	if out.PollURL == "" || out.ImageURL == "" {
-		return QRCode{}, errf(KindProtocol, "QR response missing qr or lp")
+	loginURL, err := url.Parse(out.LoginURL)
+	if err != nil || loginURL.Scheme != "https" || loginURL.Host == "" {
+		out.LoginURL = ""
+	}
+	if out.PollURL == "" || (out.ImageURL == "" && out.LoginURL == "") {
+		return QRCode{}, errf(KindProtocol, "QR response missing a login address or lp")
 	}
 	ttl := 120 * time.Second
 	if n, err := json.Number(str(qr, "timeout")).Int64(); err == nil && n > 0 && n < 3600 {

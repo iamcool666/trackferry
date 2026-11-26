@@ -41,8 +41,13 @@ const (
 )
 
 // Message is what a release signature covers: a signature fits one version on one platform.
+// arch is a Linux architecture (amd64), or a whole platform with its slash (android/arm64-v8a).
 func Message(version, arch, sha256hex string) []byte {
-	return fmt.Appendf(nil, "trackferry\n%s\nlinux/%s\n%s\n", version, arch, sha256hex)
+	platform := arch
+	if !strings.Contains(arch, "/") {
+		platform = "linux/" + arch
+	}
+	return fmt.Appendf(nil, "trackferry\n%s\n%s\n%s\n", version, platform, sha256hex)
 }
 
 // KeyMatches reports whether pub is the key this build trusts.

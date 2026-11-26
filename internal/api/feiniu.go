@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"trackferry/internal/feiniu"
+	"trackferry/internal/store"
 )
 
 func (s *Server) feiniuStatus(w http.ResponseWriter, _ *http.Request) {
@@ -136,27 +138,39 @@ func (s *Server) libraryAlbum(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) libraryArtist(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"tracks": s.Library.ArtistTracks(r.URL.Query().Get("name"), 200)})
+	writeJSON(w, http.StatusOK, map[string]any{"tracks": s.Library.ArtistTracks(r.URL.Query().Get("name"), math.MaxInt)})
 }
 
 func (s *Server) libraryLyrics(w http.ResponseWriter, r *http.Request) {
+	s.lyrics(w, r, true)
+}
+
+func (s *Server) lyrics(w http.ResponseWriter, r *http.Request, includeTrack bool) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	t, ok := s.Library.Track(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "no_track", "曲库里没有这首歌了")
 		return
 	}
-	text := ""
-	if t.GUID != "" && s.Feiniu != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		defer cancel()
-		var err error
-		if text, err = s.Feiniu.Lyrics(ctx, t.GUID); err != nil {
-			writeError(w, http.StatusBadGateway, "no_lyrics", err.Error())
-			return
-		}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	text, err := s.trackLyrics(ctx, t)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "no_lyrics", "歌词暂时读不到")
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"track": t, "lyrics": text, "offset_ms": s.offset(r, id)})
+	out := map[string]any{"lyrics": text, "offset_ms": s.offset(r, id)}
+	if includeTrack {
+		out["track"] = t
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) trackLyrics(ctx context.Context, t store.TrackRow) (string, error) {
+	if t.GUID != "" && s.Feiniu != nil {
+		return s.Feiniu.Lyrics(ctx, t.GUID)
+	}
+	return s.Library.SidecarLyrics(t.Path)
 }
 
 const settingOffset = "lyrics.offset."

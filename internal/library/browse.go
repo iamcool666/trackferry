@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"trackferry/internal/names"
 	"trackferry/internal/store"
@@ -206,6 +207,46 @@ func (l *Library) SetFavorite(ctx context.Context, id int64, on bool) (store.Tra
 	}
 	l.mu.Unlock()
 	return t, l.st.SetFavorite(context.WithoutCancel(ctx), id, on)
+}
+
+// TVBrowse samples the catalog. The same day and batch reproduce the same shelf.
+func (l *Library) TVBrowse(day time.Time, batch uint64) ([]store.TrackRow, []Album, []Artist) {
+	x := l.index()
+	seed := uint64(day.Year()*10000 + int(day.Month())*100 + day.Day())
+	draw := rand.New(rand.NewPCG(seed, batch))
+	all := draw.Perm(len(x.rows))
+	recommended := make([]store.TrackRow, 0, min(12, len(all)))
+	seen := make(map[string]bool)
+	used := make(map[int]bool)
+	for _, i := range all {
+		t := x.rows[i]
+		artist := names.Norm(t.Artist)
+		if artist == "" || seen[artist] || names.VersionPenalty(t.Title, "") > 0 {
+			continue
+		}
+		seen[artist], used[i] = true, true
+		recommended = append(recommended, t)
+		if len(recommended) == 12 {
+			break
+		}
+	}
+	for _, i := range all {
+		if len(recommended) == 12 {
+			break
+		}
+		if !used[i] {
+			recommended = append(recommended, x.rows[i])
+		}
+	}
+	albums := make([]Album, 0, min(24, len(x.albums)))
+	for _, i := range draw.Perm(len(x.albums))[:cap(albums)] {
+		albums = append(albums, x.albums[i])
+	}
+	artists := make([]Artist, 0, min(24, len(x.artists)))
+	for _, i := range draw.Perm(len(x.artists))[:cap(artists)] {
+		artists = append(artists, x.artists[i])
+	}
+	return recommended, albums, artists
 }
 
 // AlbumTracks lists an album's songs.

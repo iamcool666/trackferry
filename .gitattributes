@@ -1,1 +1,2 @@
 docs/samples/*.sse -whitespace
+android-tv/gradlew.bat -whitespace

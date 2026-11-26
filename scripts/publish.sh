@@ -41,6 +41,22 @@ bx() {
     --label org.opencontainers.image.revision="$commit" \
     --label org.opencontainers.image.licenses=MIT "$@" .
 }
+# The television apps, one per ABI, signed with the key in .private (never in Git).
+tv() {
+  [ -f .private/trackferry-tv.properties ] || { echo "缺少 .private/trackferry-tv.properties，电视应用无法签名" >&2; exit 1; }
+  [ -f android-tv/local.properties ] || [ -n "${ANDROID_HOME:-}" ] || { echo "找不到 Android SDK：设置 ANDROID_HOME 或 android-tv/local.properties" >&2; exit 1; }
+  (cd android-tv && ./gradlew --no-daemon -q clean testDebugUnitTest assembleRelease)
+  sdk="${ANDROID_HOME:-$(sed -n 's/^sdk.dir=//p' android-tv/local.properties)}"
+  signer="$(ls -d "$sdk"/build-tools/*/ | sort -V | tail -1)apksigner"
+  for abi in armeabi-v7a arm64-v8a; do
+    f="android-tv/app/build/outputs/apk/release/app-$abi-release.apk"
+    "$signer" verify "$f" >/dev/null || { echo "$f 没有签名" >&2; exit 1; }
+    "$signer" verify --print-certs "$f" | grep -q "CN=TrackFerry TV" || { echo "$f 不是用电视发版密钥签的" >&2; exit 1; }
+    cp "$f" "dist/trackferry-tv-$v-$abi.apk"
+  done
+}
+step 电视应用
+tv
 if [ "${1:-}" = --build ]; then bx -t "$image:$v"; exit; fi
 
 step 镜像
@@ -67,6 +83,12 @@ for arch in amd64 arm64; do
   f="dist/trackferry-linux-$arch"
   cp "dist/$arch/trackferry" "$f"
   go run ./scripts/sign "$v" "$arch" "$f" > "$f.sig"
+  assets+=("$f" "$f.sig")
+done
+# The television apps: the server fetches these and checks the signature (internal/update/tv.go).
+for abi in armeabi-v7a arm64-v8a; do
+  f="dist/trackferry-tv-$v-$abi.apk"
+  go run ./scripts/sign "$v" "android/$abi" "$f" > "$f.sig"
   assets+=("$f" "$f.sig")
 done
 if have="$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name' 2>/dev/null)"; then

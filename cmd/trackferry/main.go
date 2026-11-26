@@ -398,6 +398,7 @@ func serve() error {
 	if runtime.GOOS == "linux" {
 		checker.Installer = &update.Installer{Data: cfg.DataDir, Backup: st.Backup, Restart: func() { close(restart) }}
 	}
+	checker.SetTVDir(filepath.Join(update.Dir(cfg.DataDir), "tv"))
 	go checker.Run(ctx)
 	atHome := home.New(home.Source{Hub: hub, Devices: st.Devices, Pending: st.PendingVolumes, Status: xm.PlayStatus,
 		Colors: func(ctx context.Context, id string) []string {
@@ -413,11 +414,17 @@ func serve() error {
 			return home.Colors(pic)
 		}}, log, home.DefaultCadence)
 	go atHome.Run(ctx)
-	srv := api.New(api.Options{
+	tvEndpoint := listenTV(cfg.TVListen, private, st, log)
+	options := api.Options{
 		Config: cfg, Store: st, Token: token, SetupCodePath: setupCodePath,
 		Build: api.Build{Version: version, Commit: commit}, Boot: boot,
 		Xiaomi: xm, Observer: obs, Engine: engine, Stream: streams, Library: lib, Cache: kept, Router: router, Feiniu: fn, Netease: netease, Live: hub, Home: atHome, Played: played, Dispatcher: dispatcher, Web: webui.Handler(), Log: log, Update: checker, SetupLog: showCode,
-	})
+	}
+	if tvEndpoint != nil {
+		defer tvEndpoint.Close()
+		options.TV = tvEndpoint.pairer
+	}
+	srv := api.New(options)
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),
@@ -456,6 +463,10 @@ func serve() error {
 		showCode(firstCode)
 	}
 	srv.MarkReady()
+	if tvEndpoint != nil {
+		stopTV := tvEndpoint.serve(ctx, srv.TVHandler(), log)
+		defer stopTV()
+	}
 	time.AfterFunc(update.Settle, func() {
 		if err := update.Confirm(cfg.DataDir, version); err != nil {
 			log.Warn("更新　没能记下这一版运行正常", "原因", err)

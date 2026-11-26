@@ -65,7 +65,7 @@ export function bendGlass() {
   const later = (el: Element) => { todo.add(el as HTMLElement); clearTimeout(t); t = window.setTimeout(run, 60); };
   const ro = new ResizeObserver((es) => es.forEach((e) => later(e.target)));
   const seen = new WeakSet<Element>();
-  const scan = () => document.querySelectorAll('.shell .dock .glass, dialog.sheet').forEach((el) => { if (!seen.has(el)) { seen.add(el); ro.observe(el); } });
+  const scan = () => document.querySelectorAll('.dock-glass, dialog.sheet').forEach((el) => { if (!seen.has(el)) { seen.add(el); ro.observe(el); } });
   const mo = new MutationObserver(scan);
   mo.observe(document.body, { childList: true, subtree: true });
   scan();

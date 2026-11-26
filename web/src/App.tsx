@@ -9,10 +9,13 @@ import { Dock } from './components/Dock';
 import { Fish } from './components/Fish';
 import { HereSaid } from './components/HereSaid';
 import { Signature } from './components/Signature';
+import { lookAt } from './ear';
+import { TVPresence } from './components/TVPresence';
+import { monitorTV, tvTarget } from './tv';
 
 // Pages arrive on their own, right after the first one is up.
 const load = {
-  welcome: () => import('./pages/Onboarding'), flow: () => import('./pages/FlowPage'), say: () => import('./pages/Say'),
+  tv: () => import('./components/TVDevices'), welcome: () => import('./pages/Onboarding'), flow: () => import('./pages/FlowPage'), say: () => import('./pages/Say'),
   search: () => import('./pages/Search'), more: () => import('./pages/More'), library: () => import('./pages/Library'), speakers: () => import('./pages/Speakers'), account: () => import('./pages/Account'),
 };
 type Loaded = { [K in keyof typeof load]?: Awaited<ReturnType<(typeof load)[K]>> };
@@ -33,6 +36,7 @@ const tabs: { page: Page; label: string }[] = [
   { page: 'flow', label: '流转' },
   { page: 'say', label: '怎么说' },
   { page: 'speakers', label: '音箱' },
+  { page: 'tv', label: '电视' },
   { page: 'account', label: '设置' },
 ];
 
@@ -52,6 +56,8 @@ function Inner() {
   const [data, setData] = useState<Data | null>(null);
   const [place, setPlace] = useState<Place | null>(readPlace());
   const [, arrived] = useState(0);
+  const [pairing, setPairing] = useState(false);
+  useEffect(() => { if (place?.page === 'home' && place.id) lookAt(tvTarget(place.id)); }, [place]);
   useEffect(() => { if (place) ready(place.page).then(() => arrived((n) => n + 1)); }, [place?.page]); // eslint-disable-line react-hooks/exhaustive-deps
   const [scanOnAccount, setScanOnAccount] = useState(false);
 
@@ -108,6 +114,8 @@ function Inner() {
   const relink = useCallback(() => navigate({ page: 'account' }, null, true), [navigate]);
   const refresh = useCallback(async () => { await loadData(); }, [loadData]);
 
+  useEffect(() => { if (session?.authenticated) return monitorTV(); }, [session?.authenticated]);
+
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const f = () => setScrolled(scrollY > 24);
@@ -144,9 +152,10 @@ function Inner() {
     <div className={`shell at-${place.page}`}>
       <header className={`topbar ${scrolled ? 'solid' : ''}`}>
         <a className="brand" href="#/home" aria-label="TrackFerry" onClick={(e) => { e.preventDefault(); navigate({ page: 'home' }); }}><Brand /></a>
+        <TVPresence place={place} navigate={navigate} pairing={pairing} setPairing={setPairing} />
         {place.page !== 'welcome' && (
           <>
-          {(['flow', 'say', 'speakers', 'account'] as Page[]).includes(place.page) && <button type="button" className="crumb glass" onClick={() => navigate({ page: 'more' })}><svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true"><path d="M8.5 1.5 2 8l6.5 6.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>更多</button>}
+          {(['flow', 'say', 'speakers', 'account', 'tv'] as Page[]).includes(place.page) && <button type="button" className="crumb glass" onClick={() => navigate({ page: 'more' })}><svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true"><path d="M8.5 1.5 2 8l6.5 6.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>更多</button>}
           <nav className="tabs" aria-label="主导航">
             {tabs.map((t) => (
               <a key={t.page} href={href(t)} aria-current={place.page === t.page ? 'page' : undefined} onClick={(e) => { e.preventDefault(); navigate({ page: t.page }); }}>
@@ -171,13 +180,14 @@ function Inner() {
         {place.page === 'say' && got.say && <got.say.Say navigate={navigate} />}
         {place.page === 'library' && got.library && <got.library.Library place={place} devices={data.devices} navigate={navigate} />}
         {place.page === 'speakers' && got.speakers && <got.speakers.Speakers account={data.account} devices={data.devices} takeoverSupported={data.takeoverSupported} onDevices={onDevices} onRescan={relink} />}
+        {place.page === 'tv' && got.tv && <got.tv.TVDevices onPair={() => setPairing(true)} />}
         {place.page === 'account' && got.account && (
           <got.account.Account key={String(scanOnAccount)} account={data.account} build={session.build} startScanning={scanOnAccount} onChanged={refresh} onLogout={logout} />
         )}
       </main>
       <HereSaid />
       {place.page !== 'welcome' && <Dock page={place.page} devices={data.devices} navigate={navigate} dot={needsAttention} />}
-      {place.page !== 'account' && place.page !== 'search' && place.page !== 'more' && <footer className="colophon"><Signature /></footer>}
+      {place.page !== 'account' && place.page !== 'search' && place.page !== 'more' && place.page !== 'tv' && <footer className="colophon"><Signature /></footer>}
     </div>
   );
 }

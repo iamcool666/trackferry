@@ -63,8 +63,9 @@ type Dispatcher struct {
 	gens map[string]*generation
 	last map[string]lastSong
 
-	queues map[string]*queue
-	wished int64 // names wishes
+	queues     map[string]*queue
+	wished     int64    // names wishes
+	startLocks sync.Map // device ID to mutex, for starting or advancing manual playback
 
 	// Random draws songs of the library to go on with; optional.
 	Random func(n int) []int64

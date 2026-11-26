@@ -4,6 +4,16 @@
 export interface UpdateStatus { enabled: boolean; current: string; latest?: string; newer: boolean; url?: string; notes?: string; published?: string; checked_ms?: number; error?: string;
   proxy?: string; installable?: boolean; failed?: string; install?: { phase: 'download' | 'check' | 'restart'; done?: number; total?: number; error?: string } }
 
+export interface TVDevice { id: string; name: string; paired_at: string }
+
+export interface TVRef { id?: number; online?: string; title?: string; artist?: string }
+export interface TVTrack extends HereListed { online?: string }
+export interface TVPlayback { revision: string; entry: string; current: TVRef; index: number; count: number; position_ms: number; duration_ms: number; phase: 'idle' | 'paused' | 'buffering' | 'playing' | 'ended' | 'error'; seekable: boolean; volume?: number; mode: PlayMode; at_ms: number }
+export interface TVOutput extends TVDevice { online: boolean; playback: TVPlayback }
+export interface TVSnapshot { playback: TVPlayback; items: TVTrack[] }
+export interface TVCommand { action: 'load' | 'insert' | 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'seek' | 'jump' | 'mode' | 'remove' | 'volume'; items?: TVRef[]; index?: number; position_ms?: number; mode?: PlayMode; volume?: number; revision?: string; entry?: string; queue_mode?: 'next' | 'last'; source?: string; source_id?: string; name?: string; track_id?: number; track_ids?: number[] }
+export interface TVResult { id: string; state: 'pending' | 'done' | 'failed' | 'superseded'; message?: string }
+
 export interface HomeStatus { enabled: boolean; has_token: boolean; connected: number }
 export interface Playing { artist: boolean; after: boolean; hours: number }
 export type Hush = 'normal' | 'strong' | 'wait';
@@ -11,7 +21,9 @@ export interface OnlineSong { key: string; source: 'kuwo' | 'kugou' | 'migu' | '
 export interface OnlineOutcome { source: string; state: string; detail?: string }
 export interface Playlist { guid: string; name: string }
 /** What can be sent to a speaker to play. */
-export type Sendable = { source: 'favorites' } | { source: 'playlist' | 'album' | 'online'; id: string; title?: string } | { source: 'track'; track_id: number; title?: string } | { source: 'artist'; name: string };
+export type Collection = { source: 'favorites' } | { source: 'playlist' | 'album'; id: string } | { source: 'artist'; name: string };
+export type Single = { source: 'track'; track_id: number } | { source: 'online'; id: string; title?: string; artist?: string };
+export type Sendable = ((Collection | { source: 'picks'; track_ids: number[] }) & { track_id?: number }) | Single;
 export type Press = 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'mode' | 'volume' | 'wake' | 'seek';
 export type PlayMode = 'loop' | 'shuffle' | 'one';
 export interface Controls { state: 'playing' | 'paused' | 'idle'; volume: number | null; mode: PlayMode | ''; queue: { list: string; at: number; total: number; next: string[] } | null }
@@ -328,7 +340,7 @@ export function setUnauthorizedHandler(f: () => void) {
   onUnauthorized = f;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = { 'X-Requested-With': 'trackferry' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
@@ -337,9 +349,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       method,
       headers,
       credentials: 'same-origin',
+      signal,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new ApiError(0, 'offline', '连不上 TrackFerry，请确认 NAS 上的服务在运行');
   }
   if (res.status === 204) return undefined as T;
@@ -357,6 +371,18 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
+  speakerHandoff: (id: string, signal?: AbortSignal) => request<{ run_id: number; items: TVRef[]; tracks: TVTrack[]; index: number; position_ms: number; mode: PlayMode }>('GET', `/api/devices/${encodeURIComponent(id)}/handoff`, undefined, signal),
+  speakerReceive: (id: string, track_ids: number[], index: number, position_ms: number, signal?: AbortSignal) => request<{ run_id: number }>('POST', `/api/devices/${encodeURIComponent(id)}/handoff`, { track_ids, index, position_ms }, signal),
+  speakerHandoffPause: (id: string, run_id: number, signal?: AbortSignal) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/handoff/pause`, { run_id }, signal),
+  tvOutputs: (signal?: AbortSignal) => request<{ devices: TVOutput[]; now_ms?: number; pairing?: { id: string; name: string } | null }>('GET', '/api/tv/outputs', undefined, signal),
+  tvSnapshot: (id: string, signal?: AbortSignal) => request<TVSnapshot>('GET', `/api/tv/outputs/${encodeURIComponent(id)}/snapshot`, undefined, signal),
+  tvCommand: (id: string, command: TVCommand, signal?: AbortSignal) => request<TVResult>('POST', `/api/tv/outputs/${encodeURIComponent(id)}/commands`, command, signal),
+  tvCommandStatus: (id: string, command: string, signal?: AbortSignal) => request<TVResult>('GET', `/api/tv/outputs/${encodeURIComponent(id)}/commands/${encodeURIComponent(command)}`, undefined, signal),
+  tvCancel: (id: string, command: string) => request<void>('DELETE', `/api/tv/outputs/${encodeURIComponent(id)}/commands/${encodeURIComponent(command)}`),
+  tvDevices: (signal?: AbortSignal) => request<{ devices: TVDevice[] }>('GET', '/api/tv/devices', undefined, signal),
+  pairTV: (code: string) => request<TVDevice>('POST', '/api/tv/devices', { code }),
+  renameTV: (id: string, name: string) => request<TVDevice>('PUT', `/api/tv/devices/${encodeURIComponent(id)}`, { name }),
+  revokeTV: (id: string) => request<void>('DELETE', `/api/tv/devices/${encodeURIComponent(id)}`),
   update: () => request<UpdateStatus>('GET', '/api/update'),
   checkUpdate: () => request<UpdateStatus>('POST', '/api/update'),
   updateProxy: (proxy: string) => request<UpdateStatus>('PUT', '/api/update/proxy', { proxy }),
@@ -394,7 +420,6 @@ export const api = {
   setLyricsOffset: (id: number, offset_ms: number) => request<unknown>('PUT', `/api/library/tracks/${id}/lyrics`, { offset_ms }),
   isFavorite: (id: number) => request<{ favorite: boolean }>('GET', `/api/library/tracks/${id}/favorite`),
   favorite: (id: number, on: boolean) => request<{ favorite: boolean }>('PUT', `/api/library/tracks/${id}/favorite`, { on }),
-  playTrack: (id: string, track_id: number) => request<TakeoverRun>('POST', `/api/devices/${encodeURIComponent(id)}/takeover-test`, { source: 'track', track_id }),
   feiniu: () => request<FeiniuInfo>('GET', '/api/feiniu'),
   linkFeiniu: (base: string, user: string, password: string, code: string) => request<FeiniuInfo>('POST', '/api/feiniu', { base, user, password, code }),
   discoverFeiniu: () => request<{ servers: FeiniuServer[]; blocked: string[]; relay: boolean }>('GET', '/api/feiniu/discover'),
@@ -418,7 +443,7 @@ export const api = {
   neteaseQR: () => request<NeteaseQR>('GET', '/api/sources/netease/qr'),
   neteaseCancel: () => request<void>('DELETE', '/api/sources/netease/qr'),
   setSource: (name: string, enabled: boolean) => request<{ sources: SourceHealth[] }>('PATCH', `/api/sources/${name}`, { enabled }),
-  press: (id: string, action: Press, with_: { volume?: number; mode?: PlayMode; position?: number } = {}) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/control`, { action, ...with_ }),
+  press: (id: string, action: Press, with_: { volume?: number; mode?: PlayMode; position?: number; run_id?: number } = {}, signal?: AbortSignal) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/control`, { action, ...with_ }, signal),
   controls: (id: string) => request<Controls>('GET', `/api/devices/${encodeURIComponent(id)}/control`),
   queue: (id: string, from = 0) => request<Queue>('GET', `/api/devices/${encodeURIComponent(id)}/queue?from=${from}`).then((q) => {
     if (!Array.isArray(q?.songs) || !Array.isArray(q.wishes)) throw new ApiError(502, 'bad_answer', '读不到播放列表，TrackFerry 可能要更新');
@@ -431,8 +456,8 @@ export const api = {
   setHome: (enabled: boolean) => request<HomeStatus>('PUT', '/api/home', { enabled }),
   homeToken: () => request<{ token: string }>('POST', '/api/home/token'),
   setHush: (id: string, hush: Hush) => request<Device>('PATCH', `/api/devices/${encodeURIComponent(id)}`, { hush }),
-  play: (id: string, what: Sendable) => request<TakeoverRun>('POST', `/api/devices/${encodeURIComponent(id)}/play`, what),
-  playNext: (id: string, what: Sendable) => request<{ queued?: boolean }>('POST', `/api/devices/${encodeURIComponent(id)}/play`, { ...what, next: true }),
+  play: (id: string, what: Sendable, signal?: AbortSignal) => request<TakeoverRun>('POST', `/api/devices/${encodeURIComponent(id)}/play`, what, signal),
+  queueSong: (id: string, what: Single, where: 'next' | 'last', signal?: AbortSignal) => request<{ queued?: boolean }>('POST', `/api/devices/${encodeURIComponent(id)}/play`, { ...what, [where]: true }, signal),
   playing: () => request<Playing>('GET', '/api/playing'),
   setPlaying: (p: Partial<Playing>) => request<Playing>('PUT', '/api/playing', p),
   favorites: (from = 0) => request<{ tracks: Track[] | null; total: number }>('GET', `/api/library/favorites?from=${from}`),
@@ -446,6 +471,6 @@ export function captchaURL(rev: number) {
   return `/api/xiaomi/password/captcha.png?rev=${rev}`;
 }
 
-export function qrImageURL(id: string) {
-  return `/api/xiaomi/qr.png?id=${encodeURIComponent(id)}`;
+export function qrImageURL(id: string, backup = false) {
+  return `/api/xiaomi/qr.png?id=${encodeURIComponent(id)}${backup ? '&backup=1' : ''}`;
 }

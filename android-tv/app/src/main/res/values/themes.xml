@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The window is the colour of the stage from the first frame, so the opening never flashes grey. -->
+    <style name="Theme.TrackFerry" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/stage</item>
+        <item name="android:colorBackground">@color/stage</item>
+    </style>
+    <color name="stage">#FF10181D</color>
+</resources>

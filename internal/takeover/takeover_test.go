@@ -143,6 +143,61 @@ func steps(r store.TakeoverRun) string {
 	return strings.Join(s, ",")
 }
 
+func TestUnconfirmedHandoffStopsItsOwnStream(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		name := "missing fetch"
+		if cancel {
+			name = "request cancelled after push"
+		}
+		t.Run(name, func(t *testing.T) {
+			e, sp, _ := setup(t)
+			e.timing.MaxReplays = 0
+			sp.fetchOK = cancel
+			done := make(chan End, 1)
+			r := req(sp)
+			r.Handoff, r.Ended = true, func(end End) { done <- end }
+			ctx := context.Background()
+			run, err := e.Start(ctx, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cancel {
+				select {
+				case <-sp.fetch:
+					e.CancelRun(r.DeviceID, run.ID)
+				case <-time.After(time.Second):
+					t.Fatal("speaker did not fetch")
+				}
+			}
+			select {
+			case end := <-done:
+				if end != EndOther {
+					t.Fatal("failed handoff advanced the queue", end)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("handoff did not finish")
+			}
+			if p, _ := sp.PlayStatus(ctx, r.DeviceID); p.Playing() {
+				t.Fatal("failed destination still playing", p)
+			}
+		})
+	}
+}
+
+func TestHandoffDoesNotPauseReplacedOrNativePlayback(t *testing.T) {
+	e, sp, _ := setup(t)
+	d := e.device("d1")
+	d.runID, d.watching, d.cancel = 2, true, func(error) {}
+	for _, id := range []int64{1, 2} {
+		if err := e.PauseRun(context.Background(), "d1", "LX06", id); !errors.Is(err, ErrSeekMoved) {
+			t.Fatalf("run %d: %v", id, err)
+		}
+	}
+	if p, _ := sp.PlayStatus(context.Background(), "d1"); p.AudioID != "native-qq" {
+		t.Fatal("native playback was interrupted", p)
+	}
+}
+
 func TestTakeoverMutesStopsPlaysConfirmsAndRestores(t *testing.T) {
 	e, sp, st := setup(t)
 	run, err := e.Run(context.Background(), req(sp))
@@ -519,9 +574,53 @@ func TestContinuesAfterSomeoneTalkedToXiaoAI(t *testing.T) {
 	// Nothing was said: a pause on the speaker itself is the listener's own.
 }
 
+// Soon after the start, Xiao AI may take the song for words and stop it with an answer that
+// leaves no record (#20): the song goes on once she is done, one time only.
+func TestContinuesAfterXiaoAICutsInUnheard(t *testing.T) {
+	e, sp, st := setup(t)
+	e.timing.Look, e.timing.LookClose, e.timing.Speak, e.timing.Pause = 10*time.Millisecond, 10*time.Millisecond, time.Millisecond, 30*time.Millisecond
+	r := req(sp)
+	r.Track.Length = time.Hour
+	got := make(chan time.Duration, 4)
+	r.Track.Resume = func(_ context.Context, at time.Duration) (Track, time.Duration, error) {
+		got <- at
+		c := make(chan struct{})
+		close(c)
+		return Track{URL: "http://nas/stream/rest.mp3", Fetched: c}, at, nil
+	}
+	run, err := e.Start(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(700 * time.Millisecond) // past the guard, well inside the window
+	sp.mu.Lock()
+	sp.playing = ""
+	sp.mu.Unlock()
+	select {
+	case <-got:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the song was not continued")
+	}
+	time.Sleep(100 * time.Millisecond)
+	saved, _ := st.Run(context.Background(), run.ID)
+	if s := steps(saved); !strings.Contains(s, "paused,talked,resume") {
+		t.Fatalf("steps %s", s)
+	}
+	// A second stop is the listener's own.
+	sp.mu.Lock()
+	sp.playing = ""
+	sp.mu.Unlock()
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-got:
+		t.Fatal("continued a second stop")
+	default:
+	}
+}
+
 func TestAPausedSongIsLeftAlone(t *testing.T) {
 	e, sp, _ := setup(t)
-	e.timing.Look, e.timing.LookClose = 10*time.Millisecond, 10*time.Millisecond
+	e.timing.Look, e.timing.LookClose, e.timing.CutIn = 10*time.Millisecond, 10*time.Millisecond, 100*time.Millisecond
 	r := req(sp)
 	r.Track.Length = time.Hour
 	r.Track.Resume = func(context.Context, time.Duration) (Track, time.Duration, error) {

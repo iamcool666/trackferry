@@ -16,6 +16,7 @@ import (
 // Config is the whole runtime configuration.
 type Config struct {
 	Listen        string `yaml:"listen"`
+	TVListen      string `yaml:"tv_listen"`
 	PublicBaseURL string `yaml:"public_base_url"`
 	DataDir       string `yaml:"data_dir"`
 	MusicDir      string `yaml:"music_dir"`
@@ -36,6 +37,7 @@ func (c *Config) fromEnv() {
 		}
 	}
 	set("TRACKFERRY_LISTEN", &c.Listen)
+	set("TRACKFERRY_TV_LISTEN", &c.TVListen)
 	set("TRACKFERRY_URL", &c.PublicBaseURL)
 	c.PublicBaseURL = strings.TrimRight(c.PublicBaseURL, "/")
 	if v, ok := os.LookupEnv("TRACKFERRY_TAKEOVER"); ok {
@@ -67,7 +69,7 @@ func (c Config) TakeoverAllowed(name string) bool {
 
 // Default returns the configuration used when no file is present.
 func Default() Config {
-	return Config{Listen: ":18561", DataDir: "/data", MusicDir: "/music", UpdateCheck: true}
+	return Config{Listen: ":18561", TVListen: ":18562", DataDir: "/data", MusicDir: "/music", UpdateCheck: true}
 }
 
 // Load reads path and then the environment, which wins. A missing file yields Default(); any
@@ -94,6 +96,11 @@ func (c Config) Validate() error {
 	var errs []error
 	if _, err := ListenPort(c.Listen); err != nil {
 		errs = append(errs, err)
+	}
+	if c.TVListen != "off" && c.TVListen != "" {
+		if _, err := ListenPort(c.TVListen); err != nil {
+			errs = append(errs, fmt.Errorf("tv_listen: %w", err))
+		}
 	}
 	if u, err := url.Parse(c.PublicBaseURL); c.PublicBaseURL != "" && (err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Host == "") {
 		errs = append(errs, fmt.Errorf("TRACKFERRY_URL %q: want something like http://192.168.1.10:18561", c.PublicBaseURL))
