@@ -12,6 +12,8 @@ services:
     network_mode: !reset null
     ports:
       - "18561:18561"
+      # 电视端连接端口，和 compose.yaml 里的 TRACKFERRY_TV_LISTEN 一致。从 1.6.0 升级时要补上这一行。
+      # 桥接网络下电视收不到局域网广播，自动发现找不到 NAS：在电视连接页选“手动连接”，填 NAS 地址
       - "18562:18562"
     volumes:
       - relay:/run/trackferry

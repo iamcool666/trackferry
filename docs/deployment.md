@@ -66,7 +66,14 @@ docker compose logs trackferry
   sudo ufw allow from 192.168.1.0/24 to any port 18561 proto tcp
   ```
 
-不要在路由器上把这个端口映射到外网。
+用电视端还要放行 TCP 18562（电视连接）和 UDP 5353（电视在局域网里自动找到 NAS），同样只对局域网：
+
+- 飞牛 fnOS：防火墙里再放行 TCP 18562、UDP 5353。
+- ufw：`sudo ufw allow from 192.168.1.0/24 to any port 18562 proto tcp`，`sudo ufw allow from 192.168.1.0/24 to any port 5353 proto udp`
+
+5353 没放行时电视找不到 NAS，可以在电视连接页选“手动连接”填 NAS 地址；18562 没放行时手动连接也连不上。
+
+不要在路由器上把这些端口映射到外网。
 
 ## 第五步：完成设置
 
