@@ -6,6 +6,13 @@
 
 ## [1.10.0] - 2026-11-28
 
+> [!IMPORTANT]
+> **放 FLAC 不出声的音箱，现在能放了。** L05B、L05C、LX05、LX06、L16A 等型号放不了无损，取了流也不出声。新版能先在 NAS 上把无损歌转成 320k MP3 再交给音箱，但要两步才看得到：
+> 1. 把 `compose.yaml` 里的镜像从 `madrays/trackferry:latest` 换成 **`madrays/trackferry:ffmpeg`**，再 `docker compose pull && docker compose up -d`。默认镜像不带 ffmpeg，看不到这个开关。
+> 2. 打开“音箱”页，点开那台音箱，打开 **“无损转 MP3”**。
+>
+> 代价：没转过的歌第一次要等几秒才出声（ARM 小盒子可能十几秒）；转码时占一个 CPU 核；MP3 是有损的；ffmpeg 镜像约 220 MB，不能在设置页一键更新，要用上面的命令更新。转不成时照常放原文件。详见[无损转 MP3](https://github.com/madrays/trackferry/blob/main/docs/configuration.md#无损转-mp3)。
+
 ### 新增
 - 音箱可以打开“无损转 MP3”：放不了 FLAC 的型号，曲库里的无损歌先在 NAS 上用 ffmpeg 转成 320k MP3 再交给音箱。转好的文件留在 `data/mp3`，默认最多 2 GB，超出先删最久没放的；下一首会提前转。转不成（没有 ffmpeg、超时、源文件读不到）就照常放原文件，原因写进这首歌的“链路”。
   - 代价：没转过的歌第一次要等几秒才出声（ARM 小盒子可能十几秒，最多等 90 秒），转码时占一个 CPU 核；MP3 是有损的。
