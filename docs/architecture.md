@@ -28,6 +28,10 @@ Go 单进程：对话轮询、路由、音频服务和管理接口都在一个�
 | `internal/cache` | 听过的线上歌：开始播放 20 秒后另行下载完整一份，按容量淘汰最久没听的；同样的请求再来时跳过线上查找 |
 | `internal/routing` | 路由决策：曲库 → 酷我 / 酷狗 / 咪咕 / 网易云 → 小爱，结果连同各层候选与耗时存入 `commands.route` |
 | `internal/takeover` | 接管闭环：静音、打断小爱、推流、守护窗口、确认与恢复音量；按口令分派 |
+| `internal/cast` | 投放：搜索局域网里的 DLNA 和 Chromecast 设备，打开的设备按电视的方式由服务端驱动，掉线重连、换 IP 跟上 |
+| `internal/tv` | 电视端的配对凭据与服务身份 |
+| `internal/fill` | 曲库缺的封面在后台补，没歌词的歌播放时再找；按歌名、歌手、时长和专辑严格匹配，逐个平台慢慢问 |
+| `internal/netcover` | 平台封面落盘缓存，同一张只取一次，取不到的一段时间内不再问 |
 | `internal/stream` | 音频 HTTP 服务：短期令牌、Range、取流记录；在线流代理（Range 透传） |
 | `internal/api` | 管理 JSON 接口、SSE 事件、健康检查、管理员会话 |
 | `internal/auth` | 管理密码哈希、首次初始化码、登录限速 |
@@ -37,6 +41,7 @@ Go 单进程：对话轮询、路由、音频服务和管理接口都在一个�
 | `internal/relay` | 备选的本机通道 |
 | `internal/update` | 去 GitHub 看有没有新版本，下载、核对签名并切换；启动时决定用镜像里的还是已安装的程序 |
 | `internal/logx` | 中文日志与醒目的提示框 |
+| `internal/privs` | 容器只在启动瞬间是 root，把数据目录交给普通身份后切换过去 |
 | `internal/config`、`internal/fscheck` | 配置与目录检查 |
 | `internal/webui` | 嵌入的管理页静态资产，客户端路由回退到 index.html |
 

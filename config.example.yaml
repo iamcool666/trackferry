@@ -7,12 +7,18 @@ listen: ":18561"
 # 音箱取歌用的局域网地址（TRACKFERRY_URL）
 public_base_url: "http://192.168.1.10:18561"
 
+# 电视端连接端口，"off" 关闭电视端（TRACKFERRY_TV_LISTEN）
+tv_listen: ":18562"
+
 # 允许设为接管的音箱，写名字的一部分，"*" 为全部（TRACKFERRY_TAKEOVER）
 takeover_speakers: ["*"]
 
 # 去 GitHub 看有没有新版本（TRACKFERRY_UPDATE_CHECK）
 update_check: true
 
+# 投放到局域网里的 DLNA 和 Chromecast 设备（TRACKFERRY_CAST）
+cast: true
+
 # 容器内的目录，一般不用改
 data_dir: /data
-music_dir: /music
+music_dir: /music  # 只读挂载的音乐文件夹（TRACKFERRY_MUSIC_DIR），连了飞牛音乐时不读

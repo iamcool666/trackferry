@@ -3,6 +3,7 @@
 #   docker compose -f compose.bridge.yaml up -d
 #
 # 桥接容器连本机的飞牛音乐常被 NAS 防火墙挡住，relay 用来绕开，它不对外开端口。
+# 桥接网络收不到局域网广播：电视要手动连接，DLNA / Chromecast 投放也搜不到设备。用到这两样时请用 compose.yaml 的 host 网络。
 name: trackferry
 
 services:

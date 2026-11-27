@@ -2,6 +2,7 @@
 #
 #   docker compose up -d
 #   docker compose logs trackferry                    # 最后一段是首次登录用的初始化码
+#   docker exec trackferry /trackferry setup-code     # 只看初始化码
 #
 # 逐步说明和常见问题：docs/deployment.md　全部配置项：docs/configuration.md
 name: trackferry
@@ -29,6 +30,8 @@ services:
       # 允许设为“接管”的音箱：* 是全部；也可以写名字的一部分，逗号分隔，如 "书房,客厅"
       # 这里只是放行，要不要接管在管理页里逐台选
       TRACKFERRY_TAKEOVER: "*"
+      # 投放到局域网里的 DLNA 和 Chromecast 设备（在“更多 → 电视和投放”里打开）。不用就改成 "off"
+      TRACKFERRY_CAST: "on"
       # 每天去 GitHub 看有没有新版本，不会自己安装。不需要就改成 "off"
       TRACKFERRY_UPDATE_CHECK: "on"
       # 程序用哪个普通身份运行，data 会在启动时自动改成它的。一般不用改；
