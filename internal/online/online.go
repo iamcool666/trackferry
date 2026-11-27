@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -45,13 +46,18 @@ type Candidate struct {
 	Member     bool          `json:"-"`          // played by the rights of an account: never kept
 	Note       string        `json:"note,omitempty"`
 	Why        string        `json:"why,omitempty"` // not the song asked for
+	Album      string        `json:"album,omitempty"`
+	Cover      string        `json:"cover,omitempty"` // NetCover ID of the platform's picture
+	lyric      string        // where the platform keeps the lyrics, when the search says
 }
 
 // Stream is a resolved, probed audio address.
 type Stream struct {
-	URL      string
-	Duration time.Duration
-	Type     string
+	URL        string
+	Duration   time.Duration
+	Type       string
+	Kbps       int // read from the audio itself, not what the platform claims
+	SampleRate int
 }
 
 // Source is one platform.
@@ -140,9 +146,20 @@ type Service struct {
 	srcs  []*entry
 	sem   chan struct{}
 
+	paceMu  sync.Mutex
+	pace    map[string]*pacer
 	offMu   sync.Mutex
 	offered map[string]Candidate // shown by Search, until picked
 	order   []string
+
+	quality atomic.Value // Quality
+	techMu  sync.Mutex
+	tech    map[string]Tech // what each played song really was
+
+	// Remember keeps the songs a search showed beyond this process; Recall finds one again.
+	// Both optional: without them a song can be picked only while it is among the last shown.
+	Remember func(map[string]Saved)
+	Recall   func(key string) (Saved, bool)
 }
 
 // New returns a Service over sources in order of preference, all enabled.
@@ -544,7 +561,45 @@ func (s *Service) search(ctx context.Context, src Source, q string) (c []Candida
 
 func (s *Service) address(ctx context.Context, src Source, c Candidate) (u string, err error) {
 	defer s.fault(&err)
+	if _, set := ctx.Value(qualityKey{}).(Quality); !set {
+		ctx = context.WithValue(ctx, qualityKey{}, s.Quality())
+	}
 	return src.Resolve(ctx, c)
+}
+
+// Quality is how good the online audio asked for is. Both are MP3: every speaker plays it.
+type Quality string
+
+const (
+	Standard Quality = "standard" // about 128 kbps
+	High     Quality = "high"     // 320 kbps where the platform has it
+)
+
+type qualityKey struct{}
+
+// QualityOf is the quality a Resolve is asked for.
+func QualityOf(ctx context.Context) Quality {
+	if q, ok := ctx.Value(qualityKey{}).(Quality); ok {
+		return q
+	}
+	return High
+}
+
+// Quality is the quality asked for first; a song that does not have it comes in the standard one.
+func (s *Service) Quality() Quality {
+	if q, ok := s.quality.Load().(Quality); ok {
+		return q
+	}
+	return High
+}
+
+// SetQuality changes it; false for a value that is not one.
+func (s *Service) SetQuality(q Quality) bool {
+	if q != Standard && q != High {
+		return false
+	}
+	s.quality.Store(q)
+	return true
 }
 
 func (s *Service) fault(err *error) {
@@ -554,8 +609,13 @@ func (s *Service) fault(err *error) {
 	}
 }
 
-func (s *Service) resolveOne(ctx context.Context, src Source, c Candidate) (Stream, error) {
-	st, err := s.tryOne(ctx, src, c)
+func (s *Service) resolveOne(ctx context.Context, src Source, c Candidate) (st Stream, err error) {
+	defer func() {
+		if err == nil {
+			s.noteTech(c.Source+":"+c.ID, Tech{Format: "mp3", Kbps: st.Kbps, SampleRate: st.SampleRate, Bits: 16})
+		}
+	}()
+	st, err = s.tryOne(ctx, src, c)
 	free, ok := src.(interface {
 		ResolveFree(context.Context, Candidate) (string, error)
 	})
@@ -570,6 +630,39 @@ func (s *Service) resolveOne(ctx context.Context, src Source, c Candidate) (Stre
 	return again, nil
 }
 
+// Tech is what a stream really is, read from its audio.
+type Tech struct {
+	Format     string `json:"format"`
+	Kbps       int    `json:"kbps,omitempty"`
+	SampleRate int    `json:"sample_rate,omitempty"`
+	Bits       int    `json:"bits,omitempty"`
+}
+
+const maxTech = 5000
+
+func (s *Service) noteTech(key string, t Tech) {
+	if t.Kbps == 0 {
+		return
+	}
+	s.techMu.Lock()
+	defer s.techMu.Unlock()
+	if s.tech == nil {
+		s.tech = map[string]Tech{}
+	}
+	if len(s.tech) >= maxTech {
+		clear(s.tech) // rebuilt as songs play; a song not played lately is probed again when asked
+	}
+	s.tech[key] = t
+}
+
+// TechOf is what the song last played as, when it was played since the start.
+func (s *Service) TechOf(key string) (Tech, bool) {
+	s.techMu.Lock()
+	defer s.techMu.Unlock()
+	t, ok := s.tech[key]
+	return t, ok
+}
+
 // freely is a source asked without its session.
 type freely struct {
 	Source
@@ -579,7 +672,21 @@ type freely struct {
 func (f freely) Resolve(ctx context.Context, c Candidate) (string, error) { return f.resolve(ctx, c) }
 
 func (s *Service) tryOne(ctx context.Context, src Source, c Candidate) (Stream, error) {
-	u, err := s.address(ctx, src, c)
+	st, err := s.tryAt(ctx, src, c, s.Quality())
+	var he httpError
+	if err == nil || s.Quality() == Standard || ctx.Err() != nil || errors.Is(err, ErrTrial) ||
+		!errors.Is(err, ErrNoAudio) && !errors.Is(err, ErrRestricted) && !errors.As(err, &he) {
+		return st, err
+	}
+	// The better one is not there for everybody: the standard one is.
+	if again, aerr := s.tryAt(ctx, src, c, Standard); aerr == nil {
+		return again, nil
+	}
+	return st, err
+}
+
+func (s *Service) tryAt(ctx context.Context, src Source, c Candidate, q Quality) (Stream, error) {
+	u, err := s.address(context.WithValue(ctx, qualityKey{}, q), src, c)
 	if err != nil {
 		return Stream{}, err
 	}
@@ -606,14 +713,15 @@ func (s *Service) check(ctx context.Context, u string, want time.Duration) (Stre
 			body = body[n:]
 		}
 	}
-	d := audio.MP3Duration(body, total-off)
+	info := audio.MP3Info(body, total-off)
+	d := info.Duration
 	if d == 0 {
 		return Stream{}, fmt.Errorf("%w（不是 MP3，类型 %.24q，%d 字节）", ErrNoAudio, ctype, total)
 	}
 	if d < shortestSong && (want == 0 || want >= shortestSong) || want > 0 && float64(d) < minFullShare*float64(want) {
 		return Stream{}, ErrTrial
 	}
-	return Stream{URL: u, Duration: d, Type: ctype}, nil
+	return Stream{URL: u, Duration: d, Type: ctype, Kbps: info.Kbps, SampleRate: info.SampleRate}, nil
 }
 
 func (s *Service) fetch(ctx context.Context, u string, from int64) (b []byte, total int64, ctype string, err error) {
@@ -822,17 +930,52 @@ func (s *Service) Search(ctx context.Context, q string) ([]Candidate, []Outcome)
 		delete(s.offered, s.order[0])
 		s.order = s.order[1:]
 	}
+	if s.Remember != nil && len(out) > 0 {
+		keep := make(map[string]Saved, len(out))
+		for _, c := range out {
+			keep[c.Key] = savedOf(c)
+		}
+		go s.Remember(keep)
+	}
 	return out, outs
 }
 
-// ErrGone is a song that was not shown, or too long ago.
-var ErrGone = errors.New("搜索结果过期了，请重新搜索")
+func savedOf(c Candidate) Saved {
+	return Saved{Source: c.Source, ID: c.ID, Ref: c.ref, Title: c.Title, Artist: c.Artist, ListedMS: c.Duration.Milliseconds(), Album: c.Album, Cover: c.Cover, Lyric: c.lyric}
+}
 
-// Take gets a song ready that Search has shown. The error is for people.
-func (s *Service) Take(ctx context.Context, key string) (*Found, error) {
+// candidate is a song a search showed: among the last shown, or remembered.
+func (s *Service) candidate(key string) (Candidate, bool) {
 	s.offMu.Lock()
 	c, ok := s.offered[key]
 	s.offMu.Unlock()
+	if ok || s.Recall == nil {
+		return c, ok
+	}
+	saved, ok := s.Recall(key)
+	if !ok || saved.Source+":"+saved.ID != key {
+		return Candidate{}, false
+	}
+	c = saved.Found().Candidate
+	c.Key = key
+	s.offMu.Lock()
+	if s.offered == nil {
+		s.offered = map[string]Candidate{}
+	}
+	if _, had := s.offered[key]; !had {
+		s.order = append(s.order, key)
+	}
+	s.offered[key] = c
+	s.offMu.Unlock()
+	return c, true
+}
+
+// ErrGone is a song that was not shown, or too long ago.
+var ErrGone = errors.New("找不到这首在线歌了，请重新搜索")
+
+// Take gets a song ready that Search has shown. The error is for people.
+func (s *Service) Take(ctx context.Context, key string) (*Found, error) {
+	c, ok := s.candidate(key)
 	if !ok {
 		return nil, ErrGone
 	}

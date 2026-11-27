@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
                     page == Page.Library -> nas?.let { current ->
                         TvLibraryScreen(current, browse, ::startNas, player,
                             { page = Page.Player },
-                            { page = Page.Setup }, ::exit, ::forget)
+                            { page = Page.Setup }, ::forget)
                     }
                     else -> PlayerScreen(player, ::backFromPlayer) { browse.shelf = null; browse.tracks = null }
                 }
@@ -162,20 +162,20 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Back on the home page: the first press says what a second one does, the second within two
-     * seconds goes to the launcher and the music plays on. Stopping is in 设置.
+     * seconds stops the music and quits. To leave it playing, the remote's Home key.
      */
     private fun leave() {
         val now = SystemClock.elapsedRealtime()
         if (now - backAt < 2_000) {
             backAt = 0
             backHint?.cancel()
-            moveTaskToBack(true)
+            exit()
             return
         }
         backAt = now
         backHint?.cancel()
         val playing = controller?.let { it.isPlaying || it.playWhenReady && it.mediaItemCount > 0 } == true
-        backHint = Toast.makeText(this, if (playing) "再按一次返回桌面，音乐继续播放" else "再按一次返回桌面", Toast.LENGTH_SHORT).also { it.show() }
+        backHint = Toast.makeText(this, if (playing) "再按一次返回退出并停止播放；想让音乐接着放，按主页键" else "再按一次返回退出", Toast.LENGTH_SHORT).also { it.show() }
     }
 
     private fun exit() {

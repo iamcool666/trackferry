@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"trackferry/internal/audio"
@@ -83,6 +84,10 @@ type Library struct {
 	trigger chan struct{}
 	retimed chan struct{}      // the interval was changed
 	cancel  context.CancelFunc // stops the running scan
+	loadAt  time.Time          // when a running scan last refreshed the index
+
+	thumbs      string // where small covers are kept
+	thumbWrites atomic.Int64
 }
 
 // New returns a Library over dir. Call Run to load the index and keep it fresh.
@@ -307,6 +312,8 @@ func (l *Library) Scan(ctx context.Context) (err error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) { // the folder is optional
 		return err
 	}
+	format, _ := l.st.Setting(ctx, settingFilesFormat)
+	reread := format != filesFormat
 	roots := []string{}
 	loose := false
 	for _, e := range entries {
@@ -329,7 +336,7 @@ func (l *Library) Scan(ctx context.Context) (err error) {
 	}
 	l.mu.Unlock()
 	for i := range roots {
-		if err := l.scanRoot(ctx, id, rep, &rep.Roots[i], known); err != nil {
+		if err := l.scanRoot(ctx, id, rep, &rep.Roots[i], known, reread); err != nil {
 			return err
 		}
 	}
@@ -350,6 +357,19 @@ func (l *Library) Scan(ctx context.Context) (err error) {
 			return err
 		}
 	}
+	if reread {
+		whole := true
+		for _, rr := range rep.Roots {
+			// A folder that stays unreadable must not make every scan read the whole library
+			// again: what could be read was, and anything unreadable is read when it becomes new.
+			whole = whole && rr.done && rr.Error == ""
+		}
+		if whole {
+			if err := l.st.SetSetting(ctx, settingFilesFormat, filesFormat); err != nil {
+				return err
+			}
+		}
+	}
 	return l.Load(ctx)
 }
 
@@ -357,7 +377,8 @@ func skip(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "@") || strings.HasPrefix(name, "#")
 }
 
-func (l *Library) scanRoot(ctx context.Context, id int64, rep *Report, rr *RootReport, known map[string]store.TrackRow) error {
+func (l *Library) scanRoot(ctx context.Context, id int64, rep *Report, rr *RootReport, known map[string]store.TrackRow, reread bool) error {
+	covers := &folderCovers{dir: l.dir, known: map[string]string{}}
 	var changed []store.TrackRow
 	var seen []int64
 	flush := func() error {
@@ -425,7 +446,7 @@ func (l *Library) scanRoot(ctx context.Context, id int64, rep *Report, rr *RootR
 		l.seen++
 		l.mu.Unlock()
 		old, ok := known[rel]
-		if ok && old.Size == fi.Size() && old.MTimeMS == fi.ModTime().UnixMilli() {
+		if ok && !reread && old.Size == fi.Size() && old.MTimeMS == fi.ModTime().UnixMilli() {
 			// Permissions change without touching size or time; a file we cannot open
 			// must not stay a candidate.
 			f, err := os.Open(p)
@@ -434,7 +455,14 @@ func (l *Library) scanRoot(ctx context.Context, id int64, rep *Report, rr *RootR
 				return nil
 			}
 			f.Close()
-			seen = append(seen, old.ID)
+			// A folder image may have come or gone; a song's own picture stays with it.
+			// A cover found online stays until the folder has one of its own.
+			if c := covers.of(old.Path); old.Cover != localCoverID(old.Path) && c != old.Cover && !(c == "" && strings.HasPrefix(old.Cover, NetCover)) {
+				old.Cover = c
+				changed = append(changed, old)
+			} else {
+				seen = append(seen, old.ID)
+			}
 			l.count(rr, old.Tagged)
 		} else {
 			m, err := audio.ReadFile(p, ext)
@@ -447,6 +475,19 @@ func (l *Library) scanRoot(ctx context.Context, id int64, rep *Report, rr *RootR
 			}
 			t := store.TrackRow{Path: rel, Root: rr.Name, Size: fi.Size(), MTimeMS: fi.ModTime().UnixMilli(), Title: m.Title, Artist: m.Artist,
 				Album: m.Album, DurationMS: m.Duration.Milliseconds(), Format: format, SampleRate: m.SampleRate, Bits: m.Bits, Tagged: m.Title != ""}
+			t.AlbumID = localAlbumID(rr.Name, rel, m.Album, m.AlbumArtist)
+			t.Cover = covers.cover(t, m.Picture)
+			if t.Cover == "" && ok && strings.HasPrefix(old.Cover, NetCover) {
+				t.Cover = old.Cover
+			}
+			// When it came: kept across rereads; a new file counts from its own time, never later than now.
+			t.AddedMS = min(fi.ModTime().UnixMilli(), time.Now().UnixMilli())
+			if ok {
+				t.Favorite, t.GUID = old.Favorite, old.GUID
+				if old.AddedMS > 0 {
+					t.AddedMS = old.AddedMS
+				}
+			}
 			if t.Title == "" {
 				var a string
 				t.Title, a = audio.FromName(rel)
@@ -483,7 +524,12 @@ func (l *Library) scanRoot(ctx context.Context, id int64, rep *Report, rr *RootR
 	l.mu.Lock()
 	rr.done = true
 	l.mu.Unlock()
-	// Each finished root becomes searchable at once.
+	// A finished root becomes searchable, but a library of many roots is not reloaded after
+	// each one: the whole index is rebuilt at most every half minute, and at the end.
+	if time.Since(l.loadAt) < 30*time.Second {
+		return nil
+	}
+	l.loadAt = time.Now()
 	return l.Load(ctx)
 }
 

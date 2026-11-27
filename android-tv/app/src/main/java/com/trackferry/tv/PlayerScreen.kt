@@ -87,6 +87,16 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.platform.LocalDensity
+import android.os.Build
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -128,7 +138,7 @@ internal fun TrackFerryScreen(content: @Composable () -> Unit) {
     }
 }
 
-private enum class PlayerPanel { Main, Lyrics, Queue, Playlists, Sound }
+private enum class PlayerPanel { Main, Lyrics, Queue, Playlists, Sound, Versions }
 
 @Composable
 internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChanged: () -> Unit) {
@@ -144,6 +154,7 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
     val lyricsFocus = remember { FocusRequester() }
     val seekFocus = remember { FocusRequester() }
     val soundFocus = remember { FocusRequester() }
+    val versionFocus = remember { FocusRequester() }
     val dismiss = remember { FocusRequester() }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -171,6 +182,7 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
                 PlayerPanel.Queue -> queueFocus.requestFocus()
                 PlayerPanel.Lyrics -> lyricsFocus.requestFocus()
                 PlayerPanel.Sound -> soundFocus.requestFocus()
+                PlayerPanel.Versions -> runCatching { versionFocus.requestFocus() }.getOrElse { playFocus.requestFocus() }
                 PlayerPanel.Playlists -> if (playback.mediaId?.startsWith("nas/") == true) playlistFocus.requestFocus() else playFocus.requestFocus()
                 else -> playFocus.requestFocus()
             }
@@ -208,12 +220,34 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
             finally { writing = false }
         }
     }
+    // What the song really plays as; an online song's bit rate is known once its stream was fetched.
+    val nasKey = playback.mediaId?.takeIf { it.startsWith("nas/") }?.split('/')?.getOrNull(1)
+    var tech by remember(nasKey, nas) { mutableStateOf<TvTech?>(null) }
+    LaunchedEffect(nasKey, nas) {
+        if (nas == null || nasKey == null) return@LaunchedEffect
+        repeat(4) {
+            try { tech = withContext(Dispatchers.IO) { nas.tech(nasKey) } }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* the badge is only shown when known */ }
+            if (tech?.known == true || nasKey.toLongOrNull() != null) return@LaunchedEffect
+            delay(4000)
+        }
+    }
+    fun swap(v: TvVersion) {
+        val i = player.currentMediaItemIndex
+        val at = player.currentPosition.coerceAtLeast(0)
+        player.addMediaItem(i + 1, v.track.mediaItem(false))
+        player.seekTo(i + 1, at)
+        player.removeMediaItem(i)
+        notice = "已换成${sourceName(v.track.source)} ${v.tech.shown}"
+        close()
+    }
     var remoteWords by remember(playback.mediaId, nas) { mutableStateOf<TrackLyrics?>(null) }
-    var loadingLyrics by remember(playback.mediaId) { mutableStateOf(nasTrack != null) }
+    var loadingLyrics by remember(playback.mediaId) { mutableStateOf(nasKey != null) }
     LaunchedEffect(playback.mediaId, nas) {
-        if (nasTrack == null) return@LaunchedEffect
+        if (nasKey == null) return@LaunchedEffect
         loadingLyrics = true
-        try { remoteWords = withContext(Dispatchers.IO) { nas?.lyrics(nasTrack) } }
+        try { remoteWords = withContext(Dispatchers.IO) { if (nasTrack != null) nas?.lyrics(nasTrack) else nas?.onlineLyrics(nasKey) } }
         catch (e: CancellationException) { throw e }
         catch (_: Exception) { /* Lyrics never block playback. */ }
         finally { loadingLyrics = false }
@@ -280,6 +314,7 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
                             playlistSong = PlaylistSong(nasTrack, playback.title)
                             panel = PlayerPanel.Playlists
                         }
+                        tech?.let { t -> if (t.label.isNotBlank()) StageNav("版本 · ${t.shown}", TvGlyph.Queue, Modifier.focusRequester(versionFocus)) { panel = PlayerPanel.Versions } }
                         StageNav("音效 · ${eqPreset(preset).label}", TvGlyph.Volume, Modifier.focusRequester(soundFocus)) { panel = PlayerPanel.Sound }
                         StageNav("全屏歌词", TvGlyph.Lyrics, Modifier.focusRequester(lyricsFocus)) { panel = PlayerPanel.Lyrics }
                     } else if (panel == PlayerPanel.Lyrics && lyrics.isNotEmpty()) {
@@ -303,6 +338,9 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
                         close()
                     }
                 }
+                PlayerPanel.Versions -> Box(Modifier.weight(1f).fillMaxWidth().padding(top = 18.dp), contentAlignment = Alignment.TopCenter) {
+                    if (nas != null) VersionsPanel(nas, playback.title, playback.artist, nasKey.orEmpty(), Modifier.widthIn(max = 860.dp), ::swap)
+                }
                 PlayerPanel.Sound -> Box(Modifier.weight(1f).fillMaxWidth().padding(top = 18.dp), contentAlignment = Alignment.TopCenter) {
                     SoundPanel(short, Modifier.widthIn(max = 720.dp))
                 }
@@ -318,7 +356,7 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
                     }, radius = 20, glow = if (short) 22.dp else 40.dp)
                     Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Top) {
                         if (panel == PlayerPanel.Queue) {
-                            Text("播放队列", color = Ink, fontFamily = FontFamily.Serif, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+                            Text("播放队列", color = Ink, fontFamily = FontFamily.SansSerif, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
                             Text("${playback.items.size} 首", Modifier.padding(top = 4.dp, bottom = 8.dp), color = Muted, fontSize = 14.sp)
                             QueuePanel(playback) { i -> player.seekToDefaultPosition(i); player.play(); close() }
                         } else {
@@ -326,10 +364,12 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
                                 BassDot(Modifier.size(14.dp), playback.playing)
                                 Text(status, color = Accent, fontSize = if (short) 12.sp else 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp)
                             }
-                            Text(playback.title.ifBlank { "等待播放" }, Modifier.padding(top = if (short) 6.dp else 12.dp), color = Ink, fontFamily = FontFamily.Serif,
+                            Text(playback.title.ifBlank { "等待播放" }, Modifier.padding(top = if (short) 6.dp else 12.dp), color = Ink, fontFamily = FontFamily.SansSerif,
                                 fontSize = when { short -> 30.sp; compact -> 40.sp; else -> 52.sp }, lineHeight = when { short -> 36.sp; compact -> 48.sp; else -> 60.sp },
                                 fontWeight = FontWeight.SemiBold, letterSpacing = (-.5).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             val credit = listOf(playback.artist, playback.album).filter { it.isNotBlank() }.joinToString("  ·  ")
+                            tech?.takeIf { it.label.isNotBlank() }?.let { t -> Text(t.shown, Modifier.padding(top = 8.dp).clip(RoundedCornerShape(5.dp)).border(1.dp, (if (t.tier == "hires" || t.tier == "lossless") Accent else Ink).copy(alpha = .45f), RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+                                color = if (t.tier == "hires" || t.tier == "lossless") Accent else Ink.copy(alpha = .8f), fontSize = if (short) 12.sp else 14.sp, fontWeight = FontWeight.SemiBold) }
                             if (credit.isNotBlank()) Text(credit, Modifier.padding(top = 6.dp), color = Ink.copy(alpha = .70f),
                                 fontSize = if (short) 15.sp else 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             LyricFlow(lyrics, index, position, offset, loadingLyrics, tone, Modifier.weight(1f).fillMaxWidth().padding(top = if (short) 8.dp else 18.dp),
@@ -374,6 +414,45 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
 
 private fun offsetText(ms: Long) = if (ms % 1000 == 0L) "${ms / 1000} 秒" else "%.1f 秒".format(java.util.Locale.ROOT, ms / 1000.0)
 
+private fun sourceName(s: String) = when (s) { "kuwo" -> "酷我"; "kugou" -> "酷狗"; "migu" -> "咪咕"; "netease" -> "网易云"; else -> "曲库" }
+
+/** Every copy of the song there is, each fetched once to read its real quality; one plays from here. */
+@Composable
+private fun VersionsPanel(nas: NasConnection, title: String, artist: String, current: String, modifier: Modifier, choose: (TvVersion) -> Unit) {
+    var list by remember(title, artist) { mutableStateOf<List<TvVersion>?>(null) }
+    var error by remember(title, artist) { mutableStateOf("") }
+    LaunchedEffect(title, artist) {
+        try { list = withContext(Dispatchers.IO) { nas.versions(title, artist) } }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error = e.tvMessage("暂时查不到其它版本") }
+    }
+    Column(modifier) {
+        Text("换个版本", color = Ink, fontFamily = FontFamily.SansSerif, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+        Text(when {
+            error.isNotBlank() -> error
+            list == null -> "正在问曲库和各个平台"
+            list!!.isEmpty() -> "曲库和平台都没有同名同歌手的版本"
+            else -> "每个版本都实际取过一次，标的是真实格式和码率；选一个从当前进度接着放"
+        }, Modifier.padding(top = 4.dp, bottom = 8.dp), color = Muted, fontSize = 14.sp)
+        LazyColumn(contentPadding = PaddingValues(horizontal = 5.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            itemsIndexed(list.orEmpty(), key = { i, v -> v.track.online.ifBlank { "t${v.track.id}" } + i }) { _, v ->
+                val key = v.track.online.ifBlank { v.track.id.toString() }
+                val on = key == current
+                FerryTile(Modifier.fillMaxWidth(), { if (!on && v.error.isBlank()) choose(v) }) {
+                    Row(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(listOf(sourceName(v.track.source), v.track.album).filter { it.isNotBlank() }.joinToString("  ·  "), color = if (on) CurrentTrackInk else Ink, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOf(v.track.artist, if (v.track.duration > 0) clock(v.track.duration) else "", v.error).filter { it.isNotBlank() }.joinToString("  ·  "), color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(if (v.error.isNotBlank()) "放不了" else v.tech.shown.ifBlank { "—" }, color = when (v.tech.tier) { "hires", "lossless" -> Accent; else -> Ink.copy(alpha = .8f) }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        if (on) Text("在放", color = CurrentTrackInk, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun QueuePanel(playback: Playback, choose: (Int) -> Unit) {
     val list = rememberLazyListState()
@@ -417,7 +496,7 @@ private fun FullLyrics(lines: List<LyricLine>, position: LongState, offset: Long
     Row(modifier.padding(top = if (short) 8.dp else 14.dp), horizontalArrangement = Arrangement.spacedBy(if (short) 24.dp else 44.dp)) {
         Column(Modifier.width(if (short) 170.dp else 230.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)) {
             GlowCover(seed, bitmap, coverTone(bitmap, seed), Modifier.fillMaxWidth().aspectRatio(1f), radius = 16, glow = 26.dp)
-            Text(playback.title, color = Ink, fontFamily = FontFamily.Serif, fontSize = if (short) 18.sp else 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(playback.title, color = Ink, fontFamily = FontFamily.SansSerif, fontSize = if (short) 18.sp else 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (playback.artist.isNotBlank()) Text(playback.artist, color = Ink.copy(alpha = .7f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             FishTrack(position, playback.duration, Modifier.fillMaxWidth(), fish = 20.dp)
             SpectrumWave(Modifier.fillMaxWidth().height(34.dp), playback.playing, tone = Accent, points = 16)
@@ -442,9 +521,26 @@ private fun LyricFlow(lines: List<LyricLine>, index: Int, position: LongState, o
         val list = rememberLazyListState()
         val top = maxHeight * lead
         val tail = (maxHeight - top - 40.dp).coerceAtLeast(0.dp)
-        LaunchedEffect(index, lines) {
-            val to = index.coerceAtLeast(0)
-            if (kotlin.math.abs(list.firstVisibleItemIndex - to) > 8) list.scrollToItem(to) else list.animateScrollToItem(to)
+        val rest by remember(lines, position, offset, index) { derivedStateOf { restAt(lines, index, position.longValue + offset) } }
+        // During an interlude the coming line takes the lit place, with its dots.
+        val focus = rest?.next ?: index
+        var jump by remember(lines) { mutableStateOf(LyricJump(0, 0f, 0, 0L)) }
+        LaunchedEffect(focus, lines) {
+            val to = focus.coerceAtLeast(0)
+            val first = list.firstVisibleItemIndex
+            val seen = list.layoutInfo.visibleItemsInfo
+            val from = seen.firstOrNull { it.index == first }
+            val target = seen.firstOrNull { it.index == to }
+            if (from == null || target == null || kotlin.math.abs(first - to) > 8) {
+                if (kotlin.math.abs(first - to) > 8) list.scrollToItem(to) else list.animateScrollToItem(to)
+                return@LaunchedEffect
+            }
+            // The list jumps at once and every line is carried from where it was, the upper ones
+            // first, so the lines settle one after another like a sheet of paper.
+            val px = (target.offset - from.offset - list.firstVisibleItemScrollOffset).toFloat()
+            if (px == 0f) return@LaunchedEffect
+            jump = LyricJump(jump.seq + 1, px, to, System.currentTimeMillis())
+            list.scrollToItem(to)
         }
         val sung = remember(tone) { lerp(Color(0xFFFFD9B8), tone, .18f) }
         LazyColumn(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
@@ -456,16 +552,26 @@ private fun LyricFlow(lines: List<LyricLine>, index: Int, position: LongState, o
             contentPadding = PaddingValues(top = top, bottom = tail),
             verticalArrangement = Arrangement.spacedBy(gap)) {
             itemsIndexed(lines, key = { i, _ -> i }) { i, line ->
-                val distance = kotlin.math.abs(i - index)
-                val lit = i == index
-                val alpha by animateFloatAsState(when (distance) { 0 -> 1f; 1 -> .46f; 2 -> .28f; else -> .17f }, tween(360), label = "lyric alpha")
+                val distance = kotlin.math.abs(i - focus.coerceAtLeast(0))
+                val lit = i == index && rest == null
+                val coming = rest?.next == i
+                val alpha by animateFloatAsState(when { lit -> 1f; coming -> .9f; distance == 1 -> .46f; distance == 2 -> .28f; else -> .17f }, tween(360), label = "lyric alpha")
                 val scale by animateFloatAsState(if (lit) 1f else .80f, tween(420), label = "lyric scale")
-                // How long this line is sung: until the next one, but an interlude does not count.
-                val span = remember(line, lines) {
-                    val next = lines.getOrNull(i + 1)?.atMs ?: (line.atMs + 4_000)
-                    (next - line.atMs).coerceIn(400L, 600L + line.text.length * 420L)
+                // Further lines go soft; a layer effect, so only on Android 12 and later.
+                val blur by animateFloatAsState(if (lit || coming) 0f else minOf(distance, 4) * 2.2f, tween(480), label = "lyric blur")
+                val carry = remember(jump.seq) { Animatable(if (System.currentTimeMillis() - jump.at < 400) 1f else 0f) }
+                LaunchedEffect(jump.seq) {
+                    if (carry.value == 0f) return@LaunchedEffect
+                    delay((i - jump.to + 2).coerceIn(0, 9) * 42L)
+                    carry.animateTo(0f, spring(dampingRatio = .8f, stiffness = 150f))
                 }
-                Text(line.text.ifBlank { "♪" }, Modifier.graphicsLayer {
+                val span = remember(line, lines) { spanOf(lines, i) }
+                Column(Modifier.graphicsLayer {
+                    translationY = jump.px * carry.value
+                    if (Build.VERSION.SDK_INT >= 31 && blur > .3f) renderEffect = BlurEffect(blur, blur, TileMode.Decal)
+                }) {
+                if (coming) RestDots(rest!!, position, offset, size)
+                Text(line.text, Modifier.graphicsLayer {
                     this.alpha = alpha; scaleX = scale; scaleY = scale
                     transformOrigin = TransformOrigin(0f, .5f)
                     if (lit) compositingStrategy = CompositingStrategy.Offscreen
@@ -483,6 +589,7 @@ private fun LyricFlow(lines: List<LyricLine>, index: Int, position: LongState, o
                         blendMode = BlendMode.SrcIn)
                 }), color = Ink, fontSize = size, lineHeight = size * 1.24f,
                     fontWeight = if (lit) FontWeight.SemiBold else FontWeight.Medium)
+                }
             }
         }
     }
@@ -506,4 +613,22 @@ internal fun TvButton(label: String, modifier: Modifier = Modifier, enabled: Boo
         border = ButtonDefaults.border(focusedBorder = Border(androidx.compose.foundation.BorderStroke(1.dp, Ink))),
         scale = ButtonDefaults.scale(focusedScale = 1.055f, pressedScale = .98f),
     ) { Text(label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+}
+
+private data class LyricJump(val seq: Int, val px: Float, val to: Int, val at: Long)
+
+/** Three dots that fill while the interlude lasts and breathe with the music; they draw, nothing recomposes. */
+@Composable
+private fun RestDots(rest: LyricRest, position: LongState, offset: Long, size: androidx.compose.ui.unit.TextUnit) {
+    val breath by rememberInfiniteTransition(label = "rest").animateFloat(1f, 1.14f,
+        infiniteRepeatable(tween(1300), RepeatMode.Reverse), label = "rest breath")
+    val dot = with(LocalDensity.current) { (size * .42f).toDp() }
+    Box(Modifier.padding(bottom = dot * .6f).width(dot * 4.2f).height(dot * 1.4f).drawBehind {
+        val p = ((position.longValue + offset - rest.fromMs).toFloat() / (rest.toMs - rest.fromMs)).coerceIn(0f, 1f)
+        val r = dot.toPx() / 2 * breath
+        for (n in 0..2) {
+            val lit = (p * 3 - n).coerceIn(0f, 1f)
+            drawCircle(Color.White.copy(alpha = .24f + .76f * lit), r, Offset(dot.toPx() * (.7f + n * 1.4f), this.size.height / 2))
+        }
+    })
 }

@@ -182,20 +182,26 @@ func (l *Library) Shelf() Shelf {
 // ErrNotRemote is a song 飞牛音乐 does not hold.
 var ErrNotRemote = errors.New("这首歌不在飞牛音乐里")
 
-// SetFavorite adds a song to the favourites in 飞牛音乐, or takes it out.
+// SetFavorite adds a song to the favourites, or takes it out: in 飞牛音乐 for its songs, here
+// for the music folder's (a rescan keeps them).
 func (l *Library) SetFavorite(ctx context.Context, id int64, on bool) (store.TrackRow, error) {
 	t, ok := l.Track(id)
-	f, can := l.Remote.(interface {
-		Favorite(ctx context.Context, guid string, on bool) error
-	})
-	if !ok || t.GUID == "" || !can {
+	if !ok {
 		return t, ErrNotRemote
 	}
 	if t.Favorite == on {
 		return t, nil
 	}
-	if err := f.Favorite(ctx, t.GUID, on); err != nil {
-		return t, err
+	if t.GUID != "" {
+		f, can := l.Remote.(interface {
+			Favorite(ctx context.Context, guid string, on bool) error
+		})
+		if !can {
+			return t, ErrNotRemote
+		}
+		if err := f.Favorite(ctx, t.GUID, on); err != nil {
+			return t, err
+		}
 	}
 	t.Favorite = on
 	l.mu.Lock()
@@ -388,4 +394,29 @@ func (l *Library) Favorites(from, limit int) ([]store.TrackRow, int) {
 	n := len(all)
 	from = max(0, min(from, n))
 	return all[from:min(n, from+limit)], n
+}
+
+// Coverless lists the songs with no cover at all, grouped by album: a cover found for one is
+// the album's. Songs with no album are each their own group.
+func (l *Library) Coverless() [][]store.TrackRow {
+	x := l.index()
+	by := map[string]int{}
+	var out [][]store.TrackRow
+	for _, t := range x.rows {
+		if t.Cover != "" {
+			continue
+		}
+		k := t.AlbumID
+		if k == "" || names.Norm(t.Album) == "" {
+			out = append(out, []store.TrackRow{t})
+			continue
+		}
+		if i, ok := by[k]; ok {
+			out[i] = append(out[i], t)
+			continue
+		}
+		by[k] = len(out)
+		out = append(out, []store.TrackRow{t})
+	}
+	return out
 }

@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"trackferry/internal/online"
 
 	"trackferry/internal/feiniu"
+	"trackferry/internal/library"
 	"trackferry/internal/store"
 )
 
@@ -102,6 +104,17 @@ func (s *Server) feiniuLogout(w http.ResponseWriter, r *http.Request) {
 
 // cover passes a cover through. Cover IDs name fixed images, so browsers may keep them.
 func (s *Server) cover(w http.ResponseWriter, r *http.Request) {
+	if id := r.PathValue("id"); strings.HasPrefix(id, library.LocalCover) {
+		s.localCover(w, r, id)
+		return
+	} else if strings.HasPrefix(id, online.NetCover) {
+		s.netCover(w, r, id)
+		return
+	}
+	if s.Feiniu == nil {
+		writeError(w, http.StatusNotFound, "no_cover", "没有这张封面")
+		return
+	}
 	size := r.URL.Query().Get("size")
 	if size != "160" && size != "600" && size != "1024" {
 		size = "600"
@@ -122,6 +135,33 @@ func (s *Server) cover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "private, max-age=2592000, immutable")
 	io.Copy(w, io.LimitReader(resp.Body, 8<<20))
+}
+
+// localCover serves a cover of the music folder: a song's own picture or its folder's image.
+// The ID names a path, not the picture, so browsers check back after a day.
+func (s *Server) localCover(w http.ResponseWriter, r *http.Request, id string) {
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size != 160 && size != 600 && size != 1024 {
+		size = 600
+	}
+	tag, err := s.Library.CoverTag(id, size)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no_cover", "没有这张封面")
+		return
+	}
+	w.Header().Set("ETag", `"`+tag+`"`)
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	if r.Header.Get("If-None-Match") == `"`+tag+`"` {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	mime, b, err := s.Library.SizedCover(id, size)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no_cover", "没有这张封面")
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Write(b)
 }
 
 func (s *Server) libraryShelf(w http.ResponseWriter, _ *http.Request) {
@@ -159,7 +199,12 @@ func (s *Server) lyrics(w http.ResponseWriter, r *http.Request, includeTrack boo
 		writeError(w, http.StatusBadGateway, "no_lyrics", "歌词暂时读不到")
 		return
 	}
-	out := map[string]any{"lyrics": text, "offset_ms": s.offset(r, id)}
+	from := ""
+	if strings.TrimSpace(text) == "" && s.Fill != nil {
+		// The song has none of its own: what a platform has for the same song.
+		text, from = s.Fill.Lyrics(ctx, t)
+	}
+	out := map[string]any{"lyrics": text, "offset_ms": s.offset(r, id), "from": from}
 	if includeTrack {
 		out["track"] = t
 	}
@@ -170,7 +215,7 @@ func (s *Server) trackLyrics(ctx context.Context, t store.TrackRow) (string, err
 	if t.GUID != "" && s.Feiniu != nil {
 		return s.Feiniu.Lyrics(ctx, t.GUID)
 	}
-	return s.Library.SidecarLyrics(t.Path)
+	return s.Library.Lyrics(t.Path)
 }
 
 const settingOffset = "lyrics.offset."

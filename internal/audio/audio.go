@@ -22,8 +22,11 @@ import (
 // Meta is what a file says about itself.
 type Meta struct {
 	Title, Artist, Album string
+	AlbumArtist          string
 	Duration             time.Duration
 	SampleRate, Bits     int
+	Picture              bool // the file carries a cover of its own
+	Kbps                 int  // MP3: the frames' bit rate, the average for variable rates
 }
 
 // maxTag bounds how much tag data is read into memory (embedded covers can be large).
@@ -58,7 +61,7 @@ func ReadFile(p, ext string) (Meta, error) {
 		return Meta{}, err
 	}
 	m, err := ReadMeta(f, ext, fi.Size())
-	m.Title, m.Artist, m.Album = clean(m.Title), clean(m.Artist), clean(m.Album)
+	m.Title, m.Artist, m.Album, m.AlbumArtist = clean(m.Title), clean(m.Artist), clean(m.Album), clean(m.AlbumArtist)
 	return m, err
 }
 
@@ -122,6 +125,11 @@ func readFLAC(f io.ReadSeeker) (Meta, error) {
 				return m, errFormat
 			}
 			vorbis(b, &m)
+		case 6:
+			m.Picture = true
+			if _, err := f.Seek(n, io.SeekCurrent); err != nil {
+				return m, err
+			}
 		default:
 			if _, err := f.Seek(n, io.SeekCurrent); err != nil {
 				return m, err
@@ -170,6 +178,10 @@ func vorbis(b []byte, m *Meta) {
 		case "ALBUM":
 			if m.Album == "" {
 				m.Album = v
+			}
+		case "ALBUMARTIST", "ALBUM ARTIST":
+			if m.AlbumArtist == "" {
+				m.AlbumArtist = v
 			}
 		}
 	}
@@ -224,6 +236,25 @@ func cstr(b []byte) []byte {
 }
 
 func id3v2(ver, flags byte, b []byte, m *Meta) {
+	id3frames(ver, flags, b, func(id string, body []byte) bool {
+		switch id {
+		case "TIT2", "TT2":
+			m.Title = id3text(body)
+		case "TPE1", "TP1":
+			m.Artist = id3text(body)
+		case "TALB", "TAL":
+			m.Album = id3text(body)
+		case "TPE2", "TP2":
+			m.AlbumArtist = id3text(body)
+		case "APIC", "PIC":
+			m.Picture = true
+		}
+		return true
+	})
+}
+
+// id3frames calls fn with each frame of an ID3v2 tag body until fn returns false.
+func id3frames(ver, flags byte, b []byte, fn func(id string, body []byte) bool) {
 	if flags&0x80 != 0 && ver < 4 {
 		b = bytes.ReplaceAll(b, []byte{0xff, 0x00}, []byte{0xff})
 	}
@@ -257,13 +288,8 @@ func id3v2(ver, flags byte, b []byte, m *Meta) {
 		}
 		body := b[hdr : hdr+n]
 		b = b[hdr+n:]
-		switch id {
-		case "TIT2", "TT2":
-			m.Title = id3text(body)
-		case "TPE1", "TP1":
-			m.Artist = id3text(body)
-		case "TALB", "TAL":
-			m.Album = id3text(body)
+		if !fn(id, body) {
+			return
 		}
 	}
 }
@@ -347,9 +373,14 @@ func ID3Size(b []byte) int64 {
 // MP3Duration estimates the play length of an MP3 whose frames start in b and continue for
 // size bytes; 0 when b holds no MP3 frames.
 func MP3Duration(b []byte, size int64) time.Duration {
+	return MP3Info(b, size).Duration
+}
+
+// MP3Info is what the first frames of an MP3 say: length, bit rate and sample rate.
+func MP3Info(b []byte, size int64) Meta {
 	var m Meta
 	frames(b, size, &m)
-	return m.Duration
+	return m
 }
 
 func frames(b []byte, size int64, m *Meta) {
@@ -383,9 +414,14 @@ func frames(b []byte, size int64, m *Meta) {
 		if x := i + 4 + side; x+12 <= len(b) && (string(b[x:x+4]) == "Xing" || string(b[x:x+4]) == "Info") && b[x+7]&1 != 0 {
 			frames := binary.BigEndian.Uint32(b[x+8:])
 			m.Duration = time.Duration(float64(frames) * float64(per) / float64(rate) * float64(time.Second))
+			m.Kbps = kbps
+			if secs := m.Duration.Seconds(); secs > 0 {
+				m.Kbps = int(float64(size-int64(i)) * 8 / secs / 1000)
+			}
 			return
 		}
 		m.Duration = time.Duration(float64(size-int64(i)) * 8 / float64(kbps*1000) * float64(time.Second))
+		m.Kbps = kbps
 		return
 	}
 }
@@ -472,7 +508,9 @@ func mp4Walk(f io.ReadSeeker, off, n int64, m *Meta, depth int) error {
 			if scale > 0 {
 				m.Duration = time.Duration(float64(dur) / float64(scale) * float64(time.Second))
 			}
-		case "\xa9nam", "\xa9ART", "\xa9alb":
+		case "covr":
+			m.Picture = true
+		case "\xa9nam", "\xa9ART", "\xa9alb", "aART":
 			b, err := readAt(f, off, n, 64<<10)
 			if err != nil || len(b) < 16 || string(b[4:8]) != "data" {
 				return nil
@@ -483,6 +521,8 @@ func mp4Walk(f io.ReadSeeker, off, n int64, m *Meta, depth int) error {
 				m.Title = v
 			case "\xa9ART":
 				m.Artist = v
+			case "aART":
+				m.AlbumArtist = v
 			default:
 				m.Album = v
 			}

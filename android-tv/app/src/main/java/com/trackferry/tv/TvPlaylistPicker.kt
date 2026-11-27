@@ -36,7 +36,7 @@ internal fun TvPlaylistPicker(nas: NasConnection, song: PlaylistSong, onResult: 
         error = ""
         try { lists = withContext(Dispatchers.IO) { nas.playlists() } }
         catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = e.tvMessage("无法读取飞牛歌单") }
+        catch (e: Exception) { error = e.tvMessage("无法读取歌单") }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("加入歌单", color = Ink, fontSize = 32.sp)
@@ -44,7 +44,7 @@ internal fun TvPlaylistPicker(nas: NasConnection, song: PlaylistSong, onResult: 
         if (error.isNotBlank()) Text(error, color = Accent, fontSize = 15.sp)
         when (val loaded = lists) {
             null -> if (error.isBlank()) Text("正在读取歌单…", color = Muted) else TvButton("重试") { retry++ }
-            emptyList<Collection>() -> Text("飞牛音乐暂无歌单", color = Muted)
+            emptyList<Collection>() -> Text("歌单来自飞牛音乐；只用音乐文件夹时没有歌单，可以先收藏。", color = Muted)
             else -> LazyColumn(contentPadding = PaddingValues(4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(loaded, key = { it.id }) { item ->
                     FerryTile(Modifier.fillMaxWidth(), enabled = !saving, onClick = {

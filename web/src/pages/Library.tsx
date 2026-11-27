@@ -148,10 +148,11 @@ function PlaylistsPage({ devices, navigate }: { devices: Device[]; navigate: Nav
   useEffect(() => { keepNext = true; }, []);
   useBackdrop();
   const [lists, setLists] = useState<Playlist[] | null>(null);
+  const [linked, setLinked] = useState(true);
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
   const { shown, grow } = useGrow();
-  useEffect(() => { api.playlists().then((r) => setLists(r.playlists)).catch((e) => setError((e as ApiError).message)); }, []);
+  useEffect(() => { api.playlists().then((r) => { setLists(r.playlists); setLinked(r.linked !== false); }).catch((e) => setError((e as ApiError).message)); }, []);
   const hit = lists?.filter((l) => l.name.toLowerCase().includes(q.trim().toLowerCase())) ?? [];
   return (
     <article className="artist">
@@ -160,7 +161,7 @@ function PlaylistsPage({ devices, navigate }: { devices: Device[]; navigate: Nav
       {error && <Notice tone="error" title={error} />}
       {!lists && !error && <div className="boot"><span className="spinner" /></div>}
       {lists && lists.length > 12 && <Filter q={q} setQ={setQ} label="找歌单" />}
-      {lists?.length === 0 && <p className="muted">飞牛音乐里还没有歌单。</p>}
+      {lists?.length === 0 && <p className="muted">{linked ? '飞牛音乐里还没有歌单。' : '歌单来自飞牛音乐；只用音乐文件夹时没有歌单。'}</p>}
       {lists && lists.length > 0 && !hit.length && <p className="muted">没有叫这个名字的歌单。</p>}
       <ul className="list-grid">{hit.slice(0, shown).map((l) => <ListTile key={l.guid} l={l} devices={devices} navigate={navigate} />)}</ul>
       {hit.length > shown && <More onMore={grow} />}
@@ -293,34 +294,43 @@ function Front({ devices, navigate }: { devices: Device[]; navigate: Nav }) {
   const n = (v: number) => v.toLocaleString('zh-CN');
   const artists = shelf?.artists ?? [];
   const newest = shelf?.newest ?? [];
+  // Without the wall, 换一批 only redraws the picks, so it sits in their heading instead of floating alone.
+  const wall = !!shelf?.wall && shelf.wall.length > 11;
+  const picks = !!shelf?.picks?.length;
+  const pills = <>
+            {lack > 0 && <a className="pill" href="#/library/missing" onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'missing' }); }}><svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="7.2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="3.4 2.25" /><circle cx="9" cy="9" r="1.8" fill="currentColor" /></svg>缺歌<span className="num">{lack}</span></a>}
+            {shelf && <button className="pill" disabled={drawing} onClick={redraw}>{drawing ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true"><path d="M15.5 9a6.5 6.5 0 1 1-2-4.7M15.5 1.5v4h-4" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>}换一批</button>}
+  </>;
 
   return (
     <div className="library">
       <header className="lib-head">
         <h1><span className="num">{n(running ? Math.max(lib.seen, lib.tracks) : lib.tracks)}</span> 首歌</h1>
-        <p className="lib-sub">{running ? '正在从飞牛音乐同步' : <>{shelf && shelf.albums > 0 && <>{n(shelf.albums)} 张专辑，</>}{n(lib.artists)} 位歌手{fn.feiniu.linked && <>，来自飞牛音乐</>}</>}</p>
+        <p className="lib-sub">{running ? (fn.feiniu.linked ? '正在从飞牛音乐同步' : '正在扫描音乐文件夹') : <>{shelf && shelf.albums > 0 && <>{n(shelf.albums)} 张专辑，</>}{n(lib.artists)} 位歌手{fn.feiniu.linked ? <>，来自飞牛音乐</> : lib.tracks > 0 && <>，来自音乐文件夹</>}</>}</p>
         <a className="lib-search glass" href="#/search" onClick={(e) => { e.preventDefault(); navigate({ page: 'search' }); }}>
           <svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><circle cx="8.5" cy="8.5" r="6" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M13 13l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           <span>歌名、歌手、专辑</span>
         </a>
       </header>
       {error && <Notice tone="error" title={error} />}
-      {(!fn.feiniu.linked || fn.feiniu.expired) && (
-        <Notice tone={fn.feiniu.expired ? 'error' : 'warn'} title={fn.feiniu.expired ? '飞牛音乐的登录已失效' : '还没有连接飞牛音乐'}>
-          <div className="notice-actions"><button className="btn btn-small" onClick={() => navigate({ page: 'account' })}>{fn.feiniu.expired ? '重新登录' : '去连接'}</button></div>
+      {fn.feiniu.expired ? (
+        <Notice tone="error" title="飞牛音乐的登录已失效">
+          <div className="notice-actions"><button className="btn btn-small" onClick={() => navigate({ page: 'account' })}>重新登录</button></div>
+        </Notice>
+      ) : !fn.feiniu.linked && !running && lib.tracks === 0 && (
+        <Notice tone="warn" title="曲库还是空的">
+          <p>连接飞牛音乐，或者把音乐文件夹只读挂载到容器的 /music。</p>
+          <div className="notice-actions"><button className="btn btn-small" onClick={() => navigate({ page: 'account' })}>去设置</button></div>
         </Notice>
       )}
 
         <>
-          {shelf?.wall && shelf.wall.length > 11 && <Wall albums={shelf.wall} navigate={navigate} />}
-          {(shelf || lack > 0) && <div className="redraw">
-            {lack > 0 && <a className="pill" href="#/library/missing" onClick={(e) => { e.preventDefault(); navigate({ page: 'library', kind: 'missing' }); }}><svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="7.2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="3.4 2.25" /><circle cx="9" cy="9" r="1.8" fill="currentColor" /></svg>缺歌<span className="num">{lack}</span></a>}
-            {shelf && <button className="pill" disabled={drawing} onClick={redraw}>{drawing ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true"><path d="M15.5 9a6.5 6.5 0 1 1-2-4.7M15.5 1.5v4h-4" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>}换一批</button>}
-          </div>}
+          {wall && <Wall albums={shelf!.wall!} navigate={navigate} />}
+          {(shelf || lack > 0) && (wall || !picks) && <div className="redraw">{pills}</div>}
           <Favorites devices={devices} navigate={navigate} />
           <Playlists devices={devices} navigate={navigate} />
           {shelf?.picks && shelf.picks.length > 0 && (
-            <section className="shelf"><h2>随手翻到的</h2><Tracks key={shelf.picks[0].id} tracks={shelf.picks} from={{ picks: { list: '随手翻到的', tracks: shelf.picks } }} devices={devices} showAlbum paged navigate={navigate} /></section>
+            <section className="shelf">{wall ? <h2>随手翻到的</h2> : <div className="shelf-head"><h2>随手翻到的</h2><div className="redraw">{pills}</div></div>}<Tracks key={shelf.picks[0].id} tracks={shelf.picks} from={{ picks: { list: '随手翻到的', tracks: shelf.picks } }} devices={devices} showAlbum paged navigate={navigate} /></section>
           )}
           {newest.length > 0 && (
             <section className="shelf">
@@ -450,7 +460,7 @@ function MissingPage({ navigate }: { navigate: Nav }) {
     <article className="artist">
       <Back navigate={navigate} />
       <header className="lack-head">
-        <div><h1>缺歌清单</h1><p>近 180 天从线上放过、曲库里还没有的歌。补进飞牛音乐并同步后自动消失；识别错的、不想要的，移除就好。</p></div>
+        <div><h1>缺歌清单</h1><p>近 180 天从线上放过、曲库里还没有的歌。补进飞牛音乐或音乐文件夹、同步后自动消失；识别错的、不想要的，移除就好。</p></div>
         {!!songs?.length && <a className="btn" href="/api/library/missing.csv" download>导出表格</a>}
       </header>
       {error && <Notice tone="error" title={error} />}

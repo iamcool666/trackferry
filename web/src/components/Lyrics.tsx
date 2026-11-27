@@ -2,32 +2,34 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
 import { length } from '../copy';
 import { position, type Sounding } from '../live';
-import { lineAt, parseLRC, plainLyrics, type Line } from '../lyrics';
+import { lineAt, parseLRC, plainLyrics, restAt, spanOf, type Line } from '../lyrics';
 import { Fish } from './Fish';
 import { useToast } from './Toast';
 import type { MediaRange } from '../media-clock';
 
-export interface Words { lines: Line[]; timed: boolean; /** How much sooner the lines come, in ms. */ offset: number; setOffset: (ms: number) => void; saveError?: boolean }
+export interface Words { lines: Line[]; timed: boolean; /** How much sooner the lines come, in ms. */ offset: number; setOffset: (ms: number) => void; saveError?: boolean; /** The platform they came from, when the song has none of its own. */ from?: string }
 
-/** The words of a library song; null until they are known, or when there are none. */
-export function useWords(trackID?: number): Words | null {
-  const [got, setGot] = useState<{ id: number; lines: Line[]; timed: boolean; offset: number } | null>(null);
+/** The words of a library or online song; null until they are known, or when there are none. */
+export function useWords(trackID?: number, online?: string): Words | null {
+  const key = trackID ? `t${trackID}` : online ?? '';
+  const [got, setGot] = useState<{ id: string; lines: Line[]; timed: boolean; offset: number; from: string } | null>(null);
   const writes = useRef(new Map<number, { timer?: ReturnType<typeof setTimeout>; pending?: number; saving: boolean }>());
   const [saveError, setSaveError] = useState<number>();
   useEffect(() => {
-    if (!trackID) return;
+    if (!key) return;
     let on = true;
-    api.lyrics(trackID).then((r) => {
+    (trackID ? api.lyrics(trackID) : api.onlineLyrics(online!)).then((r) => {
       if (!on) return;
       const lines = parseLRC(r.lyrics ?? '');
-      setGot({ id: trackID, lines: lines.length ? lines : plainLyrics(r.lyrics ?? ''), timed: lines.length > 0, offset: r.offset_ms ?? 0 });
+      setGot({ id: key, lines: lines.length ? lines : plainLyrics(r.lyrics ?? ''), timed: lines.length > 0, offset: r.offset_ms ?? 0, from: r.from ?? '' });
     }).catch(() => {});
     return () => { on = false; };
-  }, [trackID]);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const setOffset = useCallback((ms: number) => {
-    if (!trackID) return;
     const to = Math.max(-60000, Math.min(60000, ms));
-    setGot((g) => g?.id === trackID ? { ...g, offset: to } : g);
+    setGot((g) => g?.id === key ? { ...g, offset: to } : g);
+    // An online song's lyrics move for this listen only: there is no song of the library to keep it on.
+    if (!trackID) return;
     setSaveError(undefined);
     const jobs = writes.current;
     const job = jobs.get(trackID) ?? { saving: false };
@@ -51,11 +53,12 @@ export function useWords(trackID?: number): Words | null {
       }
     };
     job.timer = setTimeout(flush, 350);
-  }, [trackID]);
-  return trackID && got?.id === trackID && got.lines.length ? { lines: got.lines, timed: got.timed, offset: got.offset, setOffset, saveError: saveError === trackID } : null;
+  }, [trackID, key]);
+  return key && got?.id === key && got.lines.length ? { lines: got.lines, timed: got.timed, offset: got.offset, from: got.from, setOffset, saveError: !!trackID && saveError === trackID } : null;
 }
 
 const SIZE = 'trackferry.lyrics.size';
+const fromName: Record<string, string> = { kuwo: '酷我', kugou: '酷狗', migu: '咪咕', netease: '网易云' };
 const sizes = [{ v: 'small', label: '小' }, { v: '', label: '中' }, { v: 'large', label: '大' }];
 
 /** All of the words. The line being sung stays in view unless the reader has scrolled away; a tap on a line goes there. */
@@ -63,20 +66,32 @@ export function LyricSheet({ words, now, big, seek }: { words: Words; now: Sound
   const box = useRef<HTMLOListElement>(null);
   const [i, setI] = useState(-1);
   const line = useRef(-1);
+  // The line the music is heading for during an interlude: its dots fill as the interlude passes.
+  const [rest, setRest] = useState(-1);
+  const resting = useRef(-1);
+  const flights = useRef<Animation[]>([]);
   const [free, setFree] = useState(false);
   const [tools, setTools] = useState(false);
   const [size, setSize] = useState(() => { try { return localStorage.getItem(SIZE) ?? ''; } catch { return ''; } });
   const { lines, timed, offset } = words;
   const follow = !!now && timed;
   useEffect(() => {
-    if (!now || !timed) { line.current = -1; setI(-1); return; }
+    if (!now || !timed) { line.current = -1; setI(-1); resting.current = -1; setRest(-1); return; }
     let frame = 0;
     let last = -Infinity;
     const sample = (time: number) => {
       if (time - last >= 33) {
         last = time;
-        const next = lineAt(lines, position(now) + offset);
+        const at = position(now) + offset;
+        const next = lineAt(lines, at), r = restAt(lines, next, at), rk = r ? r.next : -1;
         if (next !== line.current) { line.current = next; setI(next); }
+        if (rk !== resting.current) { resting.current = rk; setRest(rk); }
+        // How far the singing is, as two numbers the styles read: no React work on every frame.
+        const b = box.current;
+        if (b) {
+          b.style.setProperty('--rest', r ? ((at - r.from) / (r.to - r.from)).toFixed(3) : '0');
+          b.style.setProperty('--p', next >= 0 ? Math.min(1, Math.max(0, (at - lines[next].at) / spanOf(lines, next))).toFixed(3) : '0');
+        }
       }
       if (now.phase === 'playing' && !document.hidden) frame = requestAnimationFrame(sample);
     };
@@ -87,11 +102,33 @@ export function LyricSheet({ words, now, big, seek }: { words: Words; now: Sound
   }, [lines, offset, now?.phase, now?.at, now?.since, now?.read]); // eslint-disable-line react-hooks/exhaustive-deps
   const returnTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(returnTimer.current), []);
+  // During an interlude the coming line takes the middle, with its dots.
+  const focus = rest >= 0 ? rest : i;
+  useEffect(() => () => flights.current.forEach((a) => a.cancel()), []);
   useEffect(() => {
-    const b = box.current, el = b?.children[Math.max(i, 0)] as HTMLElement | undefined;
+    const b = box.current, el = b?.children[Math.max(focus, 0)] as HTMLElement | undefined;
     if (!b || !el || !follow || free) return;
-    b.scrollTo({ top: i < 0 ? 0 : el.offsetTop + el.offsetHeight / 2 - b.clientHeight * .42, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-  }, [i, big, size, follow, free]);
+    const want = focus < 0 ? 0 : el.offsetTop + el.offsetHeight / 2 - b.clientHeight * .42;
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const delta = Math.max(0, Math.min(want, b.scrollHeight - b.clientHeight)) - b.scrollTop;
+    flights.current.forEach((a) => a.cancel());
+    flights.current = [];
+    if (calm || Math.abs(delta) < 1 || Math.abs(delta) > b.clientHeight || typeof el.animate !== 'function') {
+      b.scrollTo({ top: want, behavior: calm ? 'auto' : 'smooth' });
+      return;
+    }
+    // Lines move one after another, the upper ones first, like a sheet of paper settling:
+    // the box jumps at once and every line in sight is carried from where it was.
+    b.scrollTo({ top: want, behavior: 'auto' });
+    const from = b.scrollTop - Math.abs(delta) - 40, to = b.scrollTop + b.clientHeight + Math.abs(delta) + 40, at = Math.max(focus, 0);
+    for (let k = 0; k < b.children.length; k++) {
+      const li = b.children[k] as HTMLElement;
+      if (li.offsetTop + li.offsetHeight < from) continue;
+      if (li.offsetTop > to) break;
+      const lag = Math.max(0, Math.min(9, k - at + 2)) * 42;
+      flights.current.push(li.animate([{ translate: `0 ${delta}px` }, { translate: '0 0' }], { duration: 680, delay: lag, easing: 'cubic-bezier(.2, 1.1, .32, 1)', fill: 'backwards' }));
+    }
+  }, [focus, big, size, follow, free]);
   useEffect(() => { clearTimeout(returnTimer.current); setFree(false); }, [lines]);
   const mine = () => {
     if (!follow) return;
@@ -105,8 +142,17 @@ export function LyricSheet({ words, now, big, seek }: { words: Words; now: Sound
   return (
     <div className={`lyric ${size ? `lyric-${size}` : ''}`}>
       <ol ref={box} className={`sheet-words ${follow ? 'follow' : ''} ${free ? 'free' : ''} ${jump ? 'jump' : ''}`} aria-label="歌词" tabIndex={0} onWheel={mine} onTouchMove={mine} onKeyDown={mine}>
-        {lines.map((l, k) => <li key={k} className={k === i ? 'now' : ''} aria-current={k === i || undefined} style={{ '--d': follow ? Math.min(5, Math.abs(k - Math.max(i, 0))) : 0 } as React.CSSProperties}>{jump ? <button type="button" onClick={() => go(l)} aria-label={`跳到 ${length(l.at) || '0:00'}：${l.text}`}>{l.text}</button> : l.text}</li>)}
+        {lines.map((l, k) => {
+          const sung = k === i && rest < 0, words = <span className="w">{l.text}</span>;
+          return (
+            <li key={k} className={sung ? 'now' : k === rest ? 'next' : ''} aria-current={k === i || undefined} style={{ '--d': follow ? Math.min(5, Math.abs(k - Math.max(focus, 0))) : 0 } as React.CSSProperties}>
+              {k === rest && <span className="rest" aria-hidden="true"><i /><i /><i /></span>}
+              {jump ? <button type="button" onClick={() => go(l)} aria-label={`跳到 ${length(l.at) || '0:00'}：${l.text}`}>{words}</button> : words}
+            </li>
+          );
+        })}
       </ol>
+      {words.from && <p className="lyric-from">歌词来自{fromName[words.from] ?? words.from}，这首歌自己没有</p>}
       {tools ? (
         <div className="lyric-tools" role="group" aria-label="调整歌词">
           {timed && <div><button type="button" onClick={() => words.setOffset(offset - 100)} aria-label="歌词延后 0.1 秒">−0.1 秒</button><button type="button" className="num" onClick={() => words.setOffset(words.saveError ? offset : 0)} disabled={!offset && !words.saveError} aria-label={words.saveError ? '重试保存歌词校准' : '歌词时间还原'}>{words.saveError ? '重试保存' : offset ? `${offset > 0 ? '提前' : '延后'} ${Math.abs(offset / 1000).toFixed(1)} 秒` : '还原'}</button><button type="button" onClick={() => words.setOffset(offset + 100)} aria-label="歌词提前 0.1 秒">+0.1 秒</button></div>}

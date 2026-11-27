@@ -31,7 +31,7 @@ export function Playing() {
     <Setting id="playing" icon={<NotesIcon />} title="连续播放" says="一首放完之后接着放什么">
       {p && <>
         {row('artist', '点歌手时一直放', '说“播放周杰伦的歌”，曲库里这位歌手的歌随机一首接一首')}
-        {row('after', '点完一首接着随机放', '点的歌放完，从飞牛曲库随机接着放')}
+        {row('after', '点完一首接着随机放', '点的歌放完，从曲库里随机接着放')}
         <div className="kept">
           <div><b>最长放多久</b><small>歌手、收藏、歌单和随机连播都按这个时间结束，正在放的那首会放完</small></div>
           <Pick label="最长放多久" value={p.hours} onPick={(h) => set({ hours: h })}

@@ -13,8 +13,11 @@ import { Notice } from '../components/Notice';
 import { Play, PlaybackTarget } from '../components/Play';
 import { SourceIcon } from '../components/SourceIcon';
 import { Sheet } from '../components/Sheet';
+import { Quality, type QualityRef } from '../components/Quality';
+import type { SongVersion } from '../api';
+import { swapOn } from '../handoff';
 import { connected, HERE } from '../ear';
-import { useEar, useStage } from '../outputs';
+import { useEar } from '../outputs';
 import { here, hereName, hereSong, hereSounding, routeHere, useHere } from '../here';
 import { onSpeaker, phaseText, sounding, useLive, type Flow, type Sounding } from '../live';
 import { Buttons, HereButtons, watchText } from '../components/Speaker';
@@ -107,7 +110,6 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
   const [page, setPage] = useState(0);
   const [kind, setKind] = useState('');
   const [ear, setEar] = useEar(devices, true);
-  const { also } = useStage(devices);
   const local = ear === HERE;
   const tv = activeTV(ear);
   const playback = tv?.playback;
@@ -191,7 +193,8 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
   const ready = !!tv || !!obs && !!cmds;
   useEffect(() => { if (ready) water?.show(pic); }, [water, pic.src, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const words = useWords(native ? undefined : scene?.route?.track_id);
+  const words = useWords(native ? undefined : scene?.route?.track_id || undefined,
+    native ? undefined : isHere ? hereSong(h)?.online : tv ? tvTrack?.online || playback?.current.online : scene?.run?.song?.online);
   const wide = big && !!words;
   useEffect(() => {
     if (!wide) return;
@@ -212,6 +215,16 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
     : !isHere && heard?.seek && heardOn && speakerRun
       ? (ms, signal) => api.press(heardOn, 'seek', { position: Math.round(ms), run_id: speakerRun }, signal) : null);
   const now = heard, seek = isHere ? (heard?.seek ? here.seek : undefined) : far.seek;
+  // What is on screen, to say its real quality and offer the other copies there are.
+  const hs = isHere ? hereSong(h) : null, rs = !isHere && !tv && heard ? scene?.run?.song : undefined;
+  const qref: QualityRef | null = hs ? { track: hs.track_id, online: hs.online, title: hs.title, artist: hs.artist }
+    : rs && (rs.track_id || rs.online) ? { track: rs.track_id || undefined, online: rs.online, title: rs.title, artist: rs.artist }
+    : tv && playback && (tvTrack?.id || tvTrack?.online || playback.current.id || playback.current.online)
+      ? { track: tvTrack?.id || playback.current.id || undefined, online: tvTrack?.online || playback.current.online, title: tvTitle ?? '', artist: tvTrack?.artist ?? playback.current.artist ?? '' } : null;
+  const swap = isHere ? (v: SongVersion) => here.swap(v.online
+      ? { key: v.online, online: v.online, source: v.source as Exclude<SongVersion['source'], 'library'>, title: v.title, artist: v.artist, duration_ms: v.duration_ms }
+      : { key: `t${v.track_id}`, track_id: v.track_id, title: v.title, artist: singer(v.artist), album: v.album, cover: v.cover, duration_ms: v.duration_ms })
+    : tv || (rs && heardOn) ? (v: SongVersion) => swapOn(tv ? tvTarget(tv.id) : heardOn!, v.online ? { online: v.online, title: v.title, artist: v.artist } : { id: v.track_id }) : undefined;
 
   // The raft is laid out by CSS; the water draws what stands on it.
   useLayoutEffect(() => {
@@ -319,7 +332,6 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
   </>;
   const chip = <>
     <SpeakerChip devices={devices} value={ear} onChange={setEar} title="播放设备" bare={ownDevice || (deck ? deviceTitle(deck) : hereName)} televisions />
-    {also.length > 0 && <button type="button" className="also-playing" onClick={() => setEar(also[0].id)} title={also.map((o) => `${o.name}：${o.title ?? ''}`).join('\n')} aria-label={`另有 ${also.length} 处在放，切到${also[0].name}`}><i aria-hidden="true" />另有 {also.length} 处在放</button>}
   </>;
   const record: ReactNode = <>
         <ul className="ears">
@@ -383,6 +395,7 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
           <h1 style={{ '--n': Math.max(3, [...t].reduce((a, c) => a + (c.charCodeAt(0) < 256 ? 0.55 : 1), 0)) } as React.CSSProperties}>{t}</h1>
           {!scene && <button className="link say-link" onClick={() => navigate({ page: ownDevice ? 'search' : 'say' })}>{ownDevice ? '去找歌' : '看看都能怎么说'}</button>}
           {r && !native && <p className="by">{[singer(r.artist), singer(r.album)].filter(Boolean).join('　')}</p>}
+          {qref && !native && <p className="by tech-line"><Quality key={qref.track ?? qref.online} song={qref} onPick={swap} /></p>}
           {r && native && <p className="by">{r.reason || '由小爱处理'}</p>}
           {r?.track_id && !native ? <div className="acts"><Heart key={`h${r.track_id}/${kept?.key}`} trackID={r.track_id} title={t} /><AddTo trackID={r.track_id} title={t} /></div> : null}
           </div>

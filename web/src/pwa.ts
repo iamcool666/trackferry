@@ -33,6 +33,25 @@ function measure() {
   const short = root.classList.contains('installed') ? Math.max(0, Math.min(top.offsetHeight, tall - innerHeight)) : 0;
   if (short) root.style.setProperty('--vp-short', `${short}px`);
   else root.style.removeProperty('--vp-short');
+  if (short) nudge();
+}
+// iOS measures the page again after a scroll, but a page shorter than the screen cannot be scrolled, so the
+// missing strip stayed black under the dock. Make the page one pixel taller, scroll it by that pixel and
+// back, then drop the pixel. At most once a second, so a phone where it does not help is not kept busy.
+let nudged = 0;
+function nudge() {
+  if (Date.now() - nudged < 1000) return;
+  nudged = Date.now();
+  const root = document.documentElement, y = scrollY;
+  root.style.minHeight = 'calc(100% + 1px)';
+  requestAnimationFrame(() => {
+    scrollTo(0, y + 1);
+    requestAnimationFrame(() => {
+      scrollTo(0, y);
+      root.style.minHeight = '';
+      requestAnimationFrame(measure);
+    });
+  });
 }
 for (const e of ['resize', 'orientationchange', 'pageshow', 'DOMContentLoaded']) addEventListener(e, measure);
 visualViewport?.addEventListener('resize', measure);

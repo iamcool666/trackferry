@@ -90,7 +90,9 @@ function Inner() {
       .then(({ account, devices }) => {
         if (readPlace()) return;
         // Fresh install: walk through the setup. Otherwise land on the stage.
-        const p: Place = { page: !account.linked && devices.length === 0 ? 'welcome' : 'home' };
+        let skipped = false;
+        try { skipped = localStorage.getItem('trackferry.skip-xiaomi') === '1'; } catch { /* no storage: ask again */ }
+        const p: Place = { page: !account.linked && devices.length === 0 && !skipped ? 'welcome' : 'home' };
         history.replaceState(null, '', href(p));
         setPlace(p);
       })
@@ -187,7 +189,7 @@ function Inner() {
       </main>
       <HereSaid />
       {place.page !== 'welcome' && <Dock page={place.page} devices={data.devices} navigate={navigate} dot={needsAttention} />}
-      {place.page !== 'account' && place.page !== 'search' && place.page !== 'more' && place.page !== 'tv' && <footer className="colophon"><Signature /></footer>}
+      {place.page !== 'account' && place.page !== 'search' && place.page !== 'more' && <footer className="colophon"><Signature /></footer>}
     </div>
   );
 }

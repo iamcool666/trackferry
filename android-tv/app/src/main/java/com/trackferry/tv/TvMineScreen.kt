@@ -59,7 +59,7 @@ internal fun StagePanel(modifier: Modifier = Modifier, padding: Dp = 14.dp, cont
 
 @Composable
 internal fun TvMineScreen(nas: NasConnection, shelf: Shelf?, busy: Boolean, gutter: Dp, short: Boolean,
-                          open: (Collection) -> Unit, settings: () -> Unit, exit: () -> Unit) {
+                          open: (Collection) -> Unit, settings: () -> Unit) {
     val favorites = shelf?.collections?.firstOrNull { it.source == "favorites" }
     val server = nas.link.server
     val context = LocalContext.current
@@ -69,7 +69,7 @@ internal fun TvMineScreen(nas: NasConnection, shelf: Shelf?, busy: Boolean, gutt
     LaunchedEffect(Unit) { withFrameNanos {}; runCatching { first.requestFocus() } }
     Row(Modifier.fillMaxSize().padding(horizontal = gutter - 8.dp), horizontalArrangement = Arrangement.spacedBy(if (short) 8.dp else 14.dp)) {
         Column(Modifier.weight(1.1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp).padding(top = 4.dp, bottom = 36.dp), verticalArrangement = Arrangement.spacedBy(gap)) {
-            Text("设置", color = Ink, fontFamily = FontFamily.Serif, fontSize = if (short) 26.sp else 34.sp, fontWeight = FontWeight.SemiBold)
+            Text("设置", color = Ink, fontFamily = FontFamily.SansSerif, fontSize = if (short) 26.sp else 34.sp, fontWeight = FontWeight.SemiBold)
             StagePanel(Modifier.fillMaxWidth(), padding = 14.dp) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Image(painterResource(R.drawable.fish_mark), null, Modifier.size(if (short) 46.dp else 58.dp))
@@ -104,13 +104,7 @@ internal fun TvMineScreen(nas: NasConnection, shelf: Shelf?, busy: Boolean, gutt
                     Text("TrackFerry TV $version · ${TvUpdate.abi}", color = Ink, fontSize = 15.sp)
                     Text("作者 madrays · MIT 许可开源", color = Muted, fontSize = 14.sp)
                     Text("github.com/madrays/trackferry", color = Teal, fontSize = 14.sp)
-                    Text("把飞牛音乐曲库和在线音源送到电视、手机和小爱音箱上。", color = Muted, fontSize = 13.sp)
-                }
-            }
-            StagePanel(Modifier.fillMaxWidth(), padding = 16.dp) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("按返回键回到桌面时，音乐会继续放。要彻底停下，用这里。", color = Muted, fontSize = 13.sp)
-                    TvButton("停止播放并退出", onClick = exit)
+                    Text("把曲库（飞牛音乐或音乐文件夹）和在线音源送到电视、手机和小爱音箱上。", color = Muted, fontSize = 13.sp)
                 }
             }
         }

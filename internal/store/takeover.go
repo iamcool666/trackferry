@@ -51,7 +51,8 @@ type Song struct {
 	Album      string `json:"album,omitempty"`
 	Cover      string `json:"cover,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
-	List       string `json:"list,omitempty"` // the list it came up in, when one plays on
+	List       string `json:"list,omitempty"`   // the list it came up in, when one plays on
+	Online     string `json:"online,omitempty"` // the online song's key, when it is not in the library
 }
 
 // StartRun inserts a run in state running and sets r.ID.

@@ -9,7 +9,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/madrays/trackferry?style=for-the-badge&logo=docker&logoColor=white&label=Pulls&labelColor=142c38&color=8fd3d6)](https://hub.docker.com/r/madrays/trackferry)
 [![License](https://img.shields.io/badge/License-MIT-b7e4c7?style=for-the-badge&labelColor=142c38)](LICENSE)
 
-<img src="https://img.shields.io/badge/amd64_%7C_arm64-142c38?style=flat-square&logo=linux&logoColor=white" alt="amd64 与 arm64">
+<img src="https://img.shields.io/badge/amd64_%7C_arm64_%7C_armv7-142c38?style=flat-square&logo=linux&logoColor=white" alt="amd64、arm64 与 armv7">
 <img src="https://img.shields.io/badge/Go-142c38?style=flat-square&logo=go" alt="Go">
 <img src="https://img.shields.io/badge/React-142c38?style=flat-square&logo=react" alt="React">
 <img src="https://img.shields.io/badge/SQLite-142c38?style=flat-square&logo=sqlite&logoColor=8fd3d6" alt="SQLite">
@@ -117,7 +117,7 @@ Android 电视应用已发布，在 [Releases](https://github.com/madrays/trackf
 
 ## 快速开始
 
-准备一台装有 Docker 的 NAS（amd64 或 arm64），以及同一局域网内的小爱音箱。
+准备一台装有 Docker 的 NAS（amd64 或 arm64；32 位 armv7 也有镜像，但还没在实机上测过），以及同一局域网内的小爱音箱。
 
 **1. 下载部署文件**
 

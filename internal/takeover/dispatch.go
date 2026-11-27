@@ -51,6 +51,8 @@ type Dispatcher struct {
 	// Put adds a song of the library to a playlist, or takes it out; optional.
 	Put  func(ctx context.Context, track int64, name string, on bool) (list string, changed bool, err error)
 	Open func(*routing.Route) stream.Opener // online audio
+	// Online gets an online song ready by its key; optional.
+	Online func(ctx context.Context, key string) (*routing.Route, error)
 	// Keep stores an online song that is being heard; optional.
 	Keep    func(*routing.Route)
 	Allowed func(deviceID string) bool // the speaker is released for takeover

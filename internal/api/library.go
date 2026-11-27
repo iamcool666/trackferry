@@ -3,9 +3,15 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"trackferry/internal/fscheck"
+	"trackferry/internal/online"
 
 	"trackferry/internal/intent"
 	"trackferry/internal/library"
@@ -14,7 +20,7 @@ import (
 
 func (s *Server) libraryStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"library": s.Library.Status(), "sources": s.Router.Online.Health(),
-		"every_minutes": s.Library.Every(r.Context())})
+		"every_minutes": s.Library.Every(r.Context()), "quality": s.Router.Quality(), "folder": s.folder(), "fill": s.fillStatus(r.Context())})
 }
 
 // libraryEvery sets how often the library is read again.
@@ -118,6 +124,25 @@ func (s *Server) favorite(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"favorite": t.Favorite})
 }
 
+func (s *Server) qualityUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Quality string `json:"quality"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	ok, err := s.Router.SetQuality(r.Context(), s.Store, online.Quality(req.Quality))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, "bad_quality", "音质只能是 standard 或 high")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"quality": s.Router.Quality()})
+}
+
 func (s *Server) sourceUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Enabled bool `json:"enabled"`
@@ -136,3 +161,25 @@ func (s *Server) sourceUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sources": s.Router.Online.Health()})
 }
+
+// folder says what the music folder holds: whether it is there, readable and read-only.
+// The check writes a probe file when the folder is writable, so it runs at most once a minute.
+func (s *Server) folder() fscheck.Music {
+	folderMu.Lock()
+	defer folderMu.Unlock()
+	if time.Since(folderAt) < time.Minute {
+		return folderLast
+	}
+	m := fscheck.CheckMusic(s.Config.MusicDir)
+	if _, err := os.Stat(s.Config.MusicDir); errors.Is(err, os.ErrNotExist) {
+		m.Error = "missing"
+	}
+	folderLast, folderAt = m, time.Now()
+	return m
+}
+
+var (
+	folderMu   sync.Mutex
+	folderAt   time.Time
+	folderLast fscheck.Music
+)

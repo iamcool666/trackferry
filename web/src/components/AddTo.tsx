@@ -6,8 +6,9 @@ import { useToast } from './Toast';
 /** The playlists of 飞牛音乐, to put a song in. */
 export function AddToSheet({ trackID, title, onClose, say }: { trackID: number; title: string; onClose: () => void; say: ReturnType<typeof useToast>[1] }) {
   const [lists, setLists] = useState<Playlist[] | null>(null);
+  const [linked, setLinked] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { api.playlists().then((r) => setLists(r.playlists), (e) => setError((e as ApiError).message)); }, []);
+  useEffect(() => { api.playlists().then((r) => { setLists(r.playlists); setLinked(r.linked !== false); }, (e) => setError((e as ApiError).message)); }, []);
   const add = async (l: Playlist) => {
     onClose();
     say({ tone: 'busy', text: `正在加入“${l.name}”` });
@@ -22,7 +23,7 @@ export function AddToSheet({ trackID, title, onClose, say }: { trackID: number; 
     <Sheet title={`把《${title}》加入`} onClose={onClose}>
       {error && <p className="field-error" role="alert">{error}</p>}
       {!lists && !error && <p className="center"><span className="spinner" /></p>}
-      {lists?.length === 0 && <p className="muted">飞牛音乐里还没有歌单，先在飞牛音乐里建一个。</p>}
+      {lists?.length === 0 && <p className="muted">{linked ? '飞牛音乐里还没有歌单，先在飞牛音乐里建一个。' : '歌单来自飞牛音乐；只用音乐文件夹时没有歌单，可以先收藏。'}</p>}
       {lists && lists.length > 0 && <div className="picks">{lists.map((l) => <button key={l.guid} type="button" onClick={() => add(l)}><i><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M2 5h11M2 10h11M2 15h7M15.5 11v7M12 14.5h7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg></i><span><b>{l.name}</b></span></button>)}</div>}
     </Sheet>
   );

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,9 +16,14 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata" // the runtime image has no zoneinfo
+	"trackferry/internal/cast"
+	"trackferry/internal/fill"
+	"trackferry/internal/netcover"
+	"trackferry/internal/tv"
 	"unicode/utf8"
 
 	"trackferry/internal/api"
@@ -298,6 +304,7 @@ func serve() error {
 	})
 	go engine.RecoverVolumes(ctx) // a crash mid-takeover must not leave a speaker muted
 	lib := library.New(cfg.MusicDir, st, log)
+	lib.SetThumbs(filepath.Join(cfg.DataDir, "thumbs")) // small covers of the music folder
 	fn, err := feiniu.NewManager(filepath.Join(private, "feiniu.json"))
 	if err != nil {
 		return err
@@ -324,7 +331,30 @@ func serve() error {
 	}
 	go netease.Run(ctx)
 	sources := online.New(log, client, &online.Kuwo{Client: client}, &online.Kugou{Client: client}, &online.Migu{Client: client}, netease)
+	// Online songs once shown stay playable by their key: across restarts, and long after the search.
+	sources.Remember = func(songs map[string]online.Saved) {
+		rows := make(map[string]string, len(songs))
+		for k, v := range songs {
+			if b, err := json.Marshal(v); err == nil {
+				rows[k] = string(b)
+			}
+		}
+		if err := st.RememberOnline(context.Background(), rows); err != nil {
+			log.Warn("音源　搜到的歌没记下来", "原因", err)
+		}
+	}
+	sources.Recall = func(key string) (online.Saved, bool) {
+		var saved online.Saved
+		row, ok, err := st.RecallOnline(context.Background(), key)
+		if err != nil || !ok || json.Unmarshal([]byte(row), &saved) != nil {
+			return online.Saved{}, false
+		}
+		return saved, true
+	}
 	router := &routing.Router{Library: lib, Online: sources, Log: log, Openable: streams.Openable}
+	covers := netcover.New(filepath.Join(cfg.DataDir, "netcovers"), client)
+	filler := fill.New(lib, st, sources, log)
+	go filler.Run(ctx)
 	router.LoadSettings(ctx, st)
 	kept, err := openCache(cfg.DataDir, cacheLimit(ctx, st), log)
 	if err != nil {
@@ -346,6 +376,16 @@ func serve() error {
 		Allowed: func(id string) bool {
 			name := speakerName(id)
 			return name != "" && cfg.TakeoverAllowed(name)
+		},
+		Online: func(ctx context.Context, key string) (*routing.Route, error) {
+			if router.Online == nil {
+				return nil, errors.New("在线音源没有开")
+			}
+			f, err := router.Online.Take(ctx, key)
+			if err != nil {
+				return nil, err
+			}
+			return routing.FromOnline(f), nil
 		},
 		Open: func(rt *routing.Route) stream.Opener {
 			if kept == nil {
@@ -418,11 +458,48 @@ func serve() error {
 	options := api.Options{
 		Config: cfg, Store: st, Token: token, SetupCodePath: setupCodePath,
 		Build: api.Build{Version: version, Commit: commit}, Boot: boot,
-		Xiaomi: xm, Observer: obs, Engine: engine, Stream: streams, Library: lib, Cache: kept, Router: router, Feiniu: fn, Netease: netease, Live: hub, Home: atHome, Played: played, Dispatcher: dispatcher, Web: webui.Handler(), Log: log, Update: checker, SetupLog: showCode,
+		Xiaomi: xm, Observer: obs, Engine: engine, Stream: streams, Library: lib, NetCovers: covers, Fill: filler, Cache: kept, Router: router, Feiniu: fn, Netease: netease, Live: hub, Home: atHome, Played: played, Dispatcher: dispatcher, Web: webui.Handler(), Log: log, Update: checker, SetupLog: showCode,
 	}
 	if tvEndpoint != nil {
 		defer tvEndpoint.Close()
 		options.TV = tvEndpoint.pairer
+	}
+	if tvEndpoint != nil {
+		options.Remote = tvEndpoint.pairer.Remote
+	} else {
+		options.Remote = tv.NewRemote()
+	}
+	if cfg.Cast {
+		options.Cast = &cast.Manager{Remote: options.Remote, Log: log, Setting: st.Setting, SetSetting: st.SetSetting,
+			Prepare: func(ctx context.Context, ref tv.Ref) (cast.Media, error) {
+				if streams.Ready() != nil {
+					return cast.Media{}, errors.New("还没设置 TRACKFERRY_URL，设备取不到歌")
+				}
+				if ref.ID > 0 {
+					t, ok := lib.Track(ref.ID)
+					if !ok {
+						return cast.Media{}, errors.New("曲库里没有这首歌了")
+					}
+					d := time.Duration(t.DurationMS) * time.Millisecond
+					h, err := streams.Song(t.Path, strings.Trim(t.Artist+" - "+t.Title, " -"), d)
+					if err != nil {
+						return cast.Media{}, err
+					}
+					return cast.Media{URL: h.URL, Type: stream.TypeOf(h.URL), Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: d}, nil
+				}
+				rt, err := dispatcher.Online(ctx, ref.Online)
+				if err != nil {
+					return cast.Media{}, err
+				}
+				d := time.Duration(rt.DurationMS) * time.Millisecond
+				h, err := streams.Proxy(dispatcher.Open(rt), rt.Label(), d)
+				if err != nil {
+					return cast.Media{}, err
+				}
+				c := rt.Found().Candidate
+				return cast.Media{URL: h.URL, Type: "audio/mpeg", Title: c.Title, Artist: c.Artist, Album: c.Album, Duration: d}, nil
+			}}
+		go options.Cast.Run(ctx)
 	}
 	srv := api.New(options)
 	httpSrv := &http.Server{

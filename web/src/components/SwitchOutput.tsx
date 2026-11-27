@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { Device } from '../api';
 import { deviceTitle } from '../copy';
 import { connected, HERE, lookAt } from '../ear';
-import { checkedSpeaker, give, speakerSafe, take, type Taken } from '../handoff';
+import { checkedSpeaker, give, take, type Taken } from '../handoff';
 import { hereName, hereSong, useHere } from '../here';
 import { useLive } from '../live';
 import { tvID, tvTarget, useTVOutputs } from '../tv';
 import { Sheet } from './Sheet';
-import { hereIcon, speakerIcon, tvIcon } from './SpeakerChip';
+import { hereIcon, outputIcon, speakerIcon } from './SpeakerChip';
 import { useToast } from './Toast';
 
 export const switchIcon = <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 9.5V6.5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-5.5M3 13.5a6 6 0 0 1 6 6M3 17a2.5 2.5 0 0 1 2.5 2.5" /></svg>;
@@ -26,7 +26,6 @@ export function useMovable(source: string) {
 export function SwitchOutput({ source, devices, className = 'foot-btn' }: { source: string; devices: Device[]; className?: string }) {
   const televisions = useTVOutputs().filter((d) => d.online);
   const movable = useMovable(source);
-  const h = useHere();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState('');
   const [taken, setTaken] = useState<Taken | null>(null);
@@ -46,14 +45,12 @@ export function SwitchOutput({ source, devices, className = 'foot-btn' }: { sour
   const choices = [
     ...(source !== HERE ? [{ id: HERE, name: hereName, icon: hereIcon }] : []),
     ...connected(devices).filter((d) => d.device_id !== source).map((d) => ({ id: d.device_id, name: deviceTitle(d), icon: speakerIcon })),
-    ...televisions.filter((d) => tvTarget(d.id) !== source).map((d) => ({ id: tvTarget(d.id), name: d.name, icon: tvIcon })),
+    ...televisions.filter((d) => tvTarget(d.id) !== source).map((d) => ({ id: tvTarget(d.id), name: d.name, icon: outputIcon(d.kind) })),
   ];
   if (!choices.length) return null;
   const blocked = (id: string) => {
     if (id === HERE) return taken ? '' : '正在读取进度…';
-    if (tvID(id)) return '';
-    const library = source === HERE ? h.songs.every((x) => !!x.track_id) : !taken || speakerSafe(taken);
-    return library ? '' : '小爱只能接曲库里的歌';
+    return '';
   };
   const move = (target: string) => {
     if (op.current) return;

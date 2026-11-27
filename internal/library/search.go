@@ -16,16 +16,20 @@ type index struct {
 	byArtist map[string][]int
 	byPath   map[string]int
 	byID     map[int64]int
-	hay      []string // normalised title, artist and album, for Find
-	albums   []Album  // newest first
-	artists  []Artist // most songs first
+	hay      []string        // normalised title, artist and album, for Find
+	albums   []Album         // newest first
+	artists  []Artist        // most songs first
+	covers   map[string]bool // local cover IDs some song uses
 }
 
 func newIndex(rows []store.TrackRow) *index {
 	x := &index{rows: rows, byTitle: map[string][]int{}, byArtist: map[string][]int{},
-		byPath: make(map[string]int, len(rows)), byID: make(map[int64]int, len(rows)), hay: make([]string, len(rows))}
+		byPath: make(map[string]int, len(rows)), byID: make(map[int64]int, len(rows)), hay: make([]string, len(rows)), covers: map[string]bool{}}
 	for i, t := range rows {
 		x.byPath[t.Path], x.byID[t.ID] = i, i
+		if strings.HasPrefix(t.Cover, LocalCover) {
+			x.covers[t.Cover] = true
+		}
 		x.hay[i] = names.Norm(t.Title) + "\x00" + names.Norm(t.Artist) + "\x00" + names.Norm(t.Album)
 		keys := map[string]bool{names.Norm(t.Title): true}
 		plain, _ := names.SplitTitle(t.Title)

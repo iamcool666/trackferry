@@ -5,7 +5,7 @@ import { hereNow } from '../here';
 import { takesNewTV } from '../output-rule';
 import type { Place } from '../nav';
 import { tvTarget, useTVOutputs, useTVPairing, useTVReady } from '../tv';
-import { tvIcon } from './SpeakerChip';
+import { outputIcon } from './SpeakerChip';
 import { Sheet } from './Sheet';
 import '../pages/tv-remote.css';
 
@@ -73,7 +73,7 @@ export function TVPresence({ place, navigate, pairing, setPairing }: { place: Pl
   return <>
     {!pairing && arrived && <aside className="tv-arrival glass dock-glass" aria-label="电视上线">
       <button type="button" className="tv-arrival-open" onClick={() => { lookAt(tvTarget(arrived.id)); setNotice(''); navigate({ page: 'home' }); }}>
-        {tvIcon}<b title={arrived.name}>{arrived.name}</b><span>已上线</span>
+        {outputIcon(arrived.kind)}<b title={arrived.name}>{arrived.name}</b><span>已上线</span>
       </button>
       <button type="button" className="tv-arrival-close" aria-label="关闭电视上线提醒" onClick={() => setNotice('')}>×</button>
     </aside>}

@@ -44,6 +44,9 @@ func (s *Server) TVHandler() http.Handler {
 	mux.Handle("POST "+tvAPI+"/app", s.tvAuth(http.HandlerFunc(s.tvAppPrepare)))
 	read("/app/apk", s.tvAppFile)
 	read("/cover/{id}", s.tvCover)
+	read("/tech", s.tech)
+	read("/versions", s.versions)
+	read("/online-lyrics", s.onlineLyrics)
 	read("/audio", s.tvAudio)
 	return securityHeaders(mux)
 }
@@ -151,7 +154,7 @@ func (s *Server) tvRevoke(w http.ResponseWriter, r *http.Request) {
 		tvError(w, err)
 		return
 	}
-	s.TV.Remote.Revoke(r.PathValue("id"))
+	s.Remote.Revoke(r.PathValue("id"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -271,10 +274,6 @@ func (s *Server) tvLyrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tvCover(w http.ResponseWriter, r *http.Request) {
-	if s.Feiniu == nil {
-		writeError(w, http.StatusNotFound, "no_cover", "没有这张封面")
-		return
-	}
 	s.cover(w, r)
 }
 

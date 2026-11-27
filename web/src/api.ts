@@ -9,7 +9,10 @@ export interface TVDevice { id: string; name: string; paired_at: string }
 export interface TVRef { id?: number; online?: string; title?: string; artist?: string }
 export interface TVTrack extends HereListed { online?: string }
 export interface TVPlayback { revision: string; entry: string; current: TVRef; index: number; count: number; position_ms: number; duration_ms: number; phase: 'idle' | 'paused' | 'buffering' | 'playing' | 'ended' | 'error'; seekable: boolean; volume?: number; mode: PlayMode; at_ms: number }
-export interface TVOutput extends TVDevice { online: boolean; playback: TVPlayback }
+export interface TVOutput extends TVDevice { online: boolean; playback: TVPlayback; /** A DLNA or Chromecast device driven as a TV; absent for a TrackFerry TV. */ kind?: CastKind }
+export type CastKind = 'dlna' | 'chromecast';
+export interface CastDevice { id: string; name: string; kind: CastKind; model?: string; on: boolean; present: boolean; online: boolean }
+export interface CastListing { devices: CastDevice[]; scanning: boolean; last_ms?: number; error?: string }
 export interface TVSnapshot { playback: TVPlayback; items: TVTrack[] }
 export interface TVCommand { action: 'load' | 'insert' | 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'seek' | 'jump' | 'mode' | 'remove' | 'volume'; items?: TVRef[]; index?: number; position_ms?: number; mode?: PlayMode; volume?: number; revision?: string; entry?: string; queue_mode?: 'next' | 'last'; source?: string; source_id?: string; name?: string; track_id?: number; track_ids?: number[] }
 export interface TVResult { id: string; state: 'pending' | 'done' | 'failed' | 'superseded'; message?: string }
@@ -17,7 +20,9 @@ export interface TVResult { id: string; state: 'pending' | 'done' | 'failed' | '
 export interface HomeStatus { enabled: boolean; has_token: boolean; connected: number }
 export interface Playing { artist: boolean; after: boolean; hours: number }
 export type Hush = 'normal' | 'strong' | 'wait';
-export interface OnlineSong { key: string; source: 'kuwo' | 'kugou' | 'migu' | 'netease'; title: string; artist: string; duration_ms: number; restricted: boolean; note?: string }
+export interface OnlineSong { key: string; source: 'kuwo' | 'kugou' | 'migu' | 'netease'; title: string; artist: string; album?: string; cover?: string; duration_ms: number; restricted: boolean; note?: string }
+/** Covers found online for the library: how far it is. */
+export interface FillStatus { on: boolean; running: boolean; left: number; asked: number; found: number; last_ms?: number; missing: number }
 export interface OnlineOutcome { source: string; state: string; detail?: string }
 export interface Playlist { guid: string; name: string }
 /** What can be sent to a speaker to play. */
@@ -129,6 +134,9 @@ export interface Command {
   route: Route | null;
 }
 
+/** Online audio: about 128 kbps, or 320 kbps where the platform has it. */
+export type Quality = 'standard' | 'high';
+
 export type LayerName = 'library' | 'kuwo' | 'kugou' | 'migu' | 'netease' | 'xiaomi';
 export type LayerState = 'hit' | 'miss' | 'ambiguous' | 'restricted' | 'error' | 'timeout' | 'disabled' | 'open' | 'skipped' | 'asking';
 
@@ -148,6 +156,11 @@ export interface Layer {
   detail?: string;
   candidates: Candidate[];
 }
+
+/** What a song really plays as, read from the file or the stream. */
+export interface SongTech { format: string; kbps?: number; sample_rate?: number; bits?: number; tier: 'hires' | 'lossless' | 'high' | 'standard' | ''; label: string; known: boolean }
+/** One copy of the song: a file of the library or one platform's. */
+export interface SongVersion { track_id?: number; online?: string; source: NonNullable<Route['source']>; title: string; artist: string; album?: string; cover?: string; duration_ms: number; tech: SongTech; error?: string }
 
 export interface Route {
   /** Watch-only: nothing was played. */
@@ -231,6 +244,17 @@ export interface ScanReport {
   roots: RootReport[];
 }
 
+/** The mounted music folder, checked at most once a minute. */
+export interface MusicFolder {
+  path: string;
+  readable: boolean;
+  read_only: boolean;
+  top_level_entries: number;
+  note?: string;
+  /** "missing": nothing is mounted there. */
+  error?: string;
+}
+
 export interface LibraryStatus {
   running: boolean;
   seen: number;
@@ -306,7 +330,7 @@ export interface TakeoverRun {
   device_name: string;
   command_id?: number;
   kind: 'test' | 'command' | 'push';
-  song?: { track_id: number; title: string; artist: string; album?: string; cover?: string; duration_ms?: number; list?: string };
+  song?: { track_id: number; title: string; artist: string; album?: string; cover?: string; duration_ms?: number; list?: string; online?: string };
   source: string;
   started_ms: number;
   upstream_ms?: number;
@@ -371,14 +395,19 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 }
 
 export const api = {
+  tech: (ref: { track?: number; online?: string }, signal?: AbortSignal) => request<SongTech>('GET', `/api/tech?${ref.track ? `track=${ref.track}` : `online=${encodeURIComponent(ref.online ?? '')}`}`, undefined, signal),
+  versions: (title: string, artist: string, fresh = false, signal?: AbortSignal) => request<{ versions: SongVersion[] }>('GET', `/api/versions?${new URLSearchParams({ title, artist, ...(fresh ? { fresh: '1' } : {}) })}`, undefined, signal),
   speakerHandoff: (id: string, signal?: AbortSignal) => request<{ run_id: number; items: TVRef[]; tracks: TVTrack[]; index: number; position_ms: number; mode: PlayMode }>('GET', `/api/devices/${encodeURIComponent(id)}/handoff`, undefined, signal),
-  speakerReceive: (id: string, track_ids: number[], index: number, position_ms: number, signal?: AbortSignal) => request<{ run_id: number }>('POST', `/api/devices/${encodeURIComponent(id)}/handoff`, { track_ids, index, position_ms }, signal),
+  speakerReceive: (id: string, items: TVRef[], index: number, position_ms: number, signal?: AbortSignal) => request<{ run_id: number }>('POST', `/api/devices/${encodeURIComponent(id)}/handoff`, { items, index, position_ms }, signal),
   speakerHandoffPause: (id: string, run_id: number, signal?: AbortSignal) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/handoff/pause`, { run_id }, signal),
   tvOutputs: (signal?: AbortSignal) => request<{ devices: TVOutput[]; now_ms?: number; pairing?: { id: string; name: string } | null }>('GET', '/api/tv/outputs', undefined, signal),
   tvSnapshot: (id: string, signal?: AbortSignal) => request<TVSnapshot>('GET', `/api/tv/outputs/${encodeURIComponent(id)}/snapshot`, undefined, signal),
   tvCommand: (id: string, command: TVCommand, signal?: AbortSignal) => request<TVResult>('POST', `/api/tv/outputs/${encodeURIComponent(id)}/commands`, command, signal),
   tvCommandStatus: (id: string, command: string, signal?: AbortSignal) => request<TVResult>('GET', `/api/tv/outputs/${encodeURIComponent(id)}/commands/${encodeURIComponent(command)}`, undefined, signal),
   tvCancel: (id: string, command: string) => request<void>('DELETE', `/api/tv/outputs/${encodeURIComponent(id)}/commands/${encodeURIComponent(command)}`),
+  castList: (signal?: AbortSignal) => request<CastListing>('GET', '/api/cast', undefined, signal),
+  castScan: () => request<CastListing>('POST', '/api/cast/scan'),
+  castSet: (id: string, on: boolean) => request<CastListing>('PUT', `/api/cast/${encodeURIComponent(id)}`, { on }),
   tvDevices: (signal?: AbortSignal) => request<{ devices: TVDevice[] }>('GET', '/api/tv/devices', undefined, signal),
   pairTV: (code: string) => request<TVDevice>('POST', '/api/tv/devices', { code }),
   renameTV: (id: string, name: string) => request<TVDevice>('PUT', `/api/tv/devices/${encodeURIComponent(id)}`, { name }),
@@ -412,11 +441,13 @@ export const api = {
   setNativeNote: (id: number, native_note: NativeNote) => request<Command>('PATCH', `/api/commands/${id}`, { native_note }),
   takeoverRuns: (limit = 10) => request<{ runs: TakeoverRun[]; stream_ready: boolean }>('GET', `/api/takeover/runs?limit=${limit}`),
   takeoverTest: (id: string, source: 'tone' | 'library') => request<TakeoverRun>('POST', `/api/devices/${encodeURIComponent(id)}/takeover-test`, { source }),
-  library: () => request<{ library: LibraryStatus; every_minutes: number; sources: SourceHealth[] }>('GET', '/api/library'),
+  library: () => request<{ library: LibraryStatus; every_minutes: number; sources: SourceHealth[]; quality?: Quality; folder?: MusicFolder; fill?: FillStatus }>('GET', '/api/library'),
   shelf: () => request<Shelf>('GET', '/api/library/shelf'),
   album: (id: string) => request<{ album: Album; tracks: Track[] }>('GET', `/api/library/albums/${encodeURIComponent(id)}`),
   artist: (name: string) => request<{ artist?: Artist; tracks: Track[] | null }>('GET', `/api/library/artist?name=${encodeURIComponent(name)}`),
-  lyrics: (id: number) => request<{ track: Track; lyrics: string; offset_ms?: number }>('GET', `/api/library/tracks/${id}/lyrics`),
+  lyrics: (id: number) => request<{ track: Track; lyrics: string; offset_ms?: number; from?: string }>('GET', `/api/library/tracks/${id}/lyrics`),
+  onlineLyrics: (key: string) => request<{ lyrics: string; offset_ms?: number; from?: string }>('GET', `/api/online/lyrics?key=${encodeURIComponent(key)}`),
+  setFill: (on: boolean) => request<{ fill: FillStatus }>('PUT', '/api/library/fill', { on }),
   setLyricsOffset: (id: number, offset_ms: number) => request<unknown>('PUT', `/api/library/tracks/${id}/lyrics`, { offset_ms }),
   isFavorite: (id: number) => request<{ favorite: boolean }>('GET', `/api/library/tracks/${id}/favorite`),
   favorite: (id: number, on: boolean) => request<{ favorite: boolean }>('PUT', `/api/library/tracks/${id}/favorite`, { on }),
@@ -442,6 +473,7 @@ export const api = {
   neteaseStart: () => request<{ url: string }>('POST', '/api/sources/netease/qr'),
   neteaseQR: () => request<NeteaseQR>('GET', '/api/sources/netease/qr'),
   neteaseCancel: () => request<void>('DELETE', '/api/sources/netease/qr'),
+  setQuality: (quality: Quality) => request<{ quality: Quality }>('PUT', '/api/sources/quality', { quality }),
   setSource: (name: string, enabled: boolean) => request<{ sources: SourceHealth[] }>('PATCH', `/api/sources/${name}`, { enabled }),
   press: (id: string, action: Press, with_: { volume?: number; mode?: PlayMode; position?: number; run_id?: number } = {}, signal?: AbortSignal) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/control`, { action, ...with_ }, signal),
   controls: (id: string) => request<Controls>('GET', `/api/devices/${encodeURIComponent(id)}/control`),
@@ -461,7 +493,7 @@ export const api = {
   playing: () => request<Playing>('GET', '/api/playing'),
   setPlaying: (p: Partial<Playing>) => request<Playing>('PUT', '/api/playing', p),
   favorites: (from = 0) => request<{ tracks: Track[] | null; total: number }>('GET', `/api/library/favorites?from=${from}`),
-  playlists: () => request<{ playlists: Playlist[] }>('GET', '/api/library/playlists'),
+  playlists: () => request<{ playlists: Playlist[]; linked?: boolean }>('GET', '/api/library/playlists'),
   playlist: (guid: string) => request<{ name: string; tracks: Track[]; total: number }>('GET', `/api/library/playlists/${encodeURIComponent(guid)}`),
   searchOnline: (q: string) => request<{ songs: OnlineSong[]; sources: OnlineOutcome[] }>('GET', `/api/library/online?q=${encodeURIComponent(q)}`),
   setMode: (id: string, mode: Mode) => request<Device>('PATCH', `/api/devices/${encodeURIComponent(id)}`, { mode }),

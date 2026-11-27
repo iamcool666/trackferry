@@ -3,6 +3,7 @@ import { api, type TVDevice } from '../api';
 import { refreshTVOutputs, useTVOutputs } from '../tv';
 import { tvIcon } from './SpeakerChip';
 import { Sheet } from './Sheet';
+import { CastDevices } from './CastDevices';
 
 export function TVDevices({ onPair }: { onPair: () => void }) {
   const states = useTVOutputs();
@@ -22,7 +23,7 @@ export function TVDevices({ onPair }: { onPair: () => void }) {
     return () => job.abort();
   }, []);
   const devices = new Map((saved ?? []).map((d) => [d.id, d]));
-  for (const item of states) devices.set(item.id, item);
+  for (const item of states) if (!item.kind) devices.set(item.id, item);
   for (const id of revoked) devices.delete(id);
 
   const revoke = async (device: TVDevice) => {
@@ -64,5 +65,6 @@ export function TVDevices({ onPair }: { onPair: () => void }) {
         {error && <p className="field-error" role="alert">{error}</p>}
       </form>
     </Sheet>}
+    <CastDevices />
   </section>;
 }

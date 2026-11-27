@@ -212,7 +212,7 @@ private fun PairCode(attempt: PairAttempt, trouble: String, focus: Modifier, can
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("在手机上输入配对码", color = Ink, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
+            Text("在手机上输入配对码", color = Ink, fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 attempt.code.forEachIndexed { i, digit ->
                     if (i == 3) Box(Modifier.width(14.dp))

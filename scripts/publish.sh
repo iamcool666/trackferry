@@ -29,13 +29,14 @@ step 构建
 commit="$(git rev-parse HEAD)"
 mkdir -p build/run dist
 for ca in /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem; do [ ! -f "$ca" ] || { cp "$ca" dist/ca-certificates.crt; break; }; done
-for arch in amd64 arm64; do
-  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+# arm is 32-bit ARMv7 (older NAS and boxes); the image's TARGETARCH for linux/arm/v7 is "arm".
+for arch in amd64 arm64 arm; do
+  CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=7 go build -trimpath \
     -ldflags "-s -w -X main.version=$v -X main.commit=${commit:0:7} -X main.repo=$repo" \
     -o dist/$arch/trackferry ./cmd/trackferry
 done
 bx() {
-  docker buildx build --platform linux/amd64,linux/arm64 -f build/Dockerfile.release --provenance=false \
+  docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -f build/Dockerfile.release --provenance=false \
     --label org.opencontainers.image.source="https://github.com/$repo" \
     --label org.opencontainers.image.version="$v" \
     --label org.opencontainers.image.revision="$commit" \
@@ -79,7 +80,7 @@ git push origin "$tag"
 assets=(compose.yaml dist/trackferry-homeassistant.zip)
 mkdir -p dist
 git archive --format=zip -o dist/trackferry-homeassistant.zip HEAD custom_components/trackferry # unpacks into the configuration folder
-for arch in amd64 arm64; do
+for arch in amd64 arm64 arm; do
   f="dist/trackferry-linux-$arch"
   cp "dist/$arch/trackferry" "$f"
   go run ./scripts/sign "$v" "$arch" "$f" > "$f.sig"

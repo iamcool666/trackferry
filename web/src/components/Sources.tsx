@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, type CacheStatus, type SourceHealth } from '../api';
+import { api, ApiError, type CacheStatus, type FillStatus, type Quality, type SourceHealth } from '../api';
 import { clock } from '../copy';
 import { Pick } from './Pick';
 import { Setting, WavesIcon, type Light } from './Setting';
@@ -18,7 +18,17 @@ const NO_LIMIT = -1;
 export function Sources({ onLight }: { onLight: (l: Light) => void }) {
   const [sources, setSources] = useState<SourceHealth[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => api.library().then((r) => setSources(r.sources ?? [])).catch((e) => setError((e as ApiError).message)), []);
+  const [quality, setQuality] = useState<Quality | null>(null);
+  const [fill, setFill] = useState<FillStatus | null>(null);
+  const load = useCallback(() => api.library().then((r) => { setSources(r.sources ?? []); setQuality(r.quality ?? null); setFill(r.fill ?? null); }).catch((e) => setError((e as ApiError).message)), []);
+  const pickQuality = async (q: Quality) => {
+    try {
+      setQuality((await api.setQuality(q)).quality);
+      setError(null);
+    } catch (e) {
+      setError((e as ApiError).message);
+    }
+  };
   useEffect(() => { load(); }, [load]);
   const set = async (s: SourceHealth, on: boolean) => {
     try {
@@ -62,6 +72,23 @@ export function Sources({ onLight }: { onLight: (l: Light) => void }) {
           );
         })}
       </ul>
+      {quality && (
+        <div className="kept">
+          <div><b>在线音质</b><small>{quality === 'high' ? '能要到多高就要多高：登录了会员的网易云可到 320k；酷我、酷狗、咪咕的免费接口目前只给 128k MP3，选这项也一样' : '一律要 128k，省流量、起播快'}。每首歌真实的格式和码率显示在“此刻”页，点一下能换别的版本。曲库里的歌始终是原文件</small></div>
+          <Pick label="在线音质" value={quality} onPick={pickQuality}
+            choices={[{ value: 'high', label: '要最高' }, { value: 'standard', label: '省流量' }]} />
+        </div>
+      )}
+      {fill && (
+        <div className="kept">
+          <div><b>补全封面和歌词</b><small>{fill.on
+            ? `曲库里没有封面的专辑、没有歌词的歌，到开着的平台上找同名同歌手、时长相近的那一首${fill.running ? `；正在找，还剩 ${fill.left.toLocaleString('zh-CN')} 张专辑，已补上 ${fill.found.toLocaleString('zh-CN')} 首的封面` : fill.missing ? `；还有 ${fill.missing.toLocaleString('zh-CN')} 首没有封面，每 6 小时再找一轮，找过没有的 30 天后再找` : '；曲库的歌都有封面了'}。歌词在播放时才找，找到就留着。平台一个一个问，每家每秒最多一两次，不会因此被封`
+            : '关着：没有封面的专辑显示占位图，没有歌词的歌不显示歌词'}</small></div>
+          <Pick label="补全封面和歌词" value={fill.on ? 'on' : 'off'} onPick={async (v) => {
+            try { setFill((await api.setFill(v === 'on')).fill); } catch (e) { setError((e as ApiError).message); }
+          }} choices={[{ value: 'on', label: '开' }, { value: 'off', label: '关' }]} />
+        </div>
+      )}
       {cache && (
         <div className="kept">
           <div><b>听过的歌留一份</b><small>{cache.limit_mb ? <>已存 <span className="num">{cache.songs}</span> 首，{size(cache.bytes)}。{cache.limit_mb === NO_LIMIT ? '不会删，磁盘只剩 1 GB 时不再存新的。' : '没存满不会删，满了先删最久没听的。'}{cache.mounted ? '放在挂载的缓存盘' : '放在 data/cache'}</> : '已关闭，每次都从线上取'}</small></div>

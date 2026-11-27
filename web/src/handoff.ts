@@ -6,12 +6,12 @@ import { commandTV, tvID, tvPosition } from './tv';
 
 export function checkedSpeaker(flows: Flow[], id: string) {
   const f = onSpeaker(flows, id);
-  return f?.run?.song?.track_id && (f.player?.phase === 'paused' || f.player?.phase === 'playing' && f.player.ours) ? f : null;
+  return (f?.run?.song?.track_id || f?.run?.song?.online) && (f.player?.phase === 'paused' || f.player?.phase === 'playing' && f.player.ours) ? f : null;
 }
 
 export async function sendToSpeaker(speaker: string, items: TVRef[], index: number, at: number, _mode: PlayMode, signal?: AbortSignal) {
-  if (!items[index]?.id || items.some((item) => !item.id)) throw new Error('小爱接力目前只支持曲库歌曲');
-  await api.speakerReceive(speaker, items.map((item) => item.id!), index, Math.round(at), signal);
+  if (items.some((item) => !item.id && !item.online)) throw new Error('队列里有一首歌说不清是哪首');
+  await api.speakerReceive(speaker, items, index, Math.round(at), signal);
 }
 
 /** What one output plays, ready to be moved; release pauses it once the target plays. */
@@ -39,9 +39,6 @@ export async function take(source: string, signal?: AbortSignal): Promise<Taken>
 
 const sameSong = (a?: TVRef, b?: TVRef) => !!a && !!b && (a.id ? a.id === b.id : !!a.online && a.online === b.online);
 
-/** Only songs of the library can go to a speaker. */
-export const speakerSafe = (t: Taken) => t.refs.every((r) => !!r.id);
-
 /**
  * Moves what was taken to target; the source pauses only once the target plays.
  * To HERE it must be called inside the tap that asked for it, so taken has to be read before.
@@ -64,4 +61,18 @@ export async function give(taken: Taken, target: string, signal: AbortSignal) {
   if (tv) await commandTV(tv, { action: 'load', items: refs, index, position_ms: Math.round(at), mode }, signal);
   else await sendToSpeaker(target, refs, index, at, mode, signal);
   if (!signal.aborted) await taken.release(signal);
+}
+
+/**
+ * Plays another copy of the song a speaker or television is on: the rest of its list stays,
+ * and it goes on from the moment it is at. The queue and position are read fresh, not kept.
+ */
+export async function swapOn(target: string, ref: TVRef, signal?: AbortSignal) {
+  const t = await take(target, signal);
+  if (!t.refs[t.index]) throw new Error('那边已经不在放这首了');
+  const at = Math.round(Math.max(0, t.at + (t.playing ? Date.now() - t.read : 0)));
+  const refs = t.refs.map((r, i) => (i === t.index ? ref : r));
+  const tv = tvID(target);
+  if (tv) await commandTV(tv, { action: 'load', items: refs, index: t.index, position_ms: at, mode: t.mode }, signal);
+  else await sendToSpeaker(target, refs, t.index, at, t.mode, signal);
 }

@@ -14,6 +14,9 @@ export const hereIcon = handheld
   ? <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.8" /><path d="M10.5 18.6h3" /></svg>
   : <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><rect x="4.5" y="5" width="15" height="10" rx="1.6" /><path d="M2.5 18.5h19" /></svg>;
 export const tvIcon = <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></svg>;
+export const castIcon = <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M3 9V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6" /><path d="M3 13a7 7 0 0 1 7 7M3 17a3 3 0 0 1 3 3" /><circle cx="3.6" cy="20" r=".6" fill="currentColor" /></svg>;
+/** A TrackFerry TV, or a DLNA / Chromecast device played on like one. */
+export const outputIcon = (kind?: string) => (kind ? castIcon : tvIcon);
 const allIcon = <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 15V9M10 19V5M15 16V8M20 13.5v-3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>;
 
 /** Which speaker it is about, in a word; a tap changes it. all: "" may be chosen too. */

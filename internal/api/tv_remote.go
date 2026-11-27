@@ -40,7 +40,7 @@ func (s *Server) tvSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "bad_report", "电视播放状态无效")
 		return
 	}
-	update := s.TV.Remote.Sync(id, h)
+	update := s.Remote.Sync(id, h)
 	if update.ResultNew {
 		s.Log.Info("电视　操作回报", "指令", h.Result.ID, "结果", h.Result.State, "播放", p.Phase, "队列长度", p.Count)
 	}
@@ -58,26 +58,38 @@ func validTVRefs(refs []tv.Ref) bool {
 
 type tvOutput struct {
 	store.TVDevice
+	Kind     string      `json:"kind,omitempty"` // dlna | chromecast; "" for a TrackFerry TV
 	Online   bool        `json:"online"`
 	Playback tv.Playback `json:"playback"`
 }
 
 func (s *Server) tvOutputs(w http.ResponseWriter, r *http.Request) {
-	devs, err := s.Store.TVs(r.Context())
-	if err != nil {
-		tvError(w, err)
-		return
+	var devs []store.TVDevice
+	var prompt *tv.PairPrompt
+	if s.TV != nil {
+		var err error
+		if devs, err = s.Store.TVs(r.Context()); err != nil {
+			tvError(w, err)
+			return
+		}
+		prompt = s.TV.Prompt()
 	}
 	out := make([]tvOutput, 0, len(devs))
 	for _, d := range devs {
-		p, online := s.TV.Remote.State(d.ID, false)
-		out = append(out, tvOutput{d, online, p})
+		p, online := s.Remote.State(d.ID, false)
+		out = append(out, tvOutput{TVDevice: d, Online: online, Playback: p})
 	}
-	writeJSON(w, 200, map[string]any{"devices": out, "now_ms": time.Now().UnixMilli(), "pairing": s.TV.Prompt()})
+	if s.Cast != nil {
+		for _, d := range s.Cast.On() {
+			p, online := s.Remote.State(d.ID, false)
+			out = append(out, tvOutput{TVDevice: store.TVDevice{ID: d.ID, Name: d.Name}, Kind: d.Kind, Online: online, Playback: p})
+		}
+	}
+	writeJSON(w, 200, map[string]any{"devices": out, "now_ms": time.Now().UnixMilli(), "pairing": prompt})
 }
 
 func (s *Server) tvSnapshot(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.TV.Remote.State(r.PathValue("id"), true)
+	p, ok := s.Remote.State(r.PathValue("id"), true)
 	if !ok {
 		writeError(w, 409, "offline", tv.ErrOffline.Error())
 		return
@@ -158,7 +170,7 @@ func (s *Server) tvCommand(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id := r.PathValue("id")
-	result, err := s.TV.Remote.Submit(id, c)
+	result, err := s.Remote.Submit(id, c)
 	if errors.Is(err, tv.ErrOffline) || errors.Is(err, tv.ErrMoved) {
 		writeError(w, 409, "tv_unavailable", err.Error())
 		return
@@ -168,11 +180,11 @@ func (s *Server) tvCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tvCommandStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, s.TV.Remote.Status(r.PathValue("id"), r.PathValue("command")))
+	writeJSON(w, 200, s.Remote.Status(r.PathValue("id"), r.PathValue("command")))
 }
 
 func (s *Server) tvCommandCancel(w http.ResponseWriter, r *http.Request) {
-	s.TV.Remote.Cancel(r.PathValue("id"), r.PathValue("command"))
+	s.Remote.Cancel(r.PathValue("id"), r.PathValue("command"))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -192,6 +204,6 @@ func (s *Server) tvResolve(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) tvPending(w http.ResponseWriter, r *http.Request) {
 	id, _ := r.Context().Value(tvDeviceKey{}).(string)
-	result := s.TV.Remote.Status(id, r.URL.Query().Get("command"))
+	result := s.Remote.Status(id, r.URL.Query().Get("command"))
 	writeJSON(w, 200, map[string]bool{"pending": result.State == "pending"})
 }

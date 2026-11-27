@@ -37,18 +37,22 @@ func (s *Server) speakerSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f, run, ok := s.speakerPlayback(d.DeviceID, 0)
-	if !ok || f.Player == nil || run.Song.TrackID == 0 || (f.Player.Phase != "paused" && (!f.Player.Ours || f.Player.Phase != "playing")) {
-		writeError(w, 409, "no_song", "小爱当前没有可接续的曲库歌曲")
+	if !ok || f.Player == nil || (run.Song.TrackID == 0 && run.Song.Online == "") || (f.Player.Phase != "paused" && (!f.Player.Ours || f.Player.Phase != "playing")) {
+		writeError(w, 409, "no_song", "小爱当前没有可接续的歌")
 		return
 	}
-	ids, index := s.Dispatcher.Snapshot(d.DeviceID, run.Song.TrackID)
-	if len(ids) > tv.MaxQueue {
+	current := takeover.Item{ID: run.Song.TrackID}
+	if current.ID == 0 {
+		current = takeover.Item{Online: run.Song.Online, Title: run.Song.Title, Artist: run.Song.Artist}
+	}
+	queued, index := s.Dispatcher.Snapshot(d.DeviceID, current)
+	if len(queued) > tv.MaxQueue {
 		writeError(w, 400, "large_queue", "队列超过电视支持的长度")
 		return
 	}
-	items := make([]tv.Ref, 0, len(ids))
-	for _, id := range ids {
-		items = append(items, tv.Ref{ID: id})
+	items := make([]tv.Ref, 0, len(queued))
+	for _, it := range queued {
+		items = append(items, tv.Ref{ID: it.ID, Online: it.Online, Title: it.Title, Artist: it.Artist})
 	}
 	// Elapsed is the runner's own clock at AtMS, not a guess: it runs on from there while the
 	// song plays. A clock that has not been read for long belongs to a runner that is stuck, and
@@ -98,24 +102,39 @@ func (s *Server) speakerReceive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		TrackIDs []int64 `json:"track_ids"`
-		Index    int     `json:"index"`
-		Position int64   `json:"position_ms"`
+		TrackIDs []int64  `json:"track_ids"` // library songs only, as before
+		Items    []tv.Ref `json:"items"`
+		Index    int      `json:"index"`
+		Position int64    `json:"position_ms"`
 	}
 	if !tvJSON(w, r, &req) {
 		return
 	}
-	if req.Index < 0 || req.Index >= len(req.TrackIDs) || len(req.TrackIDs) > tv.MaxQueue || req.Position < 0 || req.Position > 24*60*60*1000 {
+	items := make([]takeover.Item, 0, len(req.Items)+len(req.TrackIDs))
+	for _, ref := range req.Items {
+		items = append(items, takeover.Item{ID: ref.ID, Online: ref.Online, Title: ref.Title, Artist: ref.Artist})
+	}
+	if len(req.Items) == 0 {
+		for _, id := range req.TrackIDs {
+			items = append(items, takeover.Item{ID: id})
+		}
+	}
+	if req.Index < 0 || req.Index >= len(items) || len(items) > tv.MaxQueue || req.Position < 0 || req.Position > 24*60*60*1000 {
 		writeError(w, 400, "bad_queue", "队列或进度无效")
 		return
 	}
-	for _, id := range req.TrackIDs {
-		if _, ok := s.Library.Track(id); !ok {
-			writeError(w, 404, "no_track", "队列中有曲目已离开曲库")
+	for _, it := range items {
+		if it.ID > 0 {
+			if _, ok := s.Library.Track(it.ID); !ok {
+				writeError(w, 404, "no_track", "队列中有曲目已离开曲库")
+				return
+			}
+		} else if it.Online == "" || len(it.Online) > 512 || len(it.Title) > 300 || len(it.Artist) > 300 {
+			writeError(w, 400, "bad_queue", "队列里有一首歌说不清是哪首")
 			return
 		}
 	}
-	run, err := s.Dispatcher.Receive(r.Context(), d, req.TrackIDs, req.Index, time.Duration(req.Position)*time.Millisecond)
+	run, err := s.Dispatcher.Receive(r.Context(), d, items, req.Index, time.Duration(req.Position)*time.Millisecond)
 	if err != nil {
 		writeError(w, 409, "cannot_handoff", err.Error())
 		return

@@ -193,6 +193,7 @@ function element() {
   const a = audio = new Audio();
   a.preload = 'auto';
   a.setAttribute('playsinline', '');
+  a.setAttribute('x-webkit-airplay', 'allow');
   // iOS lets music go on in the pocket for the playback kind of sound (Safari 17); with the
   // default it may stop it when the app leaves the screen. An element in the page is kept too.
   try { const session = (navigator as { audioSession?: { type: string } }).audioSession; if (session) session.type = 'playback'; } catch { /* older browsers */ }
@@ -382,6 +383,20 @@ function go(dir: 1 | -1, by: boolean) {
   start(to);
 }
 
+type Picker = HTMLAudioElement & { webkitShowPlaybackTargetPicker?: () => void; remote?: { prompt(): Promise<void> } };
+/** Whether this browser can send this device's sound on (AirPlay in Safari, Cast in Chrome). */
+export const canSendOn = () => typeof window !== 'undefined' && ('WebKitPlaybackTargetAvailabilityEvent' in window || ('remote' in HTMLMediaElement.prototype));
+/** Opens the browser's own list of AirPlay or Cast devices. The equalizer sends sound through
+ * the page itself, which those devices do not get, so it is said rather than left to puzzle. */
+export async function sendOn(): Promise<string> {
+  const a = element() as Picker;
+  if (a.webkitShowPlaybackTargetPicker) { a.webkitShowPlaybackTargetPicker(); return graph ? '用过均衡器后投出去可能没声音，刷新页面再投即可' : ''; }
+  if (a.remote) {
+    try { await a.remote.prompt(); } catch (e) { const n = (e as DOMException).name; return n === 'NotFoundError' ? '附近没找到能投放的设备' : n === 'AbortError' ? '' : '这首还没开始放，先在本机放起来再投'; }
+    return graph ? '用过均衡器后投出去可能没声音，刷新页面再投即可' : '';
+  }
+  return '这个浏览器不支持从本机投放';
+}
 export const here = {
   toggle() {
     newIntent();
@@ -437,6 +452,17 @@ export const here = {
     try { localStorage.setItem(EQ_KEY, s.eq); } catch { /* for this visit only */ }
     return true;
   },
+  /** Plays another copy of the song on screen from where it is: same place in the list, same moment. */
+  swap(x: New) {
+    const cur = hereSong(s);
+    if (!cur) return;
+    newIntent();
+    const at = Math.round(where());
+    const songs = [...s.songs];
+    songs[s.i] = { ...x, key: `${x.key}@v${Date.now()}`, n: cur.n, automatic: cur.automatic };
+    set({ songs });
+    start(s.i, at, s.on);
+  },
   jump: (key: string) => { const i = s.songs.findIndex((x) => x.key === key); if (i >= 0) { newIntent(); start(i); } },
   remove(key: string) {
     const was = hereSong(s)?.key, next = takeOff(s, key);
@@ -483,7 +509,7 @@ export function playHere(x: New, how: 'now' | 'next' | 'last' = 'now') {
 
 const ofListed = (t: HereListed): New => ({ key: `t${t.id}`, title: t.title, artist: singer(t.artist), album: singer(t.album), cover: t.cover, duration_ms: t.duration_ms, track_id: t.id });
 export const trackHere = (t: Track): New => ofListed({ ...t, duration_ms: t.duration_ms ?? 0 });
-export const onlineHere = (o: OnlineSong): New => ({ key: o.key, title: o.title, artist: o.artist, duration_ms: o.duration_ms, online: o.key, source: o.source });
+export const onlineHere = (o: OnlineSong): New => ({ key: o.key, title: o.title, artist: o.artist, album: o.album, cover: o.cover, duration_ms: o.duration_ms, online: o.key, source: o.source });
 
 /** A song of a decision that was shown. */
 export const routeHere = (r: { track_id?: number; title?: string; artist?: string; album?: string; cover?: string; duration_ms?: number }): New => ofListed({ id: r.track_id!, title: r.title ?? '', artist: r.artist ?? '', album: r.album, cover: r.cover, duration_ms: r.duration_ms ?? 0 });

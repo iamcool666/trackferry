@@ -39,3 +39,9 @@
 .tv-name-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 14px 12px; }
 .tv-name-form input { flex: 1 1 130px; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--well); font-size: 16px; }
 .tv-settings li > .btn { flex: none; padding-inline: 6px; }
+.tv-settings .cast-head { margin-top: 18px; }
+.tv-settings h2 { font-size: 22px; }
+.tv-settings li > .switch { flex: none; }
+.tv-settings .cast-local { display: flex; align-items: center; gap: 12px; min-height: 66px; }
+.tv-settings .cast-local > span { display: grid; flex: 1; min-width: 0; }
+.tv-settings .cast-local small { color: var(--ink2); }

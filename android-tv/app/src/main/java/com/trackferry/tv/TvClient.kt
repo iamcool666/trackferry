@@ -36,6 +36,11 @@ internal data class NasTrack(val id: Long, val title: String, val artist: String
 internal data class SearchResults(val tracks: List<NasTrack>, val unavailable: List<String> = emptyList())
 internal data class Collection(val title: String, val source: String, val id: String = "", val name: String = "", val artist: String = "", val cover: String = "", val count: Int = 0)
 internal data class Shelf(val picks: List<NasTrack>, val collections: List<Collection>)
+/** What a song really plays as: "FLAC 16bit 44.1kHz", "MP3 128k". */
+internal data class TvTech(val label: String, val tier: String, val known: Boolean) {
+    val shown get() = when (tier) { "hires" -> "高解析 $label"; "lossless" -> "无损 $label"; else -> label }
+}
+internal data class TvVersion(val track: NasTrack, val tech: TvTech, val error: String)
 internal data class TrackLyrics(val lines: List<LyricLine>, val offset: Long)
 internal class TvHttpError(val status: Int, message: String) : IOException(message)
 private const val MAX_APP = 80L shl 20
@@ -179,8 +184,8 @@ internal class NasConnection(val link: TvLink) {
         if (!online) return SearchResults(get("search", "q" to q).optJSONArray("tracks").tracks())
         val result = get("online", "q" to q)
         val tracks = result.optJSONArray("songs").objects().map {
-            NasTrack(0, it.getString("title"), it.optString("artist"), "", "", it.optLong("duration_ms"),
-                online = it.getString("key"), source = it.optString("source"), restricted = it.optBoolean("restricted"), note = it.optString("note"))
+            NasTrack(0, it.getString("title"), it.optString("artist"), it.optString("album"), "", it.optLong("duration_ms"),
+                cover = it.optString("cover"), online = it.getString("key"), source = it.optString("source"), restricted = it.optBoolean("restricted"), note = it.optString("note"))
         }
         val unavailable = result.optJSONArray("sources").objects()
             .filter { it.optString("state") in setOf("error", "timeout", "open") }
@@ -247,12 +252,21 @@ internal class NasConnection(val link: TvLink) {
             if (digest.digest().hex() != expected) { into.delete(); throw IOException("新版应用下载不完整，请重试") }
         }
     }
+    fun tech(ref: String): TvTech = (if (ref.toLongOrNull() != null) get("tech", "track" to ref) else get("tech", "online" to ref)).tech()
+    fun versions(title: String, artist: String, fresh: Boolean = false) =
+        get("versions", *listOfNotNull("title" to title, "artist" to artist, if (fresh) "fresh" to "1" else null).toTypedArray()).optJSONArray("versions").objects().map {
+            TvVersion(NasTrack(it.optLong("track_id"), it.optString("title"), it.optString("artist"), it.optString("album"), "", it.optLong("duration_ms"),
+                it.optString("cover"), it.optString("online"), it.optString("source")), it.optJSONObject("tech")?.tech() ?: TvTech("", "", false), it.optString("error"))
+        }
     fun lyrics(id: Long): TrackLyrics {
         val response = get("lyrics/$id")
         return TrackLyrics(parseLyrics(response.optString("lyrics")), response.optLong("offset_ms"))
     }
+    /** Lyrics a platform has for an online song; its offset is kept on this screen only. */
+    fun onlineLyrics(key: String) = TrackLyrics(parseLyrics(get("online-lyrics", "key" to key).optString("lyrics")), 0)
     fun artwork(id: String, large: Boolean): Bitmap? {
-        if (!id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) return null
+        // A platform's cover is named by its address, so its id runs long.
+        if (!id.matches(Regex("[A-Za-z0-9_-]{1,700}"))) return null
         val size = if (large) 600 else 160
         val key = "$id/$size"
         art.get(key)?.let { return it }
@@ -281,6 +295,7 @@ internal class NasConnection(val link: TvLink) {
     }
 }
 
+private fun JSONObject.tech() = TvTech(optString("label"), optString("tier"), optBoolean("known"))
 private fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else List(length(), ::getJSONObject)
 private fun JSONArray?.tracks() = objects().map {
     NasTrack(it.getLong("id"), it.getString("title"), it.optString("artist"), it.optString("album"), it.optString("album_id"), it.optLong("duration_ms"), it.optString("cover"), it.optString("online"))

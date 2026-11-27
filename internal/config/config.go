@@ -27,6 +27,8 @@ type Config struct {
 	Legacy []any `yaml:"devices"`
 	// UpdateCheck asks GitHub for newer releases.
 	UpdateCheck bool `yaml:"update_check"`
+	// Cast looks for DLNA and Chromecast devices on the network to play on.
+	Cast bool `yaml:"cast"`
 }
 
 // fromEnv lets compose.yaml carry the whole configuration.
@@ -39,6 +41,7 @@ func (c *Config) fromEnv() {
 	set("TRACKFERRY_LISTEN", &c.Listen)
 	set("TRACKFERRY_TV_LISTEN", &c.TVListen)
 	set("TRACKFERRY_URL", &c.PublicBaseURL)
+	set("TRACKFERRY_MUSIC_DIR", &c.MusicDir)
 	c.PublicBaseURL = strings.TrimRight(c.PublicBaseURL, "/")
 	if v, ok := os.LookupEnv("TRACKFERRY_TAKEOVER"); ok {
 		c.TakeoverSpeakers = nil
@@ -53,6 +56,12 @@ func (c *Config) fromEnv() {
 		c.UpdateCheck = false
 	case "on", "true", "1":
 		c.UpdateCheck = true
+	}
+	switch strings.ToLower(os.Getenv("TRACKFERRY_CAST")) {
+	case "off", "false", "0":
+		c.Cast = false
+	case "on", "true", "1":
+		c.Cast = true
 	}
 }
 
@@ -69,7 +78,7 @@ func (c Config) TakeoverAllowed(name string) bool {
 
 // Default returns the configuration used when no file is present.
 func Default() Config {
-	return Config{Listen: ":18561", TVListen: ":18562", DataDir: "/data", MusicDir: "/music", UpdateCheck: true}
+	return Config{Listen: ":18561", TVListen: ":18562", DataDir: "/data", MusicDir: "/music", UpdateCheck: true, Cast: true}
 }
 
 // Load reads path and then the environment, which wins. A missing file yields Default(); any

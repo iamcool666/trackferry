@@ -8,6 +8,9 @@ import { deviceSubtitle, deviceTitle, explainSync, isOnline } from '../copy';
 const steps = ['关联小米账号', '选择音箱', '完成'];
 
 /** First-run flow: link the account, pick which speakers TrackFerry may observe, done. */
+/** Set when the Xiaomi step was skipped in this browser, so it is not shown again on every visit. */
+export const SKIP_KEY = 'trackferry.skip-xiaomi';
+
 export function Onboarding({ initialStep = 0, onFinish }: { initialStep?: number; onFinish: () => void }) {
   useBackdrop();
   const [step, setStep] = useState(initialStep);
@@ -106,6 +109,7 @@ export function Onboarding({ initialStep = 0, onFinish }: { initialStep?: number
           <h2>关联小米账号</h2>
           <p className="lead">用来读取音箱列表和接收点歌。</p>
           <LinkAccount key={qrKey} onLinked={onLinked} />
+          <p className="onboard-skip">只用音乐文件夹、电视或投放，可以<button type="button" className="btn btn-quiet" onClick={() => { try { localStorage.setItem(SKIP_KEY, '1'); } catch { /* 只这一次 */ } onFinish(); }}>先不关联小米</button>，以后在“账号”里随时关联。</p>
         </div>
       )}
 

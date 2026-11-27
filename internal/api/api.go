@@ -15,6 +15,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"trackferry/internal/cast"
+	"trackferry/internal/fill"
+	"trackferry/internal/netcover"
 
 	"trackferry/internal/auth"
 	"trackferry/internal/cache"
@@ -43,7 +46,9 @@ type Build struct {
 
 // Options holds everything the handlers need.
 type Options struct {
-	TV            *tv.Pairer // optional, enabled with the TV TLS listener
+	TV            *tv.Pairer    // optional, enabled with the TV TLS listener
+	Remote        *tv.Remote    // the outputs driven as TVs: paired TVs and cast devices; defaults to TV's
+	Cast          *cast.Manager // DLNA and Chromecast devices; nil: none
 	Config        config.Config
 	Store         *store.Store
 	Token         string // bearer token for scripts
@@ -57,7 +62,9 @@ type Options struct {
 	Engine        *takeover.Engine                                  // nil: no takeover in this server
 	Stream        *stream.Server                                    // serves /stream/ to speakers
 	Library       *library.Library
-	Cache         *cache.Cache // nil: online songs are not kept
+	NetCovers     *netcover.Cache // the platforms' cover pictures; nil: none
+	Fill          *fill.Filler    // covers and lyrics found online for the library; nil: off
+	Cache         *cache.Cache    // nil: online songs are not kept
 	Router        *routing.Router
 	Feiniu        *feiniu.Manager   // nil: no 飞牛音乐 in this server
 	Netease       *online.Netease   // nil: no 网易云 login
@@ -96,6 +103,9 @@ const (
 
 // New builds a Server. Call MarkReady once initialisation has finished.
 func New(o Options) *Server {
+	if o.Remote == nil && o.TV != nil {
+		o.Remote = o.TV.Remote
+	}
 	return &Server{Options: o, started: time.Now(), limiter: auth.NewLimiter(), xmLimiter: auth.NewLimiter(), fnLimiter: auth.NewLimiter()}
 }
 
@@ -116,16 +126,26 @@ func (s *Server) Handler() http.Handler {
 	authed := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, s.auth(h)) }
 	authed("POST /api/password", s.changePassword)
 	authed("GET /api/status", s.status)
+	if s.Remote == nil && s.TV != nil {
+		s.Remote = s.TV.Remote // a pairer given after New
+	}
 	if s.TV != nil {
 		authed("GET /api/tv/devices", s.tvDevices)
 		authed("POST /api/tv/devices", s.tvApprove)
 		authed("PUT /api/tv/devices/{id}", s.tvRename)
 		authed("DELETE /api/tv/devices/{id}", s.tvRevoke)
+	}
+	if s.Remote != nil {
 		authed("GET /api/tv/outputs", s.tvOutputs)
 		authed("GET /api/tv/outputs/{id}/snapshot", s.tvSnapshot)
 		authed("POST /api/tv/outputs/{id}/commands", s.tvCommand)
 		authed("GET /api/tv/outputs/{id}/commands/{command}", s.tvCommandStatus)
 		authed("DELETE /api/tv/outputs/{id}/commands/{command}", s.tvCommandCancel)
+	}
+	if s.Cast != nil {
+		authed("GET /api/cast", s.castList)
+		authed("POST /api/cast/scan", s.castScan)
+		authed("PUT /api/cast/{id}", s.castSet)
 	}
 	if s.Update != nil {
 		authed("GET /api/update", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.Update.Status()) })
@@ -237,6 +257,9 @@ func (s *Server) Handler() http.Handler {
 		authed("GET /api/library/tracks/{id}/favorite", s.isFavorite)
 		authed("PUT /api/library/tracks/{id}/favorite", s.favorite)
 		authed("PATCH /api/sources/{name}", s.sourceUpdate)
+		authed("PUT /api/sources/quality", s.qualityUpdate)
+		authed("PUT /api/library/fill", s.fillUpdate)
+		authed("GET /api/online/lyrics", s.onlineLyrics)
 		if s.Netease != nil {
 			authed("GET /api/sources/netease/account", s.neteaseAccount)
 			authed("DELETE /api/sources/netease/account", s.neteaseLogout)
@@ -257,6 +280,8 @@ func (s *Server) Handler() http.Handler {
 		authed("POST /api/feiniu", s.feiniuLogin)
 		authed("DELETE /api/feiniu", s.feiniuLogout)
 		authed("GET /api/cover/{id}", s.cover)
+		authed("GET /api/tech", s.tech)
+		authed("GET /api/versions", s.versions)
 	}
 	if s.Stream != nil {
 		// Speakers fetch audio without a login; the unguessable token is the access control.

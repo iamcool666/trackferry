@@ -130,7 +130,6 @@ internal fun TvLibraryScreen(
     player: Player,
     now: () -> Unit,
     reconnect: () -> Unit,
-    exit: () -> Unit,
     revoked: () -> Unit,
 ) {
     var refresh by remember { mutableIntStateOf(0) }
@@ -215,7 +214,7 @@ internal fun TvLibraryScreen(
         val playingArt = rememberArtwork(nas, heard.cover, large = true)
         val pickArt = rememberArtwork(nas, if (heard.mediaId == null) state.shelf?.picks?.firstOrNull { it.cover.isNotBlank() }?.cover.orEmpty() else "", large = true)
         val stage = art ?: playingArt ?: pickArt
-        val tone = remember(stage, selected, heard.album) { coverTone(stage, selected?.title ?: heard.album.ifBlank { "飞牛曲库" }) }
+        val tone = remember(stage, selected, heard.album) { coverTone(stage, selected?.title ?: heard.album.ifBlank { "曲库" }) }
         AmbientStage(stage, tone, heard.playing, focus = androidx.compose.ui.geometry.Offset(.24f, .42f))
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = if (short) 9.dp else 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -241,7 +240,7 @@ internal fun TvLibraryScreen(
                         shuffle = { if (!busy) state.batch = Random.nextLong(1, Long.MAX_VALUE) }, back = { state.discover = null })
                     section == TvSection.Search -> TvSearchScreen(nas, state.search, gutter, short, revoked, ::open,
                         playOne = { play(listOf(it), 0) })
-                    section == TvSection.Mine -> TvMineScreen(nas, state.shelf, busy, gutter, short, ::open, reconnect, exit)
+                    section == TvSection.Mine -> TvMineScreen(nas, state.shelf, busy, gutter, short, ::open, reconnect)
                     else -> Catalog(nas, state, gutter, short, maxHeight, busy, starting, player, now, navFocus,
                         playEntry = ::playEntry, more = { state.discoverFocus = 0; state.discover = it }, open = ::open,
                         startPicks = { playEntry(Discover.Picks) }, playPick = { i -> state.shelf?.picks?.let { play(it, i) } },
@@ -335,7 +334,7 @@ private fun Catalog(
         }
         item("discover") {
             Column(Modifier.padding(horizontal = gutter).rise(arrive, 3).onFocusChanged { if (it.hasFocus) rest(0) }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ShelfHeading("发现", "按 OK 就放，长按看更多", heading)
+                ShelfHeading("发现", "按 OK 就放，往右到“更多”看全部", heading)
                 Row(Modifier.fillMaxWidth().height(if (short) 88.dp else 112.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Discover.entries.forEach { kind ->
                         val next = state.nextOf(kind)
@@ -442,7 +441,7 @@ private fun HomeHero(player: Player, nas: NasConnection, picks: List<NasTrack>, 
                         (androidx.compose.animation.fadeIn(tween(520, 120)) + androidx.compose.animation.slideInVertically(tween(620, easing = Settle)) { it / 5 })
                             .togetherWith(androidx.compose.animation.fadeOut(tween(260)))
                     }) { title ->
-                    Text(title, Modifier.padding(top = if (short) 6.dp else 10.dp), color = Ink, fontFamily = FontFamily.Serif,
+                    Text(title, Modifier.padding(top = if (short) 6.dp else 10.dp), color = Ink, fontFamily = FontFamily.SansSerif,
                         fontSize = if (short) 30.sp else 42.sp, lineHeight = if (short) 35.sp else 48.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 2, overflow = TextOverflow.Ellipsis, letterSpacing = (-.5).sp)
                 }
@@ -528,8 +527,8 @@ private val entryTones = mapOf(Discover.Picks to Color(0xFF5FA8B4), Discover.Alb
 
 /**
  * One way in, as one card: the next cover fills its right side and fades into the colour of the
- * entry; OK plays at once, a long press opens 更多. While focused the cover drifts closer and the
- * card says how to reach 更多. No second button beside it.
+ * entry; OK plays at once. 更多 is its own narrow button right beside it, one press of → away:
+ * a long press on a remote repeats OK, so the page it opened took the release as a click.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -540,8 +539,9 @@ private fun EntryTile(nas: NasConnection, kind: Discover, line: String, covers: 
     val shape = RoundedCornerShape(16.dp)
     var focused by remember { mutableStateOf(false) }
     val near = animateFloatAsState(if (focused) 1.08f else 1f, tween(700), label = "entry cover")
-    Surface(onClick = play, onLongClick = more, enabled = enabled,
-        modifier = modifier.focusRequester(focus).onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() },
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(onClick = play, enabled = enabled,
+        modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(focus).onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(containerColor = base, focusedContainerColor = base, disabledContainerColor = base.copy(alpha = .6f)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.045f, pressedScale = .985f),
@@ -562,12 +562,27 @@ private fun EntryTile(nas: NasConnection, kind: Discover, line: String, covers: 
             Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = .30f))))
             Column(Modifier.align(Alignment.CenterStart).fillMaxHeight().padding(horizontal = if (short) 14.dp else 20.dp, vertical = if (short) 10.dp else 14.dp),
                 verticalArrangement = Arrangement.Center) {
-                Text(kind.title, color = Ink, fontFamily = FontFamily.Serif, fontSize = if (short) 20.sp else 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(if (focused && enabled) "OK 播放 · 长按看更多" else line, Modifier.padding(top = 4.dp).widthIn(max = wide * .55f),
+                Text(kind.title, color = Ink, fontFamily = FontFamily.SansSerif, fontSize = if (short) 20.sp else 26.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(if (focused && enabled) "按 OK 播放" else line, Modifier.padding(top = 4.dp).widthIn(max = wide * .55f),
                     color = if (focused && enabled) Accent else Ink.copy(alpha = .70f), fontSize = if (short) 11.sp else 13.sp,
                     fontWeight = if (focused) FontWeight.Medium else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+    }
+    var moreFocused by remember { mutableStateOf(false) }
+    Surface(onClick = more, enabled = enabled,
+        modifier = Modifier.width(if (short) 52.dp else 64.dp).fillMaxHeight().onFocusChanged { moreFocused = it.isFocused; if (it.isFocused) onFocus() },
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(containerColor = base.copy(alpha = .55f), focusedContainerColor = base, disabledContainerColor = base.copy(alpha = .3f)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f, pressedScale = .97f),
+        border = ClickableSurfaceDefaults.border(
+            border = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .10f)), shape = shape),
+            focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.dp, StageGlass), shape = shape))) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("›", color = if (moreFocused) Accent else Ink, fontSize = if (short) 22.sp else 28.sp, fontWeight = FontWeight.Light)
+            Text("更多", color = if (moreFocused) Accent else Ink.copy(alpha = .8f), fontSize = if (short) 11.sp else 13.sp, fontWeight = FontWeight.Medium)
+        }
+    }
     }
 }
 
@@ -599,7 +614,7 @@ private fun PlaylistShelf(nas: NasConnection, lists: List<Collection>, loading: 
                     }
                     if (lists.size == 1) Box(Modifier.weight(1.3f).fillMaxHeight().clip(RoundedCornerShape(13.dp)).border(1.dp, Color.White.copy(alpha = .10f), RoundedCornerShape(13.dp))
                         .padding(16.dp), contentAlignment = Alignment.CenterStart) {
-                        Text("在飞牛音乐里建的歌单会出现在这里。", color = Muted, fontSize = 14.sp)
+                        Text("在飞牛音乐里建的歌单会出现在这里；只用音乐文件夹时没有歌单。", color = Muted, fontSize = 14.sp)
                     }
                 }
             } else {
@@ -680,7 +695,7 @@ private fun DiscoverPage(
     Column(Modifier.fillMaxSize().padding(horizontal = gutter), verticalArrangement = Arrangement.spacedBy(if (short) 8.dp else 14.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(kind.title, color = Ink, fontFamily = FontFamily.Serif, fontSize = if (short) 26.sp else 34.sp, fontWeight = FontWeight.SemiBold)
+                Text(kind.title, color = Ink, fontFamily = FontFamily.SansSerif, fontSize = if (short) 26.sp else 34.sp, fontWeight = FontWeight.SemiBold)
                 Text(if (busy && shelf == null) "正在换…" else kind.note, color = Muted, fontSize = 14.sp)
             }
             TvButton(when (kind) { Discover.Picks -> "全部播放"; Discover.Albums -> if (starting == kind.name) "正在取歌…" else "随机放一张"; Discover.Artists -> if (starting == kind.name) "正在取歌…" else "随机放一位" },

@@ -107,7 +107,8 @@ small { font-size: 13px; }
 
 /* ---- play ---- */
 .play { position: relative; display: inline-flex; align-items: center; }
-.library-output { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.library-output { display: flex; justify-content: flex-end; margin-bottom: 12px; } .library-output > * { min-width: 0; max-width: 100%; }
+.shelf-head > .redraw { padding: 0; margin: 0 0 0 auto; }
 .flow-play { display: flex; align-items: center; gap: 10px; }
 .chip-purpose { flex: none; color: var(--ink2); white-space: nowrap; }
 .play-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--stone); color: #241503; display: grid; place-items: center; padding-left: 3px; transition: transform .3s var(--out); } .play-btn:hover { transform: scale(1.1); }
@@ -785,10 +786,33 @@ a.lib-search { display: flex; align-items: center; gap: 11px; min-height: 52px; 
 .ctl-vol-inline > span { display: grid; place-items: center; width: 30px; flex: none; }
 .ctl-vol-inline input:disabled { opacity: .5; cursor: default; }
 
-/* 另有几处在放：此刻和底栏说的是同一件事 */
-.also-playing { display: inline-flex; align-items: center; gap: 6px; height: 28px; margin-left: 8px; padding: 0 11px; border: 1px solid var(--line); border-radius: 14px; background: none; color: var(--ink2); font-size: 12px; white-space: nowrap; }
-.also-playing i { width: 6px; height: 6px; border-radius: 50%; background: var(--stone); box-shadow: 0 0 0 3px color-mix(in srgb, var(--stone) 22%, transparent); }
-.nowbar-more { margin-left: 6px; font-style: normal; color: var(--stone); }
 .foot-eq.on { color: var(--stone); }
 .eq-picks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .eq-note { margin: 10px 14px 4px; font-size: 12px; color: var(--ink3); line-height: 1.5; }
+
+/* What a song really plays as: its format and bit rate, and the other copies there are. */
+.tech-line { margin-top: 6px; } .player .tech-line { margin-top: 4px; }
+.quality { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; padding: 4px 10px 4px 9px; border: 0; border-radius: 999px; -webkit-appearance: none; appearance: none; font: 500 12px/1.35 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: .02em; color: var(--ink3); background: rgb(255 255 255 / .055); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); white-space: nowrap; transition: background .2s, color .2s; }
+button.quality { cursor: pointer; } button.quality:hover { color: var(--ink2); background: rgb(255 255 255 / .09); } button.quality:focus-visible { outline: 2px solid rgb(255 255 255 / .35); outline-offset: 2px; }
+.quality b { font: inherit; font-weight: 640; letter-spacing: .04em; color: var(--ink2); } .quality b::after { content: '·'; margin: 0 .42em; font-weight: 400; color: var(--ink3); opacity: .7; } .q-hires b, .q-lossless b { color: var(--stone); } .q-hires, .q-lossless { background: linear-gradient(100deg, rgb(244 201 93 / .13), rgb(255 255 255 / .045) 60%); } .q-high b { color: var(--ok); }
+.version-list { list-style: none; margin: 12px 0; padding: 0; } .version-list li + li { border-top: 1px solid var(--line); }
+.version-list button { display: grid; grid-template-columns: 22px 1fr auto auto; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 2px; background: none; border: 0; color: var(--ink); text-align: left; cursor: pointer; }
+.version-list button:disabled { cursor: default; } .version-list button:disabled:not([aria-current]) { opacity: .55; }
+.v-main { min-width: 0; } .v-main b, .v-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .v-main small { color: var(--ink3); font-size: 13px; }
+.v-now { font-style: normal; font-size: 12px; color: var(--ok); }
+.lyric-from { margin: 6px 0 0; font-size: 12px; color: var(--ink3); letter-spacing: .04em; pointer-events: none; }
+
+/* Lyrics that move like a sheet settling: the sung line sharp and lit, the rest softer the further
+   they are, an interlude shown as three dots that fill while it lasts. */
+.sheet-words.follow:not(.free) li { transition: opacity .5s var(--out), transform .6s var(--out), color .4s, filter .5s; }
+@media (prefers-reduced-motion: no-preference) { .sheet-words.follow:not(.free) li:not(.now):not(.next) { filter: blur(calc(var(--d) * .42px)); } }
+.sheet-words.follow li.now .w { background: linear-gradient(90deg, #fff calc(var(--p, 1) * 100% - .5em), rgb(255 255 255 / .52) calc(var(--p, 1) * 100% + .5em)); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.sheet-words li.next { opacity: .9; }
+.sheet-words .rest { display: block; height: 1em; line-height: 1em; margin: .1em 0 .25em; transform-origin: 0 50%; animation: rest-breathe 2.6s ease-in-out infinite; }
+.sheet-words .rest i { --n: 0; display: inline-block; vertical-align: middle; width: .42em; height: .42em; margin-right: .34em; border-radius: 50%; background: #fff; opacity: calc(.24 + .76 * clamp(0, var(--rest, 0) * 3 - var(--n), 1)); }
+.sheet-words .rest i:nth-child(2) { --n: 1; } .sheet-words .rest i:nth-child(3) { --n: 2; }
+@keyframes rest-breathe { 50% { transform: scale(1.14); } }
+@media (prefers-reduced-motion: reduce) { .sheet-words .rest { animation: none; } }
+.onboard-skip { color: var(--ink2); font-size: 14px; } .onboard-skip .btn { padding: 0 4px; min-height: 0; color: var(--stone); vertical-align: baseline; }
+.src-own { overflow: hidden; }
+@media (max-width: 760px) { .library-output { justify-content: flex-start; margin: 0 0 14px; padding-inline: var(--gut); } }

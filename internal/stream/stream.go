@@ -326,6 +326,14 @@ func (s *Server) file(rel, label string) (*item, string, error) {
 	return &item{h: &Handle{Label: label}, path: p, ctype: ctype, name: filepath.Base(p)}, ext, nil
 }
 
+// TypeOf is the media type of a stream address, by its extension.
+func TypeOf(url string) string {
+	if t := audioTypes[strings.ToLower(filepath.Ext(url))]; t != "" {
+		return t
+	}
+	return "audio/mpeg"
+}
+
 var audioTypes = map[string]string{".mp3": "audio/mpeg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".wav": "audio/wav"}
 
 // RandomFile picks an audio file from the music directory for a playback test, preferring

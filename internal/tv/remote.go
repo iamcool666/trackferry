@@ -216,6 +216,15 @@ func (r *Remote) Cancel(id, command string) {
 	}
 }
 
+// Gone marks a device offline at once; its next report brings it back.
+func (r *Remote) Gone(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if d := r.states[id]; d != nil {
+		d.seen = time.Time{}
+	}
+}
+
 func (r *Remote) Revoke(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

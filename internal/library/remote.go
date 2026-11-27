@@ -55,6 +55,9 @@ func (l *Library) sync(ctx context.Context, id int64, rep *Report, known map[str
 			rep.Roots[i].Tracks++
 			old := known[t.Path]
 			t.ID = old.ID
+			if t.Cover == "" && strings.HasPrefix(old.Cover, NetCover) {
+				t.Cover = old.Cover // found online; 飞牛 has none
+			}
 			seen[t.Path] = true
 			if old.ID == 0 || old != t {
 				changed = append(changed, t)

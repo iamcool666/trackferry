@@ -23,11 +23,10 @@ const tabOf = (p: Page): Page => (p === 'flow' || p === 'say' || p === 'speakers
 function NowBar({ devices, navigate }: { devices: Device[]; navigate: Nav }) {
   const h = useHere();
   // The same output as 此刻: the pick when it has a song, else one that plays (see output-rule.ts).
-  const { shown, bar: d, also, pick } = useStage(devices);
+  const { shown, bar: d, pick } = useStage(devices);
   const [busy, setBusy] = useState(false);
   const televisions = useTVOutputs();
   if (!d) return null;
-  const more = also.filter((o) => o.id !== d.id).length;
   const press = async (a: 'play' | 'pause' | 'next') => {
     if (d.id === HERE) { if (a === 'next') here.next(); else here.toggle(); return; }
     setBusy(true);
@@ -38,7 +37,7 @@ function NowBar({ devices, navigate }: { devices: Device[]; navigate: Nav }) {
   return (
     <div className="nowbar glass dock-glass">
       <button type="button" className="nowbar-song" onClick={() => { if (shown !== d.id) pick(d.id); navigate({ page: 'home' }); }} aria-label={`正在放${d.title}，打开播放器`}>
-        <Cover cover={d.cover} title={d.title ?? ''} artist={d.artist} /><span><b>{d.title}</b><small>{d.waiting && d.id !== HERE ? `正在送到${d.name}` : d.name}{more > 0 && <em className="nowbar-more">另有 {more} 处在放</em>}</small></span>
+        <Cover cover={d.cover} title={d.title ?? ''} artist={d.artist} /><span><b>{d.title}</b><small>{d.waiting && d.id !== HERE ? `正在送到${d.name}` : d.name}</small></span>
       </button>
       <SwitchOutput key={d.id} source={d.id} devices={devices} className="nowbar-btn nowbar-switch" />
       <button type="button" className="nowbar-btn" disabled={busy} onClick={() => press(d.playing ? 'pause' : 'play')} aria-label={d.playing ? '暂停' : '播放'}>{d.waiting ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d={d.playing ? 'M7 5h3.6v14H7zM13.4 5H17v14h-3.6z' : 'M8 5.2v13.6L19 12z'} /></svg>}</button>

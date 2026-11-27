@@ -39,9 +39,10 @@ type queue struct {
 	solo  bool           // a single song: nothing follows it on its own
 	move  sync.Mutex     // one move at a time
 
-	wishes    []Wish // asked for by hand, before the list goes on
-	aside     bool   // what plays is one of these; pos is where the list stands
-	keepOrder bool   // a removed first song wraps to the next one without a shuffle
+	wishes    []Wish         // asked for by hand, before the list goes on
+	aside     bool           // what plays is one of these; pos is where the list stands
+	keepOrder bool           // a removed first song wraps to the next one without a shuffle
+	outside   map[int64]Item // online songs handed over, under negative ids
 }
 
 // Wish is a song to play after the one that is on.
@@ -428,6 +429,9 @@ func (d *Dispatcher) RemoveCurrent(ctx context.Context, dev string) error {
 
 // song is the route of one of a queue's songs.
 func (d *Dispatcher) song(q *queue, id int64) (*routing.Route, bool) {
+	if id < 0 {
+		return d.outsider(q, id)
+	}
 	if id != 0 {
 		return d.Next(id, q.list)
 	}
@@ -659,7 +663,7 @@ func (d *Dispatcher) pushAt(ctx context.Context, dev store.Device, rt *routing.R
 	}
 	d.Halt(dev.DeviceID) // prepared successfully; it wins over the prior queue
 	d.Remember(dev.DeviceID, rt.Title, rt.Artist, rt.TrackID)
-	song := &store.Song{TrackID: rt.TrackID, Title: rt.Title, Artist: rt.Artist, Album: rt.Album, Cover: rt.Cover, DurationMS: rt.DurationMS, List: rt.List}
+	song := &store.Song{TrackID: rt.TrackID, Title: rt.Title, Artist: rt.Artist, Album: rt.Album, Cover: rt.Cover, DurationMS: rt.DurationMS, List: rt.List, Online: onlineKey(rt)}
 	run, err := d.Engine.Start(ctx, Request{DeviceID: dev.DeviceID, Hardware: dev.Hardware, Kind: "push", Track: t, StartAt: actual, Song: song, Trace: tr, Ended: ended(), Handoff: handoff})
 	if err != nil {
 		d.Drop(dev.DeviceID)
@@ -822,7 +826,7 @@ func (d *Dispatcher) play(ctx context.Context, q *queue, rt *routing.Route, over
 	}
 	d.mu.Unlock()
 	d.Remember(q.dev, rt.Title, rt.Artist, rt.TrackID)
-	song := &store.Song{TrackID: rt.TrackID, Title: rt.Title, Artist: rt.Artist, Album: rt.Album, Cover: rt.Cover, DurationMS: rt.DurationMS, List: list}
+	song := &store.Song{TrackID: rt.TrackID, Title: rt.Title, Artist: rt.Artist, Album: rt.Album, Cover: rt.Cover, DurationMS: rt.DurationMS, List: list, Online: onlineKey(rt)}
 	if _, err := d.Engine.Start(ctx, Request{DeviceID: q.dev, Hardware: q.hardware, Kind: "push", Track: t, Song: song, Trace: tr, Follows: over, Ended: ended}); err != nil {
 		d.mu.Lock()
 		if d.queues[q.dev] == q {
@@ -919,44 +923,107 @@ func skipped(q *queue) string {
 }
 
 // Snapshot captures the currently sounding local recording and the future queue.
-func (d *Dispatcher) Snapshot(dev string, current int64) ([]int64, int) {
+func (d *Dispatcher) Snapshot(dev string, current Item) ([]Item, int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	q := d.queues[dev]
 	if q == nil || q.pos >= len(q.ids) {
-		return []int64{current}, 0
+		return []Item{current}, 0
 	}
-	var ids []int64
-	for _, id := range q.ids[:q.pos] {
+	item := func(id int64) (Item, bool) {
 		if id > 0 {
-			ids = append(ids, id)
+			return Item{ID: id}, true
+		}
+		it, ok := q.outside[id]
+		return it, ok
+	}
+	var items []Item
+	for _, id := range q.ids[:q.pos] {
+		if it, ok := item(id); ok {
+			items = append(items, it)
 		}
 	}
-	at := len(ids)
-	ids = append(ids, current)
+	at := len(items)
+	items = append(items, current)
 	for _, w := range q.wishes {
 		if w.Track > 0 {
-			ids = append(ids, w.Track)
+			items = append(items, Item{ID: w.Track})
 		}
 	}
 	for _, id := range q.ids[q.pos+1:] {
-		if id > 0 {
-			ids = append(ids, id)
+		if it, ok := item(id); ok {
+			items = append(items, it)
 		}
 	}
-	return ids, at
+	return items, at
+}
+
+// Item is one song handed over: a song of the library (ID) or an online one (Online, its key).
+type Item struct {
+	ID     int64
+	Online string
+	Title  string
+	Artist string
+}
+
+// onlineKey is the key of an online song that is not in the library, or "".
+func onlineKey(rt *routing.Route) string {
+	if f := rt.Found(); f != nil && rt.TrackID == 0 {
+		return f.Candidate.Key
+	}
+	return ""
+}
+
+// outsider finds an online song of a queue anew: its audio does not last.
+func (d *Dispatcher) outsider(q *queue, id int64) (*routing.Route, bool) {
+	d.mu.Lock()
+	it, ok := q.outside[id]
+	d.mu.Unlock()
+	if !ok || d.Online == nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wishFor)
+	defer cancel()
+	rt, err := d.Online(ctx, it.Online)
+	if err != nil {
+		d.Log.Warn("接力　在线歌曲取不到", "歌名", it.Title, "原因", err)
+		return nil, false
+	}
+	return rt, true
 }
 
 // Receive keeps the incoming order and starts the selected occurrence at a measured offset.
-func (d *Dispatcher) Receive(ctx context.Context, dev store.Device, ids []int64, index int, at time.Duration) (store.TakeoverRun, error) {
+func (d *Dispatcher) Receive(ctx context.Context, dev store.Device, items []Item, index int, at time.Duration) (store.TakeoverRun, error) {
 	const list = "接力播放"
-	if index < 0 || index >= len(ids) {
+	if index < 0 || index >= len(items) {
 		return store.TakeoverRun{}, ErrMoved
 	}
-	rt, ok := d.Next(ids[index], list)
-	if !ok {
-		return store.TakeoverRun{}, ErrNoSong
+	q := &queue{dev: dev.DeviceID, hardware: dev.Hardware, list: list, ids: make([]int64, len(items)), pos: index, web: true, solo: len(items) == 1}
+	for i, it := range items {
+		if it.ID > 0 {
+			q.ids[i] = it.ID
+			continue
+		}
+		if q.outside == nil {
+			q.outside = map[int64]Item{}
+		}
+		q.ids[i] = -int64(i + 1)
+		q.outside[q.ids[i]] = it
 	}
-	q := &queue{dev: dev.DeviceID, hardware: dev.Hardware, list: list, ids: slices.Clone(ids), pos: index, web: true, solo: len(ids) == 1}
+	var rt *routing.Route
+	if id := q.ids[index]; id > 0 {
+		var ok bool
+		if rt, ok = d.Next(id, list); !ok {
+			return store.TakeoverRun{}, ErrNoSong
+		}
+	} else {
+		if d.Online == nil {
+			return store.TakeoverRun{}, ErrNoSong
+		}
+		var err error
+		if rt, err = d.Online(ctx, items[index].Online); err != nil {
+			return store.TakeoverRun{}, err
+		}
+	}
 	return d.pushAt(ctx, dev, rt, func() func(End) { return d.follow(q) }, at, true)
 }

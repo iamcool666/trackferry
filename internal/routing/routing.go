@@ -110,6 +110,29 @@ func (r *Router) LoadSettings(ctx context.Context, st *store.Store) {
 			r.Online.SetEnabled(h.Source, v == "on")
 		}
 	}
+	if r.Online != nil {
+		if v, err := st.Setting(ctx, qualitySetting); err == nil && v != "" {
+			r.Online.SetQuality(online.Quality(v))
+		}
+	}
+}
+
+const qualitySetting = "online.quality"
+
+// SetQuality changes the online audio quality and remembers it; false for a value that is not one.
+func (r *Router) SetQuality(ctx context.Context, st *store.Store, q online.Quality) (bool, error) {
+	if r.Online == nil || !r.Online.SetQuality(q) {
+		return false, nil
+	}
+	return true, st.SetSetting(ctx, qualitySetting, string(q))
+}
+
+// Quality is the online audio quality asked for first.
+func (r *Router) Quality() online.Quality {
+	if r.Online == nil {
+		return online.High
+	}
+	return r.Online.Quality()
 }
 
 // SetSource switches an online source and remembers it.

@@ -7,7 +7,7 @@
 .st-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; } .st-list > .notice { margin: 0; }
 .st { scroll-margin-top: 96px; border-radius: 6px; background: var(--panel); }
 .st-head { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 24px 28px; }
-.st-icon { width: 48px; height: 48px; border-radius: 6px; display: grid; place-items: center; overflow: hidden; background: rgb(246 243 236 / .08); color: var(--ink2); } .st-icon .src-icon { width: 100%; height: 100%; border-radius: 0; }
+.st-icon { width: 48px; height: 48px; border-radius: 6px; display: grid; place-items: center; overflow: hidden; background: rgb(246 243 236 / .08); color: var(--ink2); } .st-icon .src-icon { width: 100%; height: 100%; margin: 0; border-radius: 0; vertical-align: top; }
 .st-head h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; font-size: 19px; } .st-head p { color: var(--ink2); overflow-wrap: anywhere; }
 .st-state { display: inline-flex; align-items: center; gap: 7px; font: 400 13px/1 var(--sans); color: var(--ink2); white-space: nowrap; } .st-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--ink3); }
 .st-state.ok::before { background: var(--ok); } .st-state.warn::before { background: var(--stone); } .st-state.bad { color: var(--bad); } .st-state.bad::before { background: var(--bad); }
@@ -61,3 +61,11 @@
   .st-about { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 16px; padding: 20px 18px; } .st-about > img { width: 64px; height: 64px; } .st-about p { margin: 8px 0 2px; font-size: 14px; } .st-about > .btn, .st-about > .btn + .btn { grid-column: 1 / -1; width: 100%; margin: 0 !important; min-height: 46px; justify-content: center; } .st-sig { padding-inline: 18px; }
   .at-account.shell { padding-bottom: calc(var(--dock, 0px) + 70px); }
 }
+
+/* The music folder: one line per mounted folder, what was read and what was not. */
+.roots { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 2px; border-radius: 6px; overflow: hidden; }
+.roots > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 10px 14px; background: rgb(246 243 236 / .07); }
+.roots > li > b { font-weight: 420; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 140px; }
+.roots small { color: var(--ink3); } .roots small.warn { color: var(--warn, #e0b060); } .roots small.bad { color: var(--bad, #e07060); }
+.roots details { flex-basis: 100%; font-size: 14px; color: var(--ink3); } .roots details ul { margin: 6px 0 0; padding-left: 18px; } .roots details li { overflow-wrap: anywhere; }
+.howto pre { margin: 10px 0; padding: 10px 14px; border-radius: 6px; background: rgb(246 243 236 / .07); overflow-x: auto; }

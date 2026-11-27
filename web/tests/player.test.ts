@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { art } from '../src/stage/art.ts';
 import { singer } from '../src/copy.ts';
-import { lineAt, parseLRC, plainLyrics } from '../src/lyrics.ts';
+import { lineAt, parseLRC, plainLyrics, restAt, spanOf } from '../src/lyrics.ts';
 import { seekPoint } from '../src/media-clock.ts';
 
 test('没有封面的歌：同一首永远同一张，不同的歌不一样，歌名不会进到图里', () => {
@@ -33,4 +33,18 @@ test('定位只落在实际可定位范围内，包括中间断开的音频', ()
   assert.deepEqual([0, 2750, 6000, 8500, 18000].map((time) => seekPoint(ranges, time)), [2000, 2750, 5000, 9000, 12000]);
   assert.equal(seekPoint([], 5000), null);
   assert.equal(seekPoint(ranges, NaN), null);
+});
+
+test('an interlude is known from an empty timed line, never guessed', () => {
+  const lines = parseLRC('[00:06.00]第一句\n[00:09.00]\n[00:20.00]第二句\n[00:22.00]第三句');
+  assert.deepEqual(lines.map((l) => l.text), ['第一句', '第二句', '第三句']);
+  assert.equal(lines[0].end, 9000);
+  assert.equal(lines[1].end, undefined);
+  assert.equal(spanOf(lines, 0), 3000);
+  assert.deepEqual(restAt(lines, -1, 1000), { next: 0, from: 0, to: 6000 });
+  assert.equal(restAt(lines, 0, 8000), null);
+  assert.deepEqual(restAt(lines, 0, 12000), { next: 1, from: 9000, to: 20000 });
+  // No end marked: no dots, however long the pause.
+  assert.equal(restAt(lines, 1, 21000), null);
+  assert.equal(restAt(parseLRC('[00:01.00]开头就唱'), -1, 0), null);
 });

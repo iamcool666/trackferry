@@ -84,7 +84,7 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
   const light: Light | null = !info ? null : info.feiniu.expired ? 'bad' : info.feiniu.linked ? 'ok' : 'warn';
   useEffect(() => { if (light) onLight(light); }, [light, onLight]);
 
-  if (!info || !lib) return <Setting id="feiniu" icon={<SourceIcon name="library" />} title="飞牛音乐">{error ? <Notice tone="error" title={error} /> : <span className="spinner" />}</Setting>;
+  if (!info || !lib) return <Setting id="feiniu" icon={<SourceIcon name="feiniu" />} title="飞牛音乐">{error ? <Notice tone="error" title={error} /> : <span className="spinner" />}</Setting>;
   const f = info.feiniu;
   const form = editing || !f.linked || f.expired;
   const asksCode = gate || f.code || !!code || !!found?.servers.some((s) => s.gate && s.base === base);
@@ -92,7 +92,7 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
   const last = lib.last;
 
   return (
-    <Setting id="feiniu" icon={<SourceIcon name="library" />} title="飞牛音乐" light={light ?? 'off'} state={f.expired ? '登录已失效' : f.linked ? '已连接' : '未连接'}
+    <Setting id="feiniu" icon={<SourceIcon name="feiniu" />} title="飞牛音乐" light={light ?? 'off'} state={f.expired ? '登录已失效' : f.linked ? '已连接' : '未连接'}
       says={f.linked ? `${f.server || '飞牛'}，${f.user}` : '曲库、封面、歌词和收藏都来自这里'}
       actions={f.linked && !form ? <><button className="btn" disabled={running || busy} onClick={() => act(api.scanLibrary)}>{running ? <><span className="spinner spinner-tiny" />正在同步</> : '立即同步'}</button><button className="btn btn-quiet" onClick={() => setEditing(true)}>换个用户</button><button className="btn btn-quiet" onClick={() => setConfirm(true)}>断开</button></> : undefined}>
         {f.expired && <Notice tone="error" title="飞牛音乐的登录已失效"><p>重新登录后继续使用，曲库不用重建。</p></Notice>}

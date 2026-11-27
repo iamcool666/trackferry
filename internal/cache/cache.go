@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	mp3 "trackferry/internal/audio"
 	"trackferry/internal/online"
 )
 
@@ -541,4 +542,49 @@ func (c *Cache) Status() Status {
 		s.Bytes += e.Size
 	}
 	return s
+}
+
+// Tech is what a kept song really is, read from its file: an old entry does not record it.
+func (c *Cache) Tech(source, id string) (online.Tech, bool) {
+	c.mu.Lock()
+	var key string
+	var song online.Saved
+	for k, e := range c.songs {
+		if e.Song.Source == source && e.Song.ID == id {
+			key, song = k, e.Song
+			break
+		}
+	}
+	p := ""
+	if key != "" {
+		p = c.file(key)
+	}
+	c.mu.Unlock()
+	if key == "" {
+		return online.Tech{}, false
+	}
+	if song.Kbps > 0 {
+		return online.Tech{Format: "mp3", Kbps: song.Kbps, SampleRate: song.SampleRate, Bits: 16}, true
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return online.Tech{}, false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return online.Tech{}, false
+	}
+	head := make([]byte, 256<<10)
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	off := mp3.ID3Size(head)
+	if off >= int64(n) {
+		return online.Tech{}, false
+	}
+	m := mp3.MP3Info(head[off:], fi.Size()-off)
+	if m.Kbps == 0 {
+		return online.Tech{}, false
+	}
+	return online.Tech{Format: "mp3", Kbps: m.Kbps, SampleRate: m.SampleRate, Bits: 16}, true
 }

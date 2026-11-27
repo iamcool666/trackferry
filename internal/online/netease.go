@@ -178,7 +178,11 @@ func (n *Netease) Search(ctx context.Context, q string) ([]Candidate, error) {
 					Name string `json:"name"`
 				} `json:"ar"`
 				Fee int `json:"fee"`
-				P   struct {
+				Al  struct {
+					Name text   `json:"name"`
+					Pic  string `json:"picUrl"`
+				} `json:"al"`
+				P struct {
 					Pl int64 `json:"pl"`
 					St int   `json:"st"`
 				} `json:"privilege"`
@@ -198,6 +202,10 @@ func (n *Netease) Search(ctx context.Context, q string) ([]Candidate, error) {
 		c := Candidate{Source: "netease", ID: strconv.FormatInt(s.ID, 10), Title: unesc(s.N), Artist: strings.Join(as, "/"),
 			Duration: time.Duration(s.Dt) * time.Millisecond, DurationMS: s.Dt, Restricted: s.P.Pl <= 0 || s.P.St < 0}
 		c.Member = s.Fee != 0 && s.Fee != 8
+		c.Album = unesc(s.Al.Name)
+		if s.Al.Pic != "" {
+			c.Cover = CoverID(s.Al.Pic + "?param=500y500")
+		}
 		out = append(out, c)
 	}
 	return out, nil
@@ -241,7 +249,11 @@ func (n *Netease) songURL(ctx context.Context, path, cookie string, c Candidate)
 			Trial json.RawMessage `json:"freeTrialInfo"`
 		} `json:"data"`
 	}
-	form := url.Values{"ids": {"[" + c.ID + "]"}, "level": {"exhigh"}, "encodeType": {"mp3"}, "br": {"320000"}}
+	level, br := "exhigh", "320000"
+	if QualityOf(ctx) == Standard {
+		level, br = "standard", "128000"
+	}
+	form := url.Values{"ids": {"[" + c.ID + "]"}, "level": {level}, "encodeType": {"mp3"}, "br": {br}}
 	if _, err := n.post(ctx, path, form, cookie, &r); err != nil {
 		return "", err
 	}

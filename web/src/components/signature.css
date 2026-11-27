@@ -9,6 +9,7 @@
 .colophon { position: relative; display: grid; justify-items: center; margin-top: -60px; padding: 0 var(--gut) 24px; }
 .at-home .colophon, .at-say .colophon { margin-top: 0; padding-top: 40px; background: rgb(9 13 15 / .9); }
 .at-flow .colophon { margin-top: 0; padding-top: 40px; }
+.at-tv .colophon { margin-top: 0; padding-top: 40px; } /* with .content at 100svh the page always scrolls, so iOS standalone re-measures the viewport */
 .st-sig { display: flex; justify-content: center; padding: 20px; }
 @media (max-width: 760px) { .colophon { padding-bottom: calc(env(safe-area-inset-bottom) + 92px); } .st-sig { padding-inline: 0; } }
 @media (prefers-reduced-motion: reduce) { .sig *, .sig-name::after { transition: none !important; } }

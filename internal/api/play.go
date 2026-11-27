@@ -274,7 +274,8 @@ func (s *Server) libraryFavorites(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) libraryPlaylists(w http.ResponseWriter, r *http.Request) {
 	out := []feiniu.Playlist{}
-	if s.Router.Lists != nil && s.Router.Lists.Linked() {
+	linked := s.Router.Lists != nil && s.Router.Lists.Linked()
+	if linked {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		all, err := s.Router.Lists.Playlists(ctx)
@@ -284,7 +285,8 @@ func (s *Server) libraryPlaylists(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, all...)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"playlists": out})
+	// Playlists are 飞牛音乐's; a music folder has none, and the page says so rather than "make one".
+	writeJSON(w, http.StatusOK, map[string]any{"playlists": out, "linked": linked})
 }
 
 // libraryPlaylistAdd puts a song into a playlist of 飞牛音乐.

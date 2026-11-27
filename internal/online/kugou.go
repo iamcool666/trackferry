@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"trackferry/internal/names"
 )
@@ -32,6 +33,10 @@ func (k *Kugou) Search(ctx context.Context, q string) ([]Candidate, error) {
 				Artist    text   `json:"singername"`
 				Duration  text   `json:"duration"`
 				Privilege text   `json:"privilege"` // 0 = uploaded, 8 = licensed, 10 = to be paid for
+				AlbumN    text   `json:"album_name"`
+				Trans     struct {
+					Cover string `json:"union_cover"` // with {size}
+				} `json:"trans_param"`
 			} `json:"info"`
 		} `json:"data"`
 	}
@@ -49,7 +54,7 @@ func (k *Kugou) Search(ctx context.Context, q string) ([]Candidate, error) {
 		}
 		d := seconds(s.Duration)
 		out = append(out, Candidate{Source: "kugou", ID: s.Hash, Title: unesc(s.Name), Artist: unesc(s.Artist), Duration: d, DurationMS: d.Milliseconds(),
-			Restricted: s.Privilege.int() >= 10})
+			Restricted: s.Privilege.int() >= 10, Cover: CoverID(strings.ReplaceAll(s.Trans.Cover, "{size}", "480")), Album: unesc(s.AlbumN)})
 	}
 	// Anyone may upload under a famous name. Where the real recording is for members, such an
 	// upload is something else: a clip, another speed, another singer.

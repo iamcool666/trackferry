@@ -56,7 +56,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal enum class TvSearchSource(val label: String) { Library("飞牛曲库"), Online("在线音源") }
+internal enum class TvSearchSource(val label: String) { Library("曲库"), Online("在线音源") }
 internal data class TvSearchRequest(val text: String, val source: TvSearchSource)
 
 internal class TvSearchState {
@@ -118,7 +118,7 @@ internal fun TvSearchScreen(nas: NasConnection, state: TvSearchState, gutter: Dp
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             if (e is TvHttpError && e.status == 401) revoked()
-            else error = e.tvMessage(if (request.source == TvSearchSource.Online) "暂时无法搜索在线音源" else "暂时无法搜索飞牛曲库")
+            else error = e.tvMessage(if (request.source == TvSearchSource.Online) "暂时无法搜索在线音源" else "暂时无法搜索曲库")
         } finally { busy = false }
     }
     val collections = remember(request, results) {
@@ -264,7 +264,7 @@ internal fun tvSourceName(source: String) = when (source) {
     "kugou" -> "酷狗"
     "migu" -> "咪咕"
     "netease" -> "网易云"
-    "" -> "飞牛曲库"
+    "" -> "曲库"
     else -> source
 }
 
