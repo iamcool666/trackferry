@@ -441,8 +441,8 @@ private fun VersionsPanel(nas: NasConnection, title: String, artist: String, cur
                 FerryTile(Modifier.fillMaxWidth(), { if (!on && v.error.isBlank()) choose(v) }) {
                     Row(Modifier.padding(horizontal = 13.dp, vertical = 11.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(listOf(sourceName(v.track.source), v.track.album).filter { it.isNotBlank() }.joinToString("  ·  "), color = if (on) CurrentTrackInk else Ink, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(listOf(v.track.artist, if (v.track.duration > 0) clock(v.track.duration) else "", v.error).filter { it.isNotBlank() }.joinToString("  ·  "), color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOf(v.track.title, v.track.artist).filter { it.isNotBlank() }.joinToString("  ·  "), color = if (on) CurrentTrackInk else Ink, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOf(sourceName(v.track.source), v.track.album, if (v.track.duration > 0) clock(v.track.duration) else "", v.error).filter { it.isNotBlank() }.joinToString("  ·  "), color = Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Text(if (v.error.isNotBlank()) "放不了" else v.tech.shown.ifBlank { "—" }, color = when (v.tech.tier) { "hires", "lossless" -> Accent; else -> Ink.copy(alpha = .8f) }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         if (on) Text("在放", color = CurrentTrackInk, fontSize = 13.sp)

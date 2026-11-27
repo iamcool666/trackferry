@@ -69,7 +69,7 @@ function Versions({ song, current, onPick, onClose }: { song: QualityRef; curren
               <li key={k || v.source}>
                 <button type="button" disabled={on || !!v.error || !onPick || busy !== null} aria-current={on || undefined} onClick={() => pick(v)}>
                   <SourceIcon name={v.source} />
-                  <span className="v-main"><b>{stopLabel[v.source]}{v.album ? `　${v.album}` : ''}</b><small>{[singer(v.artist), v.duration_ms ? length(v.duration_ms) : ''].filter(Boolean).join('　')}{v.error ? `　${v.error}` : ''}</small></span>
+                  <span className="v-main"><b>{[v.title, singer(v.artist)].filter(Boolean).join(' · ')}</b><small>{[stopLabel[v.source], v.album, v.duration_ms ? length(v.duration_ms) : '', v.error].filter(Boolean).join(' · ')}</small></span>
                   <span className={`quality q-${v.tech.tier || 'plain'}`}>{v.error ? '放不了' : v.tech.label || '—'}</span>
                   {on ? <i className="v-now">在放</i> : busy === k ? <span className="spinner spinner-tiny" /> : null}
                 </button>
