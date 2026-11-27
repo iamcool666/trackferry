@@ -3,6 +3,7 @@ import { HERE } from './ear';
 import { correctHere, hereSong, hereNow, hereTransfer, receiveHere } from './here';
 import { onSpeaker, type Flow } from './live';
 import { commandTV, tvID, tvPosition } from './tv';
+import { setTook } from './took';
 
 export function checkedSpeaker(flows: Flow[], id: string) {
   const f = onSpeaker(flows, id);
@@ -11,7 +12,7 @@ export function checkedSpeaker(flows: Flow[], id: string) {
 
 export async function sendToSpeaker(speaker: string, items: TVRef[], index: number, at: number, _mode: PlayMode, signal?: AbortSignal) {
   if (items.some((item) => !item.id && !item.online)) throw new Error('队列里有一首歌说不清是哪首');
-  await api.speakerReceive(speaker, items, index, Math.round(at), signal);
+  setTook((await api.speakerReceive(speaker, items, index, Math.round(at), signal)).took);
 }
 
 /** What one output plays, ready to be moved; release pauses it once the target plays. */

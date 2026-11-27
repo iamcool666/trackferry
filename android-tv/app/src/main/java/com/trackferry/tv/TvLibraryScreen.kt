@@ -126,7 +126,7 @@ internal data class CatalogFocus(val rail: String = "now", val index: Int = 0)
 internal fun TvLibraryScreen(
     nas: NasConnection,
     state: TvBrowseState,
-    start: (List<NasTrack>, Int, Boolean) -> Boolean,
+    start: (List<NasTrack>, Int, Boolean, Boolean) -> Boolean,
     player: Player,
     now: () -> Unit,
     reconnect: () -> Unit,
@@ -150,8 +150,10 @@ internal fun TvLibraryScreen(
         if (to == TvSection.Home) { state.focus = CatalogFocus(); state.homeIndex = 0; state.homeOffset = 0 }
         error = ""
     }
-    fun play(tracks: List<NasTrack>, index: Int, fullscreen: Boolean = true) {
-        if (!start(tracks, index, fullscreen)) error = if (tracks.size > MAX_QUEUE) "队列超过 ${MAX_QUEUE} 首，请选一个较短的列表" else "无法开始播放，请重试"
+    // Only an artist, an album, the favourites or a playlist is a list of its own; anything
+    // else (one song, today's picks) goes on with the library at random, on every output alike.
+    fun play(tracks: List<NasTrack>, index: Int, fullscreen: Boolean = true, drift: Boolean = false) {
+        if (!start(tracks, index, fullscreen, drift)) error = if (tracks.size > MAX_QUEUE) "队列超过 ${MAX_QUEUE} 首，请选一个较短的列表" else "无法开始播放，请重试"
     }
     fun open(item: Collection) {
         state.trackFocus = 0
@@ -173,7 +175,7 @@ internal fun TvLibraryScreen(
     }
     fun playEntry(kind: Discover) {
         val shelf = state.shelf ?: return
-        if (kind == Discover.Picks) { if (shelf.picks.isNotEmpty()) play(shelf.picks, 0); return }
+        if (kind == Discover.Picks) { if (shelf.picks.isNotEmpty()) play(shelf.picks, 0, drift = true); return }
         val next = state.nextOf(kind) ?: return
         if (kind == Discover.Albums) state.albumTurn++ else state.artistTurn++
         playList(next, kind.name)
@@ -236,14 +238,14 @@ internal fun TvLibraryScreen(
                 when {
                     selected != null -> TrackBrowser(nas, player, selected, state, busy, art, gutter) { tracks, index -> play(tracks, index) }
                     discover != null -> DiscoverPage(nas, state, discover, busy, starting, gutter, short, player,
-                        play = { tracks, index -> play(tracks, index) }, playEntry = { playEntry(discover) }, open = ::open,
+                        play = { tracks, index -> play(tracks, index, drift = discover == Discover.Picks) }, playEntry = { playEntry(discover) }, open = ::open,
                         shuffle = { if (!busy) state.batch = Random.nextLong(1, Long.MAX_VALUE) }, back = { state.discover = null })
                     section == TvSection.Search -> TvSearchScreen(nas, state.search, gutter, short, revoked, ::open,
-                        playOne = { play(listOf(it), 0) })
+                        playOne = { play(listOf(it), 0, drift = true) })
                     section == TvSection.Mine -> TvMineScreen(nas, state.shelf, busy, gutter, short, ::open, reconnect)
                     else -> Catalog(nas, state, gutter, short, maxHeight, busy, starting, player, now, navFocus,
                         playEntry = ::playEntry, more = { state.discoverFocus = 0; state.discover = it }, open = ::open,
-                        startPicks = { playEntry(Discover.Picks) }, playPick = { i -> state.shelf?.picks?.let { play(it, i) } },
+                        startPicks = { playEntry(Discover.Picks) }, playPick = { i -> state.shelf?.picks?.let { play(it, i, drift = true) } },
                         search = { land(TvSection.Search) })
                 }
             }

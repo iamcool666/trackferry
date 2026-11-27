@@ -31,11 +31,11 @@
 | `POST /api/devices/{id}/takeover-test` | 接管测试，会出声 |
 | `GET·POST /api/devices/{id}/control` | 播放状态与音量；控制：`{"action":"play\|pause\|stop\|next\|previous\|wake"}`、`{"action":"volume","volume":35}`、`{"action":"seek","position":毫秒,"run_id":播放记录ID}` 或 `{"action":"mode","mode":"loop\|shuffle\|one"}`。`run_id` 可选，控制端应传当前记录 ID；换歌后该定位返回 409。成功返回 204；播放中的定位要等音箱回读，暂停中的定位留到恢复播放时生效 |
 | `GET·POST /api/devices/{id}/queue` | 播放列表；点一首放、移出 |
-| `POST /api/devices/{id}/play` | `source` 支持 `favorites`、`playlist`、`artist`、`album`、`picks`、`track`、`online`。`id` 为歌单、专辑或线上歌曲，`name` 为歌手，`track_ids` 为本次“随手翻到的”列表（最多 12 首）。列表可用 `track_id` 指定从哪首开始，`track` 用 `track_id` 指定单曲。单曲可用 `next: true` 排到下一首，曲库歌曲也可用 `last: true` 放到队尾。 |
-| `GET·PUT /api/playing` `{"artist":true,"after":false,"hours":3}` | 连续播放的设置，`hours` 为 0 不限；没写的不变 |
+| `POST /api/devices/{id}/play` | `source` 支持 `favorites`、`playlist`、`artist`、`album`、`picks`、`track`、`online`。`id` 为歌单、专辑或线上歌曲，`name` 为歌手，`track_ids` 为本次“随手翻到的”列表（最多 12 首）。列表可用 `track_id` 指定从哪首开始，`track` 用 `track_id` 指定单曲。单曲可用 `next: true` 排到下一首，曲库歌曲也可用 `last: true` 放到队尾。成功时若接替了另一台设备点的歌，返回里带 `took`（那台设备的名字）；队列里的 `by` 是点这首的设备名。 |
+| `GET·PUT /api/playing` `{"single":true,"pool":"library","hours":3}` | 连续播放的设置：`single` 点的歌放完是否随机接上，`pool` 为 `library` 或 `favorites`，`hours` 为 0 不限；没写的不变 |
 | `GET /api/takeover/runs?limit=` | 接管经过 |
 | `GET /api/observer` | 监听状态 |
-| `GET /api/live` | 实时事件（SSE）：`hello` 全量，`flow` 一条点歌的变化，`pulse` 一次监听 |
+| `GET /api/live` | 实时事件（SSE）：`hello` 全量，`flow` 一条点歌的变化（从网页送来的带 `by`，点歌设备的名字），`pulse` 一次监听 |
 
 ## 曲库与音源
 
@@ -77,6 +77,7 @@ Android TV 使用独立的 HTTPS 端口（默认 `18562`）。`/api/tv/v1/info` 
 | `/api/xiaomi/qr`、`/qr.png` | 扫码登录 |
 | `/api/xiaomi/password`、`/captcha`、`/verify` | 密码登录 |
 | `POST /api/password` | 改管理密码 |
+| `GET·PUT /api/me` `{"name":"客厅 iPad"}` | 这台浏览器的名字（登录时按设备自动起，重名加 2、3）；改名 1 到 20 个字，只影响这一台。脚本令牌没有名字 |
 | `GET /api/status` | 运行状态 |
 | `GET·PUT /api/home` · `POST /api/home/token` | Home Assistant 接口的开关 `{"enabled": true}`；换新令牌，只返回这一次 |
 | `/api/ha/…` | 给 Home Assistant 用，另有令牌，见[接入 Home Assistant](homeassistant.md) |

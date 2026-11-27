@@ -78,7 +78,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]bool{"queued": true})
 			return
 		}
-		s.answerRun(w, d)(s.Dispatcher.Push(r.Context(), d, rt))
+		s.answerRun(w, r, d)(s.Dispatcher.Push(r.Context(), d, rt))
 		return
 	}
 	if req.Next {
@@ -116,7 +116,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "no_audio", "这首放不了："+err.Error())
 			return
 		}
-		s.answerRun(w, d)(s.Dispatcher.Push(r.Context(), d, rt))
+		s.answerRun(w, r, d)(s.Dispatcher.Push(r.Context(), d, rt))
 		return
 	}
 	if req.Source == "online" {
@@ -129,7 +129,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "no_audio", "这首放不了："+err.Error())
 			return
 		}
-		s.answerRun(w, d)(s.Dispatcher.Push(r.Context(), d, routing.FromOnline(found)))
+		s.answerRun(w, r, d)(s.Dispatcher.Push(r.Context(), d, routing.FromOnline(found)))
 		return
 	}
 	list, ids, ok := s.collect(w, r, req.Source, req.ID, req.Name, req.Tracks)
@@ -140,7 +140,27 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "track_moved", "这首已不在播放列表里，刷新后再试")
 		return
 	}
-	s.answerRun(w, d)(s.Dispatcher.PlayList(r.Context(), d, list, ids, req.Track))
+	s.answerRun(w, r, d)(s.Dispatcher.PlayList(r.Context(), d, list, ids, req.Track))
+}
+
+// afterRandom is how many songs of the library at random follow songs that were not picked as a
+// whole: a single one or the few that happened to be shown. The same on every output.
+const afterRandom = 500
+
+// following draws what follows songs that were not picked as a whole, as the settings say.
+func (s *Server) following(n int) []int64 {
+	return takeover.Following(context.Background(), s.Store, s.Library, n)
+}
+
+// withRandom has random songs follow one, as the settings say.
+func (s *Server) withRandom(first int64) []int64 {
+	ids := []int64{first}
+	for _, id := range s.following(afterRandom) {
+		if id != first {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // collect lists the songs of something that can be played through.
@@ -187,6 +207,13 @@ func (s *Server) collectTracks(w http.ResponseWriter, r *http.Request, source, i
 				ids = append(ids, id)
 			}
 		}
+		if len(ids) > 0 { // picks go on as anything else not picked as a whole
+			for _, id := range s.withRandom(ids[0])[1:] {
+				if !slices.Contains(ids, id) {
+					ids = append(ids, id)
+				}
+			}
+		}
 	default:
 		writeError(w, http.StatusBadRequest, "bad_source", "不支持这种播放来源")
 		return
@@ -209,15 +236,30 @@ func (s *Server) collectTracks(w http.ResponseWriter, r *http.Request, source, i
 	return list, ids, true
 }
 
-func (s *Server) answerRun(w http.ResponseWriter, d store.Device) func(store.TakeoverRun, error) {
+// answerRun tells how a push went. It is called before the push, so it sees who had the
+// speaker: one browser taking it from another is told so.
+func (s *Server) answerRun(w http.ResponseWriter, r *http.Request, d store.Device) func(store.TakeoverRun, error) {
+	me, had := s.who(r), s.Dispatcher.By(d.DeviceID)
 	return func(run store.TakeoverRun, err error) {
 		if err != nil {
 			writeError(w, http.StatusConflict, "no_audio", err.Error())
 			return
 		}
+		s.Dispatcher.Tag(d.DeviceID, me)
 		run.DeviceName = firstNonEmpty(d.Alias, d.Name)
-		writeJSON(w, http.StatusAccepted, run)
+		writeJSON(w, http.StatusAccepted, struct {
+			store.TakeoverRun
+			Took string `json:"took,omitempty"` // the browser whose song this one replaced
+		}{run, took(me, had)})
 	}
+}
+
+// took is the other browser a song was taken from; "" when it was this one or none.
+func took(me, had string) string {
+	if had == me {
+		return ""
+	}
+	return had
 }
 
 func (s *Server) playing(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +269,10 @@ func (s *Server) playing(w http.ResponseWriter, r *http.Request) {
 func (s *Server) playingUpdate(w http.ResponseWriter, r *http.Request) {
 	p := takeover.LoadPrefs(r.Context(), s.Store) // what is left out stays
 	if !readJSON(w, r, &p) {
+		return
+	}
+	if p.Pool != "library" && p.Pool != "favorites" {
+		writeError(w, http.StatusBadRequest, "bad_pool", "只能从整个曲库或我的收藏里挑")
 		return
 	}
 	if p.Hours < 0 || p.Hours > 24 {

@@ -1,6 +1,7 @@
 import { api, type Collection, type HereListed, type Single } from './api';
 import { HERE } from './ear';
 import { commandTV, tvID } from './tv';
+import { setTook } from './took';
 import { cancelPendingList, listHere, playHere, playListHere, type HereSong } from './here';
 
 type Snapshot = { list: string; tracks: HereListed[] };
@@ -14,13 +15,14 @@ let sending: AbortController | undefined;
 /** The same selection drives both outputs. A newer play supersedes an unresolved one. */
 export async function playOn(output: string, what: Playback, how: 'now' | 'next' | 'last' = 'now'): Promise<'started' | 'queued' | undefined> {
   sending?.abort();
+  setTook();
   sending = undefined;
   cancelPendingList();
   if (output === HERE) {
     if ('single' in what) return playHere(what.song, how) ? 'queued' : 'started';
-    const snapshot = 'picks' in what ? what.picks : what.snapshot;
-    if (snapshot) playListHere(snapshot.list, snapshot.tracks, what.start);
-    else if ('collection' in what && !await listHere(what.collection, what.start)) return;
+    if ('picks' in what) playListHere(what.picks.list, what.picks.tracks, what.start, true);
+    else if (what.snapshot) playListHere(what.snapshot.list, what.snapshot.tracks, what.start);
+    else if (!await listHere(what.collection, what.start)) return;
     return 'started';
   }
 
@@ -49,8 +51,9 @@ export async function playOn(output: string, what: Playback, how: 'now' | 'next'
     } else {
       const send = 'single' in what ? what.single
         : { ...('collection' in what ? what.collection : { source: 'picks' as const, track_ids: what.picks.tracks.map((t) => t.id) }), track_id: what.start };
-      await api.play(output, send, controller.signal);
+      const r = await api.play(output, send, controller.signal);
       if (controller.signal.aborted) return;
+      setTook(r.took);
     }
     return 'started';
   } catch (error) {

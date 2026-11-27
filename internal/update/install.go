@@ -348,10 +348,8 @@ func (c *Checker) install(ctx context.Context, version string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	name := "trackferry-linux-" + runtime.GOARCH
-	base := githubSite + "/" + c.Repo + "/releases/download/v" + version + "/" + name
-	var sig bytes.Buffer
-	if err := c.fetch(ctx, base+".sig", &sig, 1<<10, nil); err != nil {
+	base, sig, err := c.findAsset(ctx, version, ServerAssets(version, runtime.GOARCH))
+	if err != nil {
 		return err
 	}
 	tmp := filepath.Join(dir, "download")
@@ -374,7 +372,7 @@ func (c *Checker) install(ctx context.Context, version string) error {
 		return err
 	}
 	c.progress(func(p *Progress) { p.Phase = "check" })
-	r := Record{Version: version, Signature: strings.TrimSpace(sig.String())}
+	r := Record{Version: version, Signature: strings.TrimSpace(sig)}
 	if err := verify(version, runtime.GOARCH, hex.EncodeToString(h.Sum(nil)), r.Signature); err != nil {
 		return err
 	}
@@ -407,6 +405,40 @@ func (c *Checker) install(ctx context.Context, version string) error {
 	return r.write(dir)
 }
 
+// errNoAsset is a Release without the file asked for.
+var errNoAsset = errors.New("这个版本不能在线安装，请用 docker compose 更新")
+
+// Asset names are trackferry-<version>-<os>-<arch>; releases before 1.9.0 used the older
+// names, which are still uploaded so servers of those versions keep updating.
+// ServerAssets gives both for the architecture this program runs on, the new one first.
+func ServerAssets(version, goarch string) []string {
+	arch := goarch
+	if arch == "arm" {
+		arch = "armv7" // the only 32-bit ARM that is built
+	}
+	return []string{"trackferry-" + version + "-linux-" + arch, "trackferry-linux-" + goarch}
+}
+
+// TVAssets gives both names of the television app for abi, the new one first.
+func TVAssets(version, abi string) []string {
+	return []string{"trackferry-tv-" + version + "-android-" + abi + ".apk", "trackferry-tv-" + version + "-" + abi + ".apk"}
+}
+
+// findAsset fetches the signature of the first of names the release has; base is its download address.
+func (c *Checker) findAsset(ctx context.Context, version string, names []string) (base, sig string, err error) {
+	for _, name := range names {
+		base = githubSite + "/" + c.Repo + "/releases/download/v" + version + "/" + name
+		var b bytes.Buffer
+		if err = c.fetch(ctx, base+".sig", &b, 1<<10, nil); err == nil {
+			return base, b.String(), nil
+		}
+		if !errors.Is(err, errNoAsset) {
+			return "", "", err
+		}
+	}
+	return "", "", err
+}
+
 func (c *Checker) fetch(ctx context.Context, url string, to io.Writer, limit int64, tell func(done, total int64)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -419,7 +451,7 @@ func (c *Checker) fetch(ctx context.Context, url string, to io.Writer, limit int
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
-		return errors.New("这个版本不能在线安装，请用 docker compose 更新")
+		return errNoAsset
 	}
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("下载失败，GitHub 返回 %d", res.StatusCode)

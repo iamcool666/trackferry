@@ -6,9 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.BlendMode
@@ -351,7 +353,7 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val breath = rememberBreath(playback.playing)
-                    GlowCover(seed, bitmap, tone, Modifier.size(coverSide).graphicsLayer {
+                    GlowCover(seed, bitmap, tone, Modifier.heightIn(max = coverSide).aspectRatio(1f, matchHeightConstraintsFirst = true).graphicsLayer {
                         val b = breath.floatValue; scaleX = b; scaleY = b
                     }, radius = 20, glow = if (short) 22.dp else 40.dp)
                     Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Top) {
@@ -360,20 +362,16 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
                             Text("${playback.items.size} 首", Modifier.padding(top = 4.dp, bottom = 8.dp), color = Muted, fontSize = 14.sp)
                             QueuePanel(playback) { i -> player.seekToDefaultPosition(i); player.play(); close() }
                         } else {
-                            Row(Modifier.padding(top = if (short) 2.dp else 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                BassDot(Modifier.size(14.dp), playback.playing)
-                                Text(status, color = Accent, fontSize = if (short) 12.sp else 14.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp)
-                            }
-                            Text(playback.title.ifBlank { "等待播放" }, Modifier.padding(top = if (short) 6.dp else 12.dp), color = Ink, fontFamily = FontFamily.SansSerif,
-                                fontSize = when { short -> 30.sp; compact -> 40.sp; else -> 52.sp }, lineHeight = when { short -> 36.sp; compact -> 48.sp; else -> 60.sp },
-                                fontWeight = FontWeight.SemiBold, letterSpacing = (-.5).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            // One line for the name, no status or quality (the top bar has the version):
+                            // the lyrics get the rest.
+                            Text(playback.title.ifBlank { "等待播放" }, Modifier.padding(top = if (short) 2.dp else 8.dp), color = Ink, fontFamily = FontFamily.SansSerif,
+                                fontSize = when { short -> 24.sp; compact -> 30.sp; else -> 44.sp }, lineHeight = when { short -> 29.sp; compact -> 36.sp; else -> 52.sp },
+                                fontWeight = FontWeight.SemiBold, letterSpacing = (-.5).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val credit = listOf(playback.artist, playback.album).filter { it.isNotBlank() }.joinToString("  ·  ")
-                            tech?.takeIf { it.label.isNotBlank() }?.let { t -> Text(t.shown, Modifier.padding(top = 8.dp).clip(RoundedCornerShape(5.dp)).border(1.dp, (if (t.tier == "hires" || t.tier == "lossless") Accent else Ink).copy(alpha = .45f), RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-                                color = if (t.tier == "hires" || t.tier == "lossless") Accent else Ink.copy(alpha = .8f), fontSize = if (short) 12.sp else 14.sp, fontWeight = FontWeight.SemiBold) }
-                            if (credit.isNotBlank()) Text(credit, Modifier.padding(top = 6.dp), color = Ink.copy(alpha = .70f),
-                                fontSize = if (short) 15.sp else 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            LyricFlow(lyrics, index, position, offset, loadingLyrics, tone, Modifier.weight(1f).fillMaxWidth().padding(top = if (short) 8.dp else 18.dp),
-                                size = when { short -> 20.sp; compact -> 24.sp; else -> 30.sp }, gap = if (short) 8.dp else 14.dp, lead = .40f)
+                            if (credit.isNotBlank()) Text(credit, Modifier.padding(top = 4.dp), color = Ink.copy(alpha = .70f),
+                                fontSize = if (short) 14.sp else 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            LyricFlow(lyrics, index, position, offset, loadingLyrics, tone, Modifier.weight(1f).fillMaxWidth().padding(top = if (short) 6.dp else 14.dp),
+                                size = when { short -> 22.sp; compact -> 27.sp; else -> 33.sp }, gap = if (short) 10.dp else 16.dp, lead = .42f)
                         }
                     }
                 }
@@ -381,10 +379,18 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
             if (panel == PlayerPanel.Main) {
                 // Only while music is heard; at rest it would be a row of dots.
                 val heard = animateFloatAsState(if (playback.playing) 1f else 0f, tween(500), label = "spectrum shown")
-                SpectrumWave(Modifier.fillMaxWidth().height(if (short) 30.dp else if (compact) 46.dp else 60.dp).graphicsLayer { alpha = heard.value }, playback.playing,
-                    tone = lerp(Accent, tone, .3f))
-                FishSeekBar(position, playback.duration, playback.seekable,
-                    Modifier.fillMaxWidth().focusRequester(seekFocus).focusProperties { down = playFocus }, { player.currentPosition }, seek)
+                // The spectrum stands just above the progress line, clear of the fish, and takes no row of
+                // its own: that height is the lyrics'. It is reported as no height at all.
+                Box(Modifier.fillMaxWidth()) {
+                    SpectrumWave(Modifier.fillMaxWidth().height(if (short) 48.dp else if (compact) 72.dp else 104.dp)
+                        .layout { m, c ->
+                            val p = m.measure(c)
+                            layout(p.width, 0) { p.place(0, (p.height * -.72f).toInt() - (if (short) 10.dp else 14.dp).roundToPx()) }
+                        }
+                        .graphicsLayer { alpha = heard.value }, playback.playing, tone = lerp(Accent, tone, .3f))
+                    FishSeekBar(position, playback.duration, playback.seekable,
+                        Modifier.fillMaxWidth().focusRequester(seekFocus).focusProperties { down = playFocus }, { player.currentPosition }, seek)
+                }
                 Row(Modifier.fillMaxWidth().padding(top = if (short) 0.dp else 4.dp, bottom = if (short) 1.dp else 9.dp),
                     horizontalArrangement = Arrangement.spacedBy(if (short) 12.dp else 28.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
                     val shuffle = playback.shuffle
@@ -555,10 +561,10 @@ private fun LyricFlow(lines: List<LyricLine>, index: Int, position: LongState, o
                 val distance = kotlin.math.abs(i - focus.coerceAtLeast(0))
                 val lit = i == index && rest == null
                 val coming = rest?.next == i
-                val alpha by animateFloatAsState(when { lit -> 1f; coming -> .9f; distance == 1 -> .46f; distance == 2 -> .28f; else -> .17f }, tween(360), label = "lyric alpha")
+                val alpha by animateFloatAsState(when { lit -> 1f; coming -> .9f; distance == 1 -> .62f; distance == 2 -> .48f; distance == 3 -> .36f; else -> .26f }, tween(360), label = "lyric alpha")
                 val scale by animateFloatAsState(if (lit) 1f else .80f, tween(420), label = "lyric scale")
                 // Further lines go soft; a layer effect, so only on Android 12 and later.
-                val blur by animateFloatAsState(if (lit || coming) 0f else minOf(distance, 4) * 2.2f, tween(480), label = "lyric blur")
+                val blur by animateFloatAsState(if (lit || coming) 0f else minOf(distance, 3) * 1.1f, tween(480), label = "lyric blur")
                 val carry = remember(jump.seq) { Animatable(if (System.currentTimeMillis() - jump.at < 400) 1f else 0f) }
                 LaunchedEffect(jump.seq) {
                     if (carry.value == 0f) return@LaunchedEffect

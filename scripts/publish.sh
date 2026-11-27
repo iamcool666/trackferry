@@ -53,7 +53,7 @@ tv() {
     f="android-tv/app/build/outputs/apk/release/app-$abi-release.apk"
     "$signer" verify "$f" >/dev/null || { echo "$f 没有签名" >&2; exit 1; }
     "$signer" verify --print-certs "$f" | grep -q "CN=TrackFerry TV" || { echo "$f 不是用电视发版密钥签的" >&2; exit 1; }
-    cp "$f" "dist/trackferry-tv-$v-$abi.apk"
+    cp "$f" "dist/trackferry-tv-$v-android-$abi.apk"
   done
 }
 step 电视应用
@@ -80,17 +80,24 @@ git push origin "$tag"
 assets=(compose.yaml dist/trackferry-homeassistant.zip)
 mkdir -p dist
 git archive --format=zip -o dist/trackferry-homeassistant.zip HEAD custom_components/trackferry # unpacks into the configuration folder
+# Named trackferry-<version>-<os>-<arch>. The same files go up again under the names used before
+# 1.9.0 (trackferry-linux-<goarch>, trackferry-tv-<version>-<abi>.apk), which servers of those
+# versions ask for; the signature covers the content, so one .sig serves both names.
+# internal/update ServerAssets and TVAssets hold the same names.
 for arch in amd64 arm64 arm; do
-  f="dist/trackferry-linux-$arch"
+  name=$arch; [ $arch = arm ] && name=armv7
+  f="dist/trackferry-$v-linux-$name" old="dist/trackferry-linux-$arch"
   cp "dist/$arch/trackferry" "$f"
   go run ./scripts/sign "$v" "$arch" "$f" > "$f.sig"
-  assets+=("$f" "$f.sig")
+  cp "$f" "$old"; cp "$f.sig" "$old.sig"
+  assets+=("$f" "$f.sig" "$old" "$old.sig")
 done
 # The television apps: the server fetches these and checks the signature (internal/update/tv.go).
 for abi in armeabi-v7a arm64-v8a; do
-  f="dist/trackferry-tv-$v-$abi.apk"
+  f="dist/trackferry-tv-$v-android-$abi.apk" old="dist/trackferry-tv-$v-$abi.apk"
   go run ./scripts/sign "$v" "android/$abi" "$f" > "$f.sig"
-  assets+=("$f" "$f.sig")
+  cp "$f" "$old"; cp "$f.sig" "$old.sig"
+  assets+=("$f" "$f.sig" "$old" "$old.sig")
 done
 if have="$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name' 2>/dev/null)"; then
   missing=0

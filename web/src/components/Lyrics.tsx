@@ -10,6 +10,11 @@ import type { MediaRange } from '../media-clock';
 export interface Words { lines: Line[]; timed: boolean; /** How much sooner the lines come, in ms. */ offset: number; setOffset: (ms: number) => void; saveError?: boolean; /** The platform they came from, when the song has none of its own. */ from?: string }
 
 /** The words of a library or online song; null until they are known, or when there are none. */
+/** Sets a custom property on one element, only when it changed. */
+function mark(el: HTMLElement | undefined, name: string, value: string) {
+  if (el && el.style.getPropertyValue(name) !== value) el.style.setProperty(name, value);
+}
+
 export function useWords(trackID?: number, online?: string): Words | null {
   const key = trackID ? `t${trackID}` : online ?? '';
   const [got, setGot] = useState<{ id: string; lines: Line[]; timed: boolean; offset: number; from: string } | null>(null);
@@ -87,10 +92,12 @@ export function LyricSheet({ words, now, big, seek }: { words: Words; now: Sound
         if (next !== line.current) { line.current = next; setI(next); }
         if (rk !== resting.current) { resting.current = rk; setRest(rk); }
         // How far the singing is, as two numbers the styles read: no React work on every frame.
+        // Written on the one line that uses each, never on the list: a value set on the list
+        // restyles every line thirty times a second, which is what made phones stutter.
         const b = box.current;
         if (b) {
-          b.style.setProperty('--rest', r ? ((at - r.from) / (r.to - r.from)).toFixed(3) : '0');
-          b.style.setProperty('--p', next >= 0 ? Math.min(1, Math.max(0, (at - lines[next].at) / spanOf(lines, next))).toFixed(3) : '0');
+          mark(b.children[rk] as HTMLElement | undefined, '--rest', r ? ((at - r.from) / (r.to - r.from)).toFixed(2) : '0');
+          mark(b.children[next] as HTMLElement | undefined, '--p', next >= 0 ? Math.min(1, Math.max(0, (at - lines[next].at) / spanOf(lines, next))).toFixed(2) : '0');
         }
       }
       if (now.phase === 'playing' && !document.hidden) frame = requestAnimationFrame(sample);

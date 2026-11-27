@@ -3,6 +3,7 @@ import type { Device } from '../api';
 import { deviceTitle } from '../copy';
 import { connected, HERE, lookAt } from '../ear';
 import { checkedSpeaker, give, take, type Taken } from '../handoff';
+import { setTook, tookNote } from '../took';
 import { hereName, hereSong, useHere } from '../here';
 import { useLive } from '../live';
 import { tvID, tvTarget, useTVOutputs } from '../tv';
@@ -57,9 +58,15 @@ export function SwitchOutput({ source, devices, className = 'foot-btn' }: { sour
     const job = op.current = new AbortController();
     const signal = job.signal;
     setBusy(target);
+    setTook();
     // Toward this device nothing may be awaited before give: the tap has to start the sound.
     const run = target === HERE ? give(taken!, target, signal) : take(source, signal).then((t) => give(t, target, signal));
-    run.then(() => { setOpen(false); lookAt(target); }, (e) => {
+    run.then(() => {
+      setOpen(false);
+      lookAt(target);
+      const n = tookNote();
+      if (n) say({ tone: 'ok', text: `已换过去${n}` });
+    }, (e) => {
       if (signal.aborted) return;
       setOpen(false);
       say({ tone: 'bad', text: (e as Error).message });

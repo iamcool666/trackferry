@@ -193,8 +193,8 @@ class MainActivity : ComponentActivity() {
         page = Page.Demo
     }
 
-    private fun startNas(tracks: List<NasTrack>, index: Int, fullscreen: Boolean): Boolean {
-        if (PlaybackService.playCatalog?.invoke(tracks, index) != true) return false
+    private fun startNas(tracks: List<NasTrack>, index: Int, fullscreen: Boolean, drift: Boolean): Boolean {
+        if (PlaybackService.playCatalog?.invoke(tracks, index, drift || tracks.size == 1) != true) return false
         if (fullscreen) page = Page.Player
         return true
     }

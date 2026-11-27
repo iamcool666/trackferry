@@ -188,6 +188,8 @@ func (s *Server) Handler() http.Handler {
 	authed("POST /api/xiaomi/password/captcha/refresh", s.passwordCaptchaRefresh)
 	authed("POST /api/xiaomi/password/verify", s.passwordVerify)
 	authed("GET /api/devices", s.devices)
+	authed("GET /api/me", s.me)
+	authed("PUT /api/me", s.meRename)
 	authed("POST /api/devices/sync", s.devicesSync)
 	authed("PATCH /api/devices/{id}", s.deviceUpdate)
 	if s.Live != nil {
@@ -448,7 +450,7 @@ func (s *Server) throttled(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, ttl time.Duration) error {
 	tok := auth.NewToken()
 	exp := time.Now().Add(ttl)
-	if err := s.Store.CreateSession(r.Context(), tok, exp); err != nil {
+	if err := s.Store.CreateSession(r.Context(), tok, exp, deviceName(r.UserAgent())); err != nil {
 		return err
 	}
 	_ = s.Store.PruneSessions(r.Context(), time.Now())

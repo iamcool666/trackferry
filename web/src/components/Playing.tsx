@@ -21,17 +21,18 @@ export function Playing() {
       setError((e as ApiError).message);
     }
   };
-  const row = (k: 'artist' | 'after', title: string, says: string) => (
-    <div className="kept">
-      <div><b>{title}</b><small>{says}</small></div>
-      <label className="switch"><input type="checkbox" role="switch" checked={p![k]} onChange={(e) => set({ [k]: e.target.checked })} aria-label={title} /><span /></label>
-    </div>
-  );
   return (
-    <Setting id="playing" icon={<NotesIcon />} title="连续播放" says="一首放完之后接着放什么">
+    <Setting id="playing" icon={<NotesIcon />} title="连续播放" says="放完接着放什么，音箱、本机、电视和投放都一样">
       {p && <>
-        {row('artist', '点歌手时一直放', '说“播放周杰伦的歌”，曲库里这位歌手的歌随机一首接一首')}
-        {row('after', '点完一首接着随机放', '点的歌放完，从曲库里随机接着放')}
+        <div className="kept">
+          <div><b>点的歌放完接着随机放</b><small>搜到的一首、在线歌、说“放一首晴天”“来点音乐”、随手翻到的几首：先放点的，再随机接上。关掉就放完即停</small></div>
+          <label className="switch"><input type="checkbox" role="switch" checked={p.single} onChange={(e) => set({ single: e.target.checked })} aria-label="点的歌放完接着随机放" /><span /></label>
+        </div>
+        {p.single && <div className="kept">
+          <div><b>随机从哪挑</b><small>选“我的收藏”时只挑收藏过的歌；收藏是空的就从整个曲库挑</small></div>
+          <Pick label="随机从哪挑" value={p.pool} onPick={(pool) => set({ pool })} choices={[{ value: 'library' as const, label: '整个曲库' }, { value: 'favorites' as const, label: '我的收藏' }]} />
+        </div>}
+        <div className="kept"><div><b>不受开关影响的</b><small>点歌手放这位歌手的全部歌，点专辑放整张，收藏和歌单放里面的全部歌，循环放到你换歌或到下面的最长时间为止。换到别处放时带着原来的列表走</small></div></div>
         <div className="kept">
           <div><b>最长放多久</b><small>歌手、收藏、歌单和随机连播都按这个时间结束，正在放的那首会放完</small></div>
           <Pick label="最长放多久" value={p.hours} onPick={(h) => set({ hours: h })}

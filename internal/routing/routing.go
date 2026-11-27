@@ -93,9 +93,7 @@ type Router struct {
 	Cached func(asked string) *online.Found
 	// Lists reads the lists of 飞牛音乐; optional.
 	Lists Lists
-	// ArtistQueue reports whether an artist's other songs follow the first; nil: no.
-	ArtistQueue func() bool
-	Log         *slog.Logger
+	Log   *slog.Logger
 	// Openable reports whether a local file can be read right now (nil: assume so).
 	Openable func(rel string) bool
 }
@@ -585,7 +583,7 @@ func (r *Router) pick(rt *Route, in intent.Intent) {
 		l.Candidates = show([]library.Match{m})
 		rt.Because("选它", "从 %d 首里随机抽到", n)
 		rt.take(m)
-		if in.Kind == intent.KindArtist && r.ArtistQueue != nil && r.ArtistQueue() {
+		if in.Kind == intent.KindArtist {
 			if ids := r.Library.ArtistIDs(in.Artist); len(ids) > 1 {
 				rt.List, rt.queue, rt.order = in.Artist+"的歌", shuffled(ids, m.ID), ids
 				l.Detail = fmt.Sprintf("%s的 %d 首歌，连着放", in.Artist, len(ids))

@@ -8,6 +8,7 @@ import { playOn, type Playback } from '../playback';
 import { SpeakerChip } from './SpeakerChip';
 import { useToast } from './Toast';
 import { activeTV } from '../tv';
+import { tookNote } from '../took';
 
 export function PlaybackTarget({ devices }: { devices: Device[] }) {
   const [target, setTarget] = useTarget(devices);
@@ -24,7 +25,7 @@ export function Play({ what, title, devices, label }: { what: Playback; title: s
   const play = async () => {
     setBusy(true);
     try {
-      if (await playOn(target, what) && target !== HERE) say({ tone: 'ok', text: tv ? `${output} 已确认播放` : `已送往${output}` });
+      if (await playOn(target, what) && target !== HERE) say({ tone: 'ok', text: tv ? `${output} 已确认播放` : `已送往${output}${tookNote()}` });
     } catch (error) {
       say({ tone: 'bad', text: (error as Error).message });
     } finally {

@@ -180,7 +180,7 @@ export function Buttons({ device, foot, tail, inlineVolume }: { device: Device; 
       <Deck name={name} state={state} waiting={!!flow && !phase && !meant} busy={busy} alone={now !== null && !q} mode={now?.mode ?? ''} count={(q?.total ?? 0) + (q?.next?.length ?? 0)}
         onMode={(mode) => press('mode', { mode })} onToggle={() => press(state === 'playing' ? 'pause' : 'play')} onPrevious={() => press('previous')} onNext={() => press('next')} onList={() => setOpen(true)}
         vol={{ value: now?.volume ?? null, set: (volume) => press('volume', { volume }) }} inlineVolume={inlineVolume} onWake={device.can_wake ? () => press('wake') : undefined}
-        foot={foot ?? (q?.list ? <span className="foot-list">{q.list}</span> : null)} tail={tail} note={lost && <p className="ctl-said" role="status">暂时读不到音箱，会自动重试：{lost}</p>} />
+        foot={foot ?? (q?.list || q?.by ? <span className="foot-list">{[q.list, q.by && `${q.by} 点的`].filter(Boolean).join(' · ')}</span> : null)} tail={tail} note={lost && <p className="ctl-said" role="status">暂时读不到音箱，会自动重试：{lost}</p>} />
       {open && <SpeakerQueue device={device} onStop={() => press('stop')} onClose={() => setOpen(false)} />}
       {toast}
     </>

@@ -134,6 +134,7 @@ func (s *Server) speakerReceive(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	me, had := s.who(r), s.Dispatcher.By(d.DeviceID)
 	run, err := s.Dispatcher.Receive(r.Context(), d, items, req.Index, time.Duration(req.Position)*time.Millisecond)
 	if err != nil {
 		writeError(w, 409, "cannot_handoff", err.Error())
@@ -159,7 +160,8 @@ func (s *Server) speakerReceive(w http.ResponseWriter, r *http.Request) {
 			for _, step := range cur.Steps {
 				if step.Step == takeover.StepConfirmed && step.OK && ctx.Err() == nil {
 					confirmed = true
-					writeJSON(w, 200, map[string]int64{"run_id": run.ID})
+					s.Dispatcher.Tag(d.DeviceID, me)
+					writeJSON(w, 200, map[string]any{"run_id": run.ID, "took": took(me, had)})
 					return
 				}
 			}

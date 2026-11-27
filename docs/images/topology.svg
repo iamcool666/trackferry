@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 780" width="1280" height="780" font-family="PingFang SC,Noto Sans SC,Microsoft YaHei,Helvetica,Arial,sans-serif">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a1520"/><stop offset=".55" stop-color="#0e2131"/><stop offset="1" stop-color="#130f1d"/></linearGradient>
+<radialGradient id="halo" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ff8f6b" stop-opacity=".30"/><stop offset=".5" stop-color="#5fd3e0" stop-opacity=".10"/><stop offset="1" stop-color="#5fd3e0" stop-opacity="0"/></radialGradient>
+<linearGradient id="core" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#173349"/><stop offset="1" stop-color="#1d1a2c"/></linearGradient>
+<linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5fd3e0"/><stop offset=".5" stop-color="#ffe3d6"/><stop offset="1" stop-color="#ff8f6b"/></linearGradient>
+<linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#15293b"/><stop offset="1" stop-color="#101d2a"/></linearGradient>
+<filter id="glow" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="14"/></filter>
+<pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#ffffff" fill-opacity=".045"/></pattern>
+</defs>
+<rect width="1280" height="780" rx="22" fill="url(#bg)"/><rect width="1280" height="780" rx="22" fill="url(#dots)"/>
+<ellipse cx="640" cy="452" rx="330" ry="270" fill="url(#halo)"><animate attributeName="opacity" values=".65;1;.65" dur="4s" repeatCount="indefinite"/></ellipse>
+<text x="640" y="40" fill="#f4c66a" font-size="13" font-weight="700" letter-spacing="3" text-anchor="middle">歌 从 哪 里 来</text>
+<g><rect x="300" y="62" width="220" height="82" rx="16" fill="url(#card)" stroke="#f4c66a" stroke-opacity=".28"/>
+<rect x="300" y="80" width="3" height="46" rx="1.5" fill="#f4c66a"/>
+<text x="322" y="99.0" fill="#eef4f7" font-size="19" font-weight="700">飞牛音乐</text>
+<text x="322" y="122.0" fill="#9fb3c2" font-size="13.5">曲库、歌单、收藏</text>
+</g>
+<path id="s0" d="M410,144 C410,200 575,200 575,250" fill="none" stroke="#f4c66a" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M410,144 C410,200 575,200 575,250" fill="none" stroke="#f4c66a" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#f4c66a" filter="url(#glow)" opacity="0"><animateMotion dur="2.6s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#s0"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#f4c66a" filter="url(#glow)" opacity="0"><animateMotion dur="2.6s" begin="-1.30s" repeatCount="indefinite" rotate="auto"><mpath href="#s0"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6s" begin="-1.30s" repeatCount="indefinite"/></circle>
+<g><rect x="530" y="62" width="220" height="82" rx="16" fill="url(#card)" stroke="#f4c66a" stroke-opacity=".28"/>
+<rect x="530" y="80" width="3" height="46" rx="1.5" fill="#f4c66a"/>
+<text x="552" y="99.0" fill="#eef4f7" font-size="19" font-weight="700">音乐文件夹</text>
+<text x="552" y="122.0" fill="#9fb3c2" font-size="13.5">挂上就是曲库</text>
+</g>
+<path id="s1" d="M640,144 C640,200 640,200 640,250" fill="none" stroke="#f4c66a" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M640,144 C640,200 640,200 640,250" fill="none" stroke="#f4c66a" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#f4c66a" filter="url(#glow)" opacity="0"><animateMotion dur="2.6s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#s1"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#f4c66a" filter="url(#glow)" opacity="0"><animateMotion dur="2.6s" begin="-1.30s" repeatCount="indefinite" rotate="auto"><mpath href="#s1"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6s" begin="-1.30s" repeatCount="indefinite"/></circle>
+<g><rect x="760" y="62" width="220" height="82" rx="16" fill="url(#card)" stroke="#f4c66a" stroke-opacity=".28"/>
+<rect x="760" y="80" width="3" height="46" rx="1.5" fill="#f4c66a"/>
+<text x="782" y="99.0" fill="#eef4f7" font-size="19" font-weight="700">在线平台</text>
+<text x="782" y="122.0" fill="#9fb3c2" font-size="13.5">酷我 酷狗 咪咕 网易云</text>
+</g>
+<path id="s2" d="M870,144 C870,200 705,200 705,250" fill="none" stroke="#f4c66a" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M870,144 C870,200 705,200 705,250" fill="none" stroke="#f4c66a" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#f4c66a" filter="url(#glow)" opacity="0"><animateMotion dur="2.6s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#s2"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#f4c66a" filter="url(#glow)" opacity="0"><animateMotion dur="2.6s" begin="-1.30s" repeatCount="indefinite" rotate="auto"><mpath href="#s2"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6s" begin="-1.30s" repeatCount="indefinite"/></circle>
+<text x="40" y="214" fill="#5fd3e0" font-size="13" font-weight="700" letter-spacing="3" text-anchor="start">谁 来 发 号 施 令</text>
+<g><rect x="40" y="232" width="300" height="86" rx="16" fill="url(#card)" stroke="#5fd3e0" stroke-opacity=".28"/>
+<rect x="40" y="250" width="3" height="50" rx="1.5" fill="#5fd3e0"/>
+<text x="62" y="271.0" fill="#eef4f7" font-size="19" font-weight="700">开口说</text>
+<text x="62" y="294.0" fill="#9fb3c2" font-size="13.5">“播放潮汐”，小爱在听</text>
+</g>
+<path id="i0" d="M340,275 C405,275 405,330 470,330" fill="none" stroke="#5fd3e0" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M340,275 C405,275 405,330 470,330" fill="none" stroke="#5fd3e0" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.2s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#i0"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.2s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.2s" begin="-1.10s" repeatCount="indefinite" rotate="auto"><mpath href="#i0"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.2s" begin="-1.10s" repeatCount="indefinite"/></circle>
+<g><rect x="40" y="336" width="300" height="86" rx="16" fill="url(#card)" stroke="#5fd3e0" stroke-opacity=".28"/>
+<rect x="40" y="354" width="3" height="50" rx="1.5" fill="#5fd3e0"/>
+<text x="62" y="375.0" fill="#eef4f7" font-size="19" font-weight="700">手机 / 电脑网页</text>
+<text x="62" y="398.0" fill="#9fb3c2" font-size="13.5">装到主屏，就是遥控器</text>
+<rect x="272" y="348" width="56" height="22" rx="11" fill="#5fd3e0" fill-opacity=".14" stroke="#5fd3e0" stroke-opacity=".5"/>
+<text x="300.0" y="363.5" fill="#5fd3e0" font-size="12" font-weight="700" text-anchor="middle">第二端</text>
+</g>
+<path id="i1" d="M340,379 C405,379 405,398 470,398" fill="none" stroke="#5fd3e0" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M340,379 C405,379 405,398 470,398" fill="none" stroke="#5fd3e0" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.35s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#i1"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.35s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.35s" begin="-1.18s" repeatCount="indefinite" rotate="auto"><mpath href="#i1"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.35s" begin="-1.18s" repeatCount="indefinite"/></circle>
+<g><rect x="40" y="440" width="300" height="86" rx="16" fill="url(#card)" stroke="#5fd3e0" stroke-opacity=".28"/>
+<rect x="40" y="458" width="3" height="50" rx="1.5" fill="#5fd3e0"/>
+<text x="62" y="479.0" fill="#eef4f7" font-size="19" font-weight="700">电视应用</text>
+<text x="62" y="502.0" fill="#9fb3c2" font-size="13.5">大屏点歌、看歌词</text>
+<rect x="272" y="452" width="56" height="22" rx="11" fill="#5fd3e0" fill-opacity=".14" stroke="#5fd3e0" stroke-opacity=".5"/>
+<text x="300.0" y="467.5" fill="#5fd3e0" font-size="12" font-weight="700" text-anchor="middle">第三端</text>
+</g>
+<path id="i2" d="M340,483 C405,483 405,466 470,466" fill="none" stroke="#5fd3e0" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M340,483 C405,483 405,466 470,466" fill="none" stroke="#5fd3e0" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.5s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#i2"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.5s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.5s" begin="-1.25s" repeatCount="indefinite" rotate="auto"><mpath href="#i2"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.5s" begin="-1.25s" repeatCount="indefinite"/></circle>
+<g><rect x="40" y="544" width="300" height="86" rx="16" fill="url(#card)" stroke="#5fd3e0" stroke-opacity=".28"/>
+<rect x="40" y="562" width="3" height="50" rx="1.5" fill="#5fd3e0"/>
+<text x="62" y="583.0" fill="#eef4f7" font-size="19" font-weight="700">Home Assistant</text>
+<text x="62" y="606.0" fill="#9fb3c2" font-size="13.5">媒体播放器，接自动化</text>
+</g>
+<path id="i3" d="M340,587 C405,587 405,534 470,534" fill="none" stroke="#5fd3e0" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M340,587 C405,587 405,534 470,534" fill="none" stroke="#5fd3e0" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.6500000000000004s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#i3"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6500000000000004s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#5fd3e0" filter="url(#glow)" opacity="0"><animateMotion dur="2.6500000000000004s" begin="-1.33s" repeatCount="indefinite" rotate="auto"><mpath href="#i3"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.6500000000000004s" begin="-1.33s" repeatCount="indefinite"/></circle>
+<text x="1240" y="174" fill="#ff8f6b" font-size="13" font-weight="700" letter-spacing="3" text-anchor="end">声 音 落 在 哪 里</text>
+<g><rect x="940" y="192" width="300" height="80" rx="16" fill="url(#card)" stroke="#ff8f6b" stroke-opacity=".28"/>
+<rect x="940" y="210" width="3" height="44" rx="1.5" fill="#ff8f6b"/>
+<text x="962" y="228.0" fill="#eef4f7" font-size="19" font-weight="700">小爱音箱</text>
+<text x="962" y="251.0" fill="#9fb3c2" font-size="13.5">多台各放各的，压住小爱</text>
+</g>
+<path id="o0" d="M810,320 C875,320 875,232 940,232" fill="none" stroke="#ff8f6b" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M810,320 C875,320 875,232 940,232" fill="none" stroke="#ff8f6b" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.0s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#o0"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.0s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.0s" begin="-1.00s" repeatCount="indefinite" rotate="auto"><mpath href="#o0"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.0s" begin="-1.00s" repeatCount="indefinite"/></circle>
+<g><rect x="940" y="288" width="300" height="80" rx="16" fill="url(#card)" stroke="#ff8f6b" stroke-opacity=".28"/>
+<rect x="940" y="306" width="3" height="44" rx="1.5" fill="#ff8f6b"/>
+<text x="962" y="324.0" fill="#eef4f7" font-size="19" font-weight="700">电视</text>
+<text x="962" y="347.0" fill="#9fb3c2" font-size="13.5">TrackFerry 电视应用</text>
+</g>
+<path id="o1" d="M810,392 C875,392 875,328 940,328" fill="none" stroke="#ff8f6b" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M810,392 C875,392 875,328 940,328" fill="none" stroke="#ff8f6b" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.12s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#o1"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.12s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.12s" begin="-1.06s" repeatCount="indefinite" rotate="auto"><mpath href="#o1"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.12s" begin="-1.06s" repeatCount="indefinite"/></circle>
+<g><rect x="940" y="384" width="300" height="80" rx="16" fill="url(#card)" stroke="#ff8f6b" stroke-opacity=".28"/>
+<rect x="940" y="402" width="3" height="44" rx="1.5" fill="#ff8f6b"/>
+<text x="962" y="420.0" fill="#eef4f7" font-size="19" font-weight="700">DLNA 设备</text>
+<text x="962" y="443.0" fill="#9fb3c2" font-size="13.5">功放、音响、电视盒子</text>
+</g>
+<path id="o2" d="M810,464 C875,464 875,424 940,424" fill="none" stroke="#ff8f6b" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M810,464 C875,464 875,424 940,424" fill="none" stroke="#ff8f6b" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.24s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#o2"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.24s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.24s" begin="-1.12s" repeatCount="indefinite" rotate="auto"><mpath href="#o2"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.24s" begin="-1.12s" repeatCount="indefinite"/></circle>
+<g><rect x="940" y="480" width="300" height="80" rx="16" fill="url(#card)" stroke="#ff8f6b" stroke-opacity=".28"/>
+<rect x="940" y="498" width="3" height="44" rx="1.5" fill="#ff8f6b"/>
+<text x="962" y="516.0" fill="#eef4f7" font-size="19" font-weight="700">Chromecast</text>
+<text x="962" y="539.0" fill="#9fb3c2" font-size="13.5">Google 投放协议</text>
+</g>
+<path id="o3" d="M810,536 C875,536 875,520 940,520" fill="none" stroke="#ff8f6b" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M810,536 C875,536 875,520 940,520" fill="none" stroke="#ff8f6b" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.36s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#o3"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.36s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.36s" begin="-1.18s" repeatCount="indefinite" rotate="auto"><mpath href="#o3"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.36s" begin="-1.18s" repeatCount="indefinite"/></circle>
+<g><rect x="940" y="576" width="300" height="80" rx="16" fill="url(#card)" stroke="#ff8f6b" stroke-opacity=".28"/>
+<rect x="940" y="594" width="3" height="44" rx="1.5" fill="#ff8f6b"/>
+<text x="962" y="612.0" fill="#eef4f7" font-size="19" font-weight="700">这台手机或电脑</text>
+<text x="962" y="635.0" fill="#9fb3c2" font-size="13.5">本机直出，或 AirPlay / Cast</text>
+</g>
+<path id="o4" d="M810,608 C875,608 875,616 940,616" fill="none" stroke="#ff8f6b" stroke-opacity=".22" stroke-width="1.6"/>
+<path d="M810,608 C875,608 875,616 940,616" fill="none" stroke="#ff8f6b" stroke-opacity=".55" stroke-width="1.6" stroke-dasharray="2 12"><animate attributeName="stroke-dashoffset" from="0" to="-28" dur="1.2s" repeatCount="indefinite"/></path>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.48s" begin="-0.00s" repeatCount="indefinite" rotate="auto"><mpath href="#o4"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.48s" begin="-0.00s" repeatCount="indefinite"/></circle>
+<circle r="3.6" fill="#ff8f6b" filter="url(#glow)" opacity="0"><animateMotion dur="2.48s" begin="-1.24s" repeatCount="indefinite" rotate="auto"><mpath href="#o4"/></animateMotion><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.12;.85;1" dur="2.48s" begin="-1.24s" repeatCount="indefinite"/></circle>
+<rect x="460" y="240" width="360" height="420" rx="34" fill="none" stroke="url(#rim)" stroke-width="2" opacity=".5" filter="url(#soft)"><animate attributeName="opacity" values=".25;.8;.25" dur="3s" repeatCount="indefinite"/></rect>
+<rect x="470" y="250" width="340" height="400" rx="28" fill="url(#core)" stroke="url(#rim)" stroke-width="1.6"/>
+<rect x="494" y="274" width="64" height="24" rx="12" fill="#ff8f6b" fill-opacity=".15" stroke="#ff8f6b" stroke-opacity=".6"/><text x="526" y="290.5" fill="#ff8f6b" font-size="12.5" font-weight="700" text-anchor="middle">第一端</text>
+<text x="640" y="342" fill="#ffffff" font-size="40" font-weight="800" text-anchor="middle" letter-spacing="-.5">TrackFerry</text>
+<text x="640" y="370" fill="#a9bccb" font-size="14" text-anchor="middle">NAS 上的一个 Docker 容器</text>
+<rect x="500" y="396" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="568" y="416" fill="#dce7ee" font-size="13.5" text-anchor="middle">听懂一句话</text>
+<rect x="648" y="396" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="716" y="416" fill="#dce7ee" font-size="13.5" text-anchor="middle">层层找歌</text>
+<rect x="500" y="436" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="568" y="456" fill="#dce7ee" font-size="13.5" text-anchor="middle">压住小爱</text>
+<rect x="648" y="436" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="716" y="456" fill="#dce7ee" font-size="13.5" text-anchor="middle">断点续播</text>
+<rect x="500" y="476" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="568" y="496" fill="#dce7ee" font-size="13.5" text-anchor="middle">下一首排队</text>
+<rect x="648" y="476" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="716" y="496" fill="#dce7ee" font-size="13.5" text-anchor="middle">连播与随机</text>
+<rect x="500" y="516" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="568" y="536" fill="#dce7ee" font-size="13.5" text-anchor="middle">换个版本</text>
+<rect x="648" y="516" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="716" y="536" fill="#dce7ee" font-size="13.5" text-anchor="middle">接力换设备</text>
+<rect x="500" y="556" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="568" y="576" fill="#dce7ee" font-size="13.5" text-anchor="middle">缺歌清单</text>
+<rect x="648" y="556" width="136" height="30" rx="15" fill="#ffffff" fill-opacity=".05" stroke="#ffffff" stroke-opacity=".12"/>
+<text x="716" y="576" fill="#dce7ee" font-size="13.5" text-anchor="middle">验签自更新</text>
+<rect x="516.2" y="603.8" width="6" height="20.2" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="20.2;27.7;25.0;13.4;13.7;20.2" dur="1.60s" repeatCount="indefinite"/><animate attributeName="y" values="603.8;596.3;599.0;610.6;610.3;603.8" dur="1.60s" repeatCount="indefinite"/></rect>
+<rect x="527.8" y="596.3" width="6" height="27.7" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="27.7;13.4;25.2;19.9;20.5;27.7" dur="1.77s" repeatCount="indefinite"/><animate attributeName="y" values="596.3;610.6;598.8;604.1;603.5;596.3" dur="1.77s" repeatCount="indefinite"/></rect>
+<rect x="539.2" y="599.0" width="6" height="25.0" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="25.0;25.2;6.4;24.8;25.4;25.0" dur="1.94s" repeatCount="indefinite"/><animate attributeName="y" values="599.0;598.8;617.6;599.2;598.6;599.0" dur="1.94s" repeatCount="indefinite"/></rect>
+<rect x="550.8" y="610.6" width="6" height="13.4" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="13.4;19.9;24.8;27.5;27.8;13.4" dur="2.11s" repeatCount="indefinite"/><animate attributeName="y" values="610.6;604.1;599.2;596.5;596.2;610.6" dur="2.11s" repeatCount="indefinite"/></rect>
+<rect x="562.2" y="610.3" width="6" height="13.7" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="13.7;20.5;25.4;27.8;27.5;13.7" dur="2.28s" repeatCount="indefinite"/><animate attributeName="y" values="610.3;603.5;598.6;596.2;596.5;610.3" dur="2.28s" repeatCount="indefinite"/></rect>
+<rect x="573.8" y="598.8" width="6" height="25.2" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="25.2;24.8;6.7;25.5;24.4;25.2" dur="1.60s" repeatCount="indefinite"/><animate attributeName="y" values="598.8;599.2;617.3;598.5;599.6;598.8" dur="1.60s" repeatCount="indefinite"/></rect>
+<rect x="585.2" y="596.4" width="6" height="27.6" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="27.6;14.1;24.6;21.0;19.0;27.6" dur="1.77s" repeatCount="indefinite"/><animate attributeName="y" values="596.4;609.9;599.4;603.0;605.0;596.4" dur="1.77s" repeatCount="indefinite"/></rect>
+<rect x="596.8" y="604.1" width="6" height="19.9" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="19.9;27.5;25.5;14.7;12.0;19.9" dur="1.94s" repeatCount="indefinite"/><animate attributeName="y" values="604.1;596.5;598.5;609.3;612.0;604.1" dur="1.94s" repeatCount="indefinite"/></rect>
+<rect x="608.2" y="617.6" width="6" height="6.4" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="6.4;6.7;7.1;7.5;7.8;6.4" dur="2.11s" repeatCount="indefinite"/><animate attributeName="y" values="617.6;617.3;616.9;616.5;616.2;617.6" dur="2.11s" repeatCount="indefinite"/></rect>
+<rect x="619.8" y="603.5" width="6" height="20.5" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="20.5;27.8;24.4;12.0;15.4;20.5" dur="2.28s" repeatCount="indefinite"/><animate attributeName="y" values="603.5;596.2;599.6;612.0;608.6;603.5" dur="2.28s" repeatCount="indefinite"/></rect>
+<rect x="631.2" y="596.3" width="6" height="27.7" rx="3" fill="#5fd3e0" opacity=".85"><animate attributeName="height" values="27.7;12.7;25.7;18.7;21.8;27.7" dur="1.60s" repeatCount="indefinite"/><animate attributeName="y" values="596.3;611.3;598.3;605.3;602.2;596.3" dur="1.60s" repeatCount="indefinite"/></rect>
+<rect x="642.8" y="599.2" width="6" height="24.8" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="24.8;25.5;7.5;24.0;26.2;24.8" dur="1.77s" repeatCount="indefinite"/><animate attributeName="y" values="599.2;598.5;616.5;600.0;597.8;599.2" dur="1.77s" repeatCount="indefinite"/></rect>
+<rect x="654.2" y="611.0" width="6" height="13.0" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="13.0;19.3;24.2;27.2;28.0;13.0" dur="1.94s" repeatCount="indefinite"/><animate attributeName="y" values="611.0;604.7;599.8;596.8;596.0;611.0" dur="1.94s" repeatCount="indefinite"/></rect>
+<rect x="665.8" y="609.9" width="6" height="14.1" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="14.1;21.0;25.9;27.9;27.0;14.1" dur="2.11s" repeatCount="indefinite"/><animate attributeName="y" values="609.9;603.0;598.1;596.1;597.0;609.9" dur="2.11s" repeatCount="indefinite"/></rect>
+<rect x="677.2" y="598.6" width="6" height="25.4" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="25.4;24.4;7.8;26.2;23.3;25.4" dur="2.28s" repeatCount="indefinite"/><animate attributeName="y" values="598.6;599.6;616.2;597.8;600.7;598.6" dur="2.28s" repeatCount="indefinite"/></rect>
+<rect x="688.8" y="596.5" width="6" height="27.5" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="27.5;14.7;24.0;22.1;17.5;27.5" dur="1.60s" repeatCount="indefinite"/><animate attributeName="y" values="596.5;609.3;600.0;601.9;606.5;596.5" dur="1.60s" repeatCount="indefinite"/></rect>
+<rect x="700.2" y="604.4" width="6" height="19.6" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="19.6;27.4;26.0;16.1;10.2;19.6" dur="1.77s" repeatCount="indefinite"/><animate attributeName="y" values="604.4;596.6;598.0;607.9;613.8;604.4" dur="1.77s" repeatCount="indefinite"/></rect>
+<rect x="711.8" y="617.3" width="6" height="6.7" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="6.7;7.5;8.2;9.0;9.7;6.7" dur="1.94s" repeatCount="indefinite"/><animate attributeName="y" values="617.3;616.5;615.8;615.0;614.3;617.3" dur="1.94s" repeatCount="indefinite"/></rect>
+<rect x="723.2" y="603.3" width="6" height="20.7" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="20.7;27.9;23.8;10.5;17.1;20.7" dur="2.11s" repeatCount="indefinite"/><animate attributeName="y" values="603.3;596.1;600.2;613.5;606.9;603.3" dur="2.11s" repeatCount="indefinite"/></rect>
+<rect x="734.8" y="596.2" width="6" height="27.8" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="27.8;12.0;26.2;17.5;23.0;27.8" dur="2.28s" repeatCount="indefinite"/><animate attributeName="y" values="596.2;612.0;597.8;606.5;601.0;596.2" dur="2.28s" repeatCount="indefinite"/></rect>
+<rect x="746.2" y="599.4" width="6" height="24.6" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="24.6;25.9;8.6;23.1;26.8;24.6" dur="1.60s" repeatCount="indefinite"/><animate attributeName="y" values="599.4;598.1;615.4;600.9;597.2;599.4" dur="1.60s" repeatCount="indefinite"/></rect>
+<rect x="757.8" y="611.3" width="6" height="12.7" rx="3" fill="#ff8f6b" opacity=".85"><animate attributeName="height" values="12.7;18.7;23.6;26.7;28.0;12.7" dur="1.77s" repeatCount="indefinite"/><animate attributeName="y" values="611.3;605.3;600.4;597.3;596.0;611.3" dur="1.77s" repeatCount="indefinite"/></rect>
+<text x="640" y="750" fill="#8ea3b3" font-size="15" text-anchor="middle" letter-spacing="1">一句话进来，一首歌出去；中间那段路，归它管。</text>
+</svg>

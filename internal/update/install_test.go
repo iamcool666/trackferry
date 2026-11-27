@@ -25,16 +25,17 @@ type world struct {
 	key  ed25519.PrivateKey
 	body string // the binary on offer
 	sig  string
+	file string // its name in the release
 }
 
 func newWorld(t *testing.T) *world {
 	pub, key, _ := ed25519.GenerateKey(nil)
 	oldKey, oldSite := publicKey, githubSite
 	publicKey = base64.StdEncoding.EncodeToString(pub)
-	w := &world{t: t, data: t.TempDir(), key: key, body: "new program"}
+	w := &world{t: t, data: t.TempDir(), key: key, body: "new program", file: "trackferry-linux-" + runtime.GOARCH}
 	w.sig = w.sign("1.2.0", w.body)
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		name := "/madrays/trackferry/releases/download/v1.2.0/trackferry-linux-" + runtime.GOARCH
+		name := "/madrays/trackferry/releases/download/v1.2.0/" + w.file
 		switch r.URL.Path {
 		case name:
 			io.WriteString(rw, w.body)
@@ -209,5 +210,26 @@ func TestLaunchGoesBackToPreviousInstalled(t *testing.T) {
 	}
 	if r := w.record(); r.FailedVersion != "1.2.0" || !r.Confirmed || w.db() != "backup" {
 		t.Fatal(r, w.db())
+	}
+}
+
+func TestAssetNames(t *testing.T) {
+	for _, c := range []struct{ arch, want string }{{"amd64", "trackferry-1.9.0-linux-amd64"}, {"arm64", "trackferry-1.9.0-linux-arm64"}, {"arm", "trackferry-1.9.0-linux-armv7"}} {
+		got := ServerAssets("1.9.0", c.arch)
+		if got[0] != c.want || got[1] != "trackferry-linux-"+c.arch {
+			t.Errorf("%s: %v", c.arch, got)
+		}
+	}
+	if got := TVAssets("1.9.0", "armeabi-v7a"); got[0] != "trackferry-tv-1.9.0-android-armeabi-v7a.apk" || got[1] != "trackferry-tv-1.9.0-armeabi-v7a.apk" {
+		t.Error(got)
+	}
+}
+
+// A release with only the new names installs as well as one with only the old.
+func TestInstallFindsTheNewName(t *testing.T) {
+	w := newWorld(t)
+	w.file = ServerAssets("1.2.0", runtime.GOARCH)[0]
+	if got := w.install(); got != "" {
+		t.Fatal(got)
 	}
 }

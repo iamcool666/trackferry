@@ -52,6 +52,7 @@ import androidx.media3.common.Player
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
 import kotlin.math.max
+import kotlin.math.min
 
 /** The two ends of the 小鱼 bar, as in the browser (.swim). */
 internal val FishLow = Color(0xFF8FC9DC)
@@ -199,6 +200,11 @@ internal fun StageClock(size: Int = 14) {
 internal fun SpectrumWave(modifier: Modifier, playing: Boolean, tone: Color = FishHigh, points: Int = 28) {
     val shown = remember(points) { FloatArray(points) }
     val frame = remember { FloatArray(Spectrum.BANDS) }
+    // Each band against its own recent quiet and loud: a fixed scale leaves music sitting high and
+    // nearly still, this shows how it moves. Slow to adapt, so a loud passage still reads loud.
+    val floor = remember(points) { FloatArray(points) { 1f } }
+    val ceil = remember(points) { FloatArray(points) }
+    val smooth = remember(points) { FloatArray(points) }
     val tick = remember { mutableLongStateOf(0L) }
     LaunchedEffect(playing, points) {
         var rest = 0
@@ -207,10 +213,17 @@ internal fun SpectrumWave(modifier: Modifier, playing: Boolean, tone: Color = Fi
             val heard = playing && Spectrum.now(frame)
             var moving = false
             for (i in 0 until points) {
-                val target = if (heard) bandOf(frame, i, points) else 0f
+                val raw = if (heard) bandOf(frame, i, points) else 0f
+                if (heard) {
+                    floor[i] = if (raw < floor[i]) raw else floor[i] + (raw - floor[i]) * .004f
+                    ceil[i] = if (raw > ceil[i]) raw else ceil[i] - (ceil[i] - raw) * .006f
+                }
+                val span = max(.12f, ceil[i] - floor[i])
+                val lift = ((raw - floor[i]) / span).coerceIn(0f, 1f)
+                val target = if (heard) .15f * raw + .85f * lift * lift else 0f
                 val now = shown[i]
-                // Rise quickly but not at once, fall slowly: a curve that breathes rather than flickers.
-                val next = if (target > now) now + (target - now) * .55f else max(target, now - .022f)
+                // Rise at once nearly, fall quickly too: the beat is seen, not smeared.
+                val next = if (target > now) now + (target - now) * .7f else max(target, now - .045f)
                 if (kotlin.math.abs(next - now) > .001f) moving = true
                 shown[i] = next
             }
@@ -230,12 +243,24 @@ internal fun SpectrumWave(modifier: Modifier, playing: Boolean, tone: Color = Fi
             tick.longValue // redraw with every frame read above
             val n = points * 2
             // Mirror: the middle is the lowest band, both edges the highest.
+            // Neighbouring bands are blended so the shape is hills, never plateaus; the loudness of
+            // the whole sets a ripple running through it, so even a sparse sound moves as one body.
+            var energy = 0f
+            for (i in 0 until points) {
+                val l = shown[max(0, i - 1)]; val r = shown[min(points - 1, i + 1)]
+                val l2 = shown[max(0, i - 2)]; val r2 = shown[min(points - 1, i + 2)]
+                smooth[i] = (l2 + 3 * l + 4 * shown[i] + 3 * r + r2) / 12f
+                energy += shown[i]
+            }
+            energy /= points
+            val t = tick.longValue / 1e9f
             for (k in 0 until n) {
                 val band = if (k < points) points - 1 - k else k - points
                 xs[k] = size.width * k / (n - 1f)
                 // The edges rest on the line so the shape ends softly.
                 val edge = kotlin.math.sin(Math.PI * k / (n - 1)).toFloat()
-                ys[k] = base - base * .94f * shown[band] * (.35f + .65f * edge)
+                val ripple = energy * (.5f + .5f * kotlin.math.sin(k * .42f - t * 3.1f)) * (.6f + .4f * kotlin.math.sin(k * .17f + t * 1.3f))
+                ys[k] = base - base * .94f * min(1f, smooth[band] * .85f + ripple * .55f) * (.25f + .75f * edge)
             }
             top.reset()
             top.moveTo(xs[0], ys[0])

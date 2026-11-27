@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -69,10 +70,12 @@ func TestPlayingSettings(t *testing.T) {
 		code int
 		want takeover.Prefs
 	}{
-		{`{"after":true}`, 200, takeover.Prefs{Artist: true, After: true, Hours: 3}},
-		{`{"artist":false,"hours":0}`, 200, takeover.Prefs{After: true}},
-		{`{"hours":25}`, 400, takeover.Prefs{After: true}},
-		{`{"hours":-1}`, 400, takeover.Prefs{After: true}},
+		{`{"hours":4}`, 200, takeover.Prefs{Single: true, Pool: "library", Hours: 4}},
+		{`{"single":false,"hours":0}`, 200, takeover.Prefs{Pool: "library"}},
+		{`{"pool":"favorites"}`, 200, takeover.Prefs{Pool: "favorites"}},
+		{`{"pool":"online"}`, 400, takeover.Prefs{Pool: "favorites"}},
+		{`{"hours":25}`, 400, takeover.Prefs{Pool: "favorites"}},
+		{`{"hours":-1}`, 400, takeover.Prefs{Pool: "favorites"}},
 	} {
 		if rec := call(h, "PUT", "/api/playing", tok, c.body); rec.Code != c.code {
 			t.Fatal(c.body, rec.Code, rec.Body)
@@ -96,5 +99,57 @@ func TestDeviceHush(t *testing.T) {
 	}
 	if b := call(h, "GET", "/api/devices", tok, "").Body.String(); !strings.Contains(b, `"hush": "normal"`) {
 		t.Fatal(b)
+	}
+}
+
+// Only an artist, an album, the favourites or a playlist is a list of its own; anything else,
+// the few songs shown at random among them, goes on with the library at random.
+func TestPicksAndSingleSongsGoOnAtRandom(t *testing.T) {
+	s, _ := newServer(t)
+	ctx := context.Background()
+	rows := make([]store.TrackRow, 0, 40)
+	for i := range 40 {
+		title := fmt.Sprintf("歌%d", i+1)
+		rows = append(rows, store.TrackRow{Path: title + ".flac", Title: title, Artist: "测试歌手"})
+	}
+	if err := s.Store.SaveTracks(ctx, 1, rows, nil); err != nil {
+		t.Fatal(err)
+	}
+	s.Library = library.New(t.TempDir(), s.Store, s.Log)
+	if err := s.Library.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	all := s.Library.RandomIDs(100)
+	picks := []int64{all[3], all[5]}
+	_, ids, ok := s.collect(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil), "picks", "", "", picks)
+	if !ok || len(ids) != len(all) || !slices.Equal(ids[:2], picks) {
+		t.Fatal("picks did not go on with the library", len(ids), ids[:2])
+	}
+	seen := map[int64]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			t.Fatal("twice", id)
+		}
+		seen[id] = true
+	}
+	one := s.withRandom(all[7])
+	if len(one) != len(all) || one[0] != all[7] || slices.Contains(one[1:], all[7]) {
+		t.Fatal("a single song did not go on with the library", len(one))
+	}
+	// The settings decide for every output at once: nothing follows, or the favourites do.
+	if err := takeover.SavePrefs(ctx, s.Store, takeover.Prefs{Pool: "library", Hours: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.withRandom(all[7]); len(got) != 1 {
+		t.Fatal("followed although turned off", len(got))
+	}
+	if _, ids, _ := s.collect(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil), "picks", "", "", picks); !slices.Equal(ids, picks) {
+		t.Fatal("picks followed although turned off", ids)
+	}
+	if err := takeover.SavePrefs(ctx, s.Store, takeover.Prefs{Single: true, Pool: "favorites", Hours: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.withRandom(all[7]); len(got) != len(all) { // no favourites: the library still follows
+		t.Fatal("nothing followed without favourites", len(got))
 	}
 }

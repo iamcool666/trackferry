@@ -19,6 +19,7 @@ type Flow struct {
 	Device     string         `json:"device,omitempty"`
 	CommandID  int64          `json:"command_id,omitempty"`
 	Said       string         `json:"said"`
+	By         string         `json:"by,omitempty"`          // the browser that put it on: 客厅 iPad
 	UpstreamMS int64          `json:"upstream_ms,omitempty"` // Xiaomi understood the words
 	SeenMS     int64          `json:"seen_ms"`
 	Intent     any            `json:"intent,omitempty"`
@@ -204,6 +205,24 @@ func (h *Hub) Begin(f Flow) *Trace {
 	}
 	h.send("flow", &f)
 	return &Trace{h, &f}
+}
+
+// MarkBy names the browser that put on what a speaker's newest flow plays.
+func (h *Hub) MarkBy(dev, by string) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := len(h.flows) - 1; i >= 0; i-- {
+		if f := h.flows[i]; f.DeviceID == dev {
+			if f.By != by {
+				f.By, f.UpdatedMS = by, time.Now().UnixMilli()
+				h.send("flow", f)
+			}
+			return
+		}
+	}
 }
 
 // Trace writes to one flow. A nil Trace does nothing.

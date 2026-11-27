@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -46,10 +47,52 @@ func hashToken(token string) []byte {
 	return h[:]
 }
 
-// CreateSession stores a session for token until expires.
-func (s *Store) CreateSession(ctx context.Context, token string, expires time.Time) error {
-	_, err := s.db.ExecContext(ctx, "INSERT INTO sessions(token_hash, created_at, expires_at) VALUES (?, ?, ?)",
-		hashToken(token), ts(time.Now()), ts(expires))
+// CreateSession stores a session for token until expires. name is what the browser is called;
+// when another live session already goes by it, a number is added: "iPhone 2".
+func (s *Store) CreateSession(ctx context.Context, token string, expires time.Time, name string) error {
+	name = s.FreeName(ctx, name)
+	_, err := s.db.ExecContext(ctx, "INSERT INTO sessions(token_hash, created_at, expires_at, name) VALUES (?, ?, ?, ?)",
+		hashToken(token), ts(time.Now()), ts(expires), name)
+	return err
+}
+
+// FreeName is name, or name with a number when a signed-in browser already goes by it.
+func (s *Store) FreeName(ctx context.Context, name string) string {
+	if name == "" {
+		return ""
+	}
+	taken := map[string]bool{}
+	rows, err := s.rd.QueryContext(ctx, "SELECT name FROM sessions WHERE expires_at >= ?", ts(time.Now()))
+	if err != nil {
+		return name
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil {
+			taken[n] = true
+		}
+	}
+	out := name
+	for i := 2; taken[out]; i++ {
+		out = fmt.Sprintf("%s %d", name, i)
+	}
+	return out
+}
+
+// SessionName is what the browser holding token is called; "" when it is not signed in.
+func (s *Store) SessionName(ctx context.Context, token string) (string, error) {
+	var name string
+	err := s.rd.QueryRowContext(ctx, "SELECT name FROM sessions WHERE token_hash = ?", hashToken(token)).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return name, err
+}
+
+// RenameSession changes what the browser holding token is called.
+func (s *Store) RenameSession(ctx context.Context, token, name string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE sessions SET name = ? WHERE token_hash = ?", name, hashToken(token))
 	return err
 }
 

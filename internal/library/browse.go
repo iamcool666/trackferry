@@ -372,6 +372,17 @@ func (l *Library) RandomIDs(n int) []int64 {
 	return out[:min(n, len(out))]
 }
 
+// RandomFavoriteIDs draws songs of the favourites to come after one that ended, or of the whole
+// library when nothing is a favourite.
+func (l *Library) RandomFavoriteIDs(n int) []int64 {
+	out := l.FavoriteIDs()
+	if len(out) == 0 {
+		return l.RandomIDs(n)
+	}
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out[:min(n, len(out))]
+}
+
 // ArtistIDs are the songs of an artist that are worth playing one after another.
 func (l *Library) ArtistIDs(name string) []int64 {
 	x := l.index()

@@ -69,3 +69,4 @@
 .roots small { color: var(--ink3); } .roots small.warn { color: var(--warn, #e0b060); } .roots small.bad { color: var(--bad, #e07060); }
 .roots details { flex-basis: 100%; font-size: 14px; color: var(--ink3); } .roots details ul { margin: 6px 0 0; padding-left: 18px; } .roots details li { overflow-wrap: anywhere; }
 .howto pre { margin: 10px 0; padding: 10px 14px; border-radius: 6px; background: rgb(246 243 236 / .07); overflow-x: auto; }
+.device-now { margin: 0 0 14px; color: var(--ink2); } .device-now b { color: var(--ink); font-weight: 560; }

@@ -27,7 +27,7 @@ import androidx.media3.session.MediaSessionService
 class PlaybackService : MediaSessionService() {
     companion object {
         // Activity and service share a process. Large catalogs stay out of Binder bundles.
-        internal var playCatalog: ((List<NasTrack>, Int) -> Boolean)? = null
+        internal var playCatalog: ((List<NasTrack>, Int, Boolean) -> Boolean)? = null
             private set
         internal var stopPlayback: (() -> Unit)? = null
             private set
@@ -51,7 +51,7 @@ class PlaybackService : MediaSessionService() {
         remote = TvRemote(applicationContext,player,scope).also { it.begin() }
         session = MediaSession.Builder(this, player).setCallback(Controls()).build()
         stopPlayback = { player.pause(); player.stop() }
-        playCatalog = { tracks, index ->
+        playCatalog = { tracks, index, goesOn ->
             val nas = NasPlayback.connection
             if (nas == null || tracks.size > MAX_QUEUE || index !in tracks.indices) false
             else {
@@ -60,24 +60,30 @@ class PlaybackService : MediaSessionService() {
                 player.prepare()
                 player.play()
                 drift?.cancel()
-                // A song put on alone goes on with random songs, as in the browser, not into silence.
-                if (media.size == 1) drift = scope.launch { goOn(player, nas, media.single().mediaId, tracks.single()) }
+                // What was not picked as a whole goes on with random songs, as everywhere else, not into silence.
+                if (goesOn) drift = scope.launch { goOn(player, nas, media.first().mediaId) }
                 true
             }
         }
     }
 
-    /** Adds the songs after a lone one; tries again a few times so a slow server does not end the music. */
-    private suspend fun goOn(player: ExoPlayer, nas: NasConnection, entry: String, alone: NasTrack) {
-        for (attempt in 0 until 4) {
-            if (player.mediaItemCount != 1 || player.getMediaItemAt(0).mediaId != entry || NasPlayback.connection !== nas) return
+    /** Keeps random songs coming after the list for as long as it is the one on, as the browser does;
+     *  a slow or unreachable server is tried again rather than ending the music. */
+    private suspend fun goOn(player: ExoPlayer, nas: NasConnection, first: String) {
+        var fails = 0
+        while (true) {
+            if (NasPlayback.connection !== nas || player.mediaItemCount == 0 || player.getMediaItemAt(0).mediaId != first) return
+            if (player.mediaItemCount - player.currentMediaItemIndex > 4 || player.mediaItemCount >= MAX_QUEUE) { delay(5_000); continue }
             try {
-                val more = withContext(Dispatchers.IO) { nas.drift() }.filter { it.id != alone.id || alone.online.isNotEmpty() }
-                if (player.mediaItemCount != 1 || player.getMediaItemAt(0).mediaId != entry) return
-                if (more.isNotEmpty()) { player.addMediaItems(more.map { it.mediaItem(true) }); return }
+                val more = withContext(Dispatchers.IO) { nas.drift() }
+                if (player.mediaItemCount == 0 || player.getMediaItemAt(0).mediaId != first) return
+                val had = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId.split('/').getOrNull(1) }
+                val add = more.map { it.mediaItem(true) }.filter { had.add(it.mediaId.split('/').getOrNull(1)) }
+                if (add.isNotEmpty()) player.addMediaItems(add.take(MAX_QUEUE - player.mediaItemCount))
+                fails = 0
+                delay(if (add.isEmpty()) 30_000L else 1_000L) // a library smaller than the draw has nothing new
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { /* tried again below */ }
-            delay(3_000L * (attempt + 1))
+            catch (_: Exception) { fails++; delay(3_000L * minOf(fails, 10)) }
         }
     }
 

@@ -19,6 +19,7 @@ import { playOn } from '../playback';
 import { stopLabel } from '../route';
 import { activeTV, useTVOutputs } from '../tv';
 import { useBackdrop } from '../stage/Stage';
+import { tookNote } from '../took';
 
 type Nav = (p: Place, from?: Element | null) => void;
 /** A song that can be sent, wherever it is from. */
@@ -104,7 +105,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
         ? { single: { source: 'track', track_id: s.track.id }, song: trackHere(s.track) }
         : { single: { source: 'online', id: s.key, title: s.title, artist: s.artist }, song: onlineHere(s.online!) }, how);
       if (result === 'queued') say({ tone: 'ok', text: `《${s.title}》已排到${how === 'next' ? '下一首' : '队尾'}` });
-      else if (result === 'started' && output) say({ tone: 'ok', text: tv ? `${output} 已确认播放` : `已送往${output}` });
+      else if (result === 'started' && output) say({ tone: 'ok', text: tv ? `${output} 已确认播放` : `已送往${output}${tookNote()}` });
       if (result) remember(s);
     } catch (e) {
       const x = e as ApiError;
@@ -117,7 +118,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
   const send = async (collection: Collection, name: string) => {
     setBusy(name);
     try {
-      if (await playOn(target, { collection }) && output) say({ tone: 'ok', text: `${name}已送往${output}` });
+      if (await playOn(target, { collection }) && output) say({ tone: 'ok', text: `${name}已送往${output}${tookNote()}` });
     } catch (e) { say({ tone: 'bad', text: (e as Error).message }); } finally { setBusy(''); }
   };
 

@@ -18,7 +18,7 @@ export interface TVCommand { action: 'load' | 'insert' | 'play' | 'pause' | 'sto
 export interface TVResult { id: string; state: 'pending' | 'done' | 'failed' | 'superseded'; message?: string }
 
 export interface HomeStatus { enabled: boolean; has_token: boolean; connected: number }
-export interface Playing { artist: boolean; after: boolean; hours: number }
+export interface Playing { single: boolean; pool: 'library' | 'favorites'; hours: number }
 export type Hush = 'normal' | 'strong' | 'wait';
 export interface OnlineSong { key: string; source: 'kuwo' | 'kugou' | 'migu' | 'netease'; title: string; artist: string; album?: string; cover?: string; duration_ms: number; restricted: boolean; note?: string }
 /** Covers found online for the library: how far it is. */
@@ -31,7 +31,7 @@ export type Single = { source: 'track'; track_id: number } | { source: 'online';
 export type Sendable = ((Collection | { source: 'picks'; track_ids: number[] }) & { track_id?: number }) | Single;
 export type Press = 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'mode' | 'volume' | 'wake' | 'seek';
 export type PlayMode = 'loop' | 'shuffle' | 'one';
-export interface Controls { state: 'playing' | 'paused' | 'idle'; volume: number | null; mode: PlayMode | ''; queue: { list: string; at: number; total: number; next: string[] } | null }
+export interface Controls { state: 'playing' | 'paused' | 'idle'; volume: number | null; mode: PlayMode | ''; queue: { list: string; at: number; total: number; next: string[]; by?: string } | null }
 
 /** A song that comes: where it stands on the list, or which wish it is. */
 export interface Coming { wish?: number; at: number; id: number; title: string; artist: string; cover?: string; duration_ms?: number }
@@ -398,7 +398,7 @@ export const api = {
   tech: (ref: { track?: number; online?: string }, signal?: AbortSignal) => request<SongTech>('GET', `/api/tech?${ref.track ? `track=${ref.track}` : `online=${encodeURIComponent(ref.online ?? '')}`}`, undefined, signal),
   versions: (title: string, artist: string, fresh = false, signal?: AbortSignal) => request<{ versions: SongVersion[] }>('GET', `/api/versions?${new URLSearchParams({ title, artist, ...(fresh ? { fresh: '1' } : {}) })}`, undefined, signal),
   speakerHandoff: (id: string, signal?: AbortSignal) => request<{ run_id: number; items: TVRef[]; tracks: TVTrack[]; index: number; position_ms: number; mode: PlayMode }>('GET', `/api/devices/${encodeURIComponent(id)}/handoff`, undefined, signal),
-  speakerReceive: (id: string, items: TVRef[], index: number, position_ms: number, signal?: AbortSignal) => request<{ run_id: number }>('POST', `/api/devices/${encodeURIComponent(id)}/handoff`, { items, index, position_ms }, signal),
+  speakerReceive: (id: string, items: TVRef[], index: number, position_ms: number, signal?: AbortSignal) => request<{ run_id: number; took?: string }>('POST', `/api/devices/${encodeURIComponent(id)}/handoff`, { items, index, position_ms }, signal),
   speakerHandoffPause: (id: string, run_id: number, signal?: AbortSignal) => request<void>('POST', `/api/devices/${encodeURIComponent(id)}/handoff/pause`, { run_id }, signal),
   tvOutputs: (signal?: AbortSignal) => request<{ devices: TVOutput[]; now_ms?: number; pairing?: { id: string; name: string } | null }>('GET', '/api/tv/outputs', undefined, signal),
   tvSnapshot: (id: string, signal?: AbortSignal) => request<TVSnapshot>('GET', `/api/tv/outputs/${encodeURIComponent(id)}/snapshot`, undefined, signal),
@@ -488,10 +488,12 @@ export const api = {
   setHome: (enabled: boolean) => request<HomeStatus>('PUT', '/api/home', { enabled }),
   homeToken: () => request<{ token: string }>('POST', '/api/home/token'),
   setHush: (id: string, hush: Hush) => request<Device>('PATCH', `/api/devices/${encodeURIComponent(id)}`, { hush }),
-  play: (id: string, what: Sendable, signal?: AbortSignal) => request<TakeoverRun>('POST', `/api/devices/${encodeURIComponent(id)}/play`, what, signal),
+  play: (id: string, what: Sendable, signal?: AbortSignal) => request<TakeoverRun & { took?: string }>('POST', `/api/devices/${encodeURIComponent(id)}/play`, what, signal),
   queueSong: (id: string, what: Single, where: 'next' | 'last', signal?: AbortSignal) => request<{ queued?: boolean }>('POST', `/api/devices/${encodeURIComponent(id)}/play`, { ...what, [where]: true }, signal),
   playing: () => request<Playing>('GET', '/api/playing'),
   setPlaying: (p: Partial<Playing>) => request<Playing>('PUT', '/api/playing', p),
+  me: () => request<{ name: string }>('GET', '/api/me'),
+  rename: (name: string) => request<{ name: string }>('PUT', '/api/me', { name }),
   favorites: (from = 0) => request<{ tracks: Track[] | null; total: number }>('GET', `/api/library/favorites?from=${from}`),
   playlists: () => request<{ playlists: Playlist[]; linked?: boolean }>('GET', '/api/library/playlists'),
   playlist: (guid: string) => request<{ name: string; tracks: Track[]; total: number }>('GET', `/api/library/playlists/${encodeURIComponent(guid)}`),

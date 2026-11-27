@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"trackferry/internal/library"
 	"trackferry/internal/live"
 	"trackferry/internal/routing"
 	"trackferry/internal/store"
@@ -29,9 +30,10 @@ type queue struct {
 	dev, hardware, list string
 	ids                 []int64
 	pos                 int
-	turn                int  // which start is the current one
-	fails               int  // songs in a row that did not play
-	web                 bool // sent from the page, so watching is enough
+	turn                int    // which start is the current one
+	fails               int    // songs in a row that did not play
+	web                 bool   // sent from the page, so watching is enough
+	by                  string // the browser that asked for it: 客厅 iPad; empty for Xiao AI
 	until               time.Time
 
 	order []int64        // the list as it was given
@@ -192,7 +194,8 @@ type Queue struct {
 	List  string   `json:"list"` // empty: a single song
 	At    int      `json:"at"`
 	Total int      `json:"total"`
-	Next  []string `json:"next"` // asked for by hand, to come first
+	Next  []string `json:"next"`         // asked for by hand, to come first
+	By    string   `json:"by,omitempty"` // the browser that put it on
 }
 
 // Queue tells what plays on a speaker; nil when no song of ours does.
@@ -211,7 +214,29 @@ func (d *Dispatcher) Queue(dev string) *Queue {
 	for _, w := range q.wishes {
 		out.Next = append(out.Next, w.Title)
 	}
+	out.By = q.by
 	return out
+}
+
+// By is the browser that put on what plays on a speaker; "" when nothing of ours plays or
+// Xiao AI was asked.
+func (d *Dispatcher) By(dev string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if q := d.queues[dev]; q != nil {
+		return q.by
+	}
+	return ""
+}
+
+// Tag marks what plays on a speaker as put on by a browser.
+func (d *Dispatcher) Tag(dev, by string) {
+	d.mu.Lock()
+	if q := d.queues[dev]; q != nil {
+		q.by = by
+	}
+	d.mu.Unlock()
+	d.Live.MarkBy(dev, by)
 }
 
 // Why there is no other song.
@@ -503,25 +528,29 @@ func (d *Dispatcher) queued(dev string) *queue {
 
 // Playing settings.
 const (
-	SettingArtist = "play.artist" // an artist's other songs follow: on (default) | off
-	SettingAfter  = "play.after"  // random songs follow a single one: on | off (default)
+	SettingSingle = "play.single" // random songs follow what was not picked as a whole: on (default) | off
+	SettingPool   = "play.pool"   // where they are drawn from: library (default) | favorites
 	SettingHours  = "play.hours"  // how long songs follow on their own; 0: no limit
 )
 
 // DefaultHours ends a list nobody listens to any more.
 const DefaultHours = 3
 
-// Prefs is how songs follow one another.
+// Prefs is how songs follow one another, the same on every output. An artist's, an album's, the
+// favourites' or a playlist's songs follow one of them; what follows anything else is set here.
 type Prefs struct {
-	Artist bool `json:"artist"`
-	After  bool `json:"after"`
-	Hours  int  `json:"hours"`
+	Single bool   `json:"single"` // random songs follow a single song, the picks, "play some music"
+	Pool   string `json:"pool"`   // library | favorites
+	Hours  int    `json:"hours"`
 }
 
 // LoadPrefs reads the settings.
 func LoadPrefs(ctx context.Context, st *store.Store) Prefs {
 	get := func(k string) string { v, _ := st.Setting(ctx, k); return v }
-	p := Prefs{Artist: get(SettingArtist) != "off", After: get(SettingAfter) == "on", Hours: DefaultHours}
+	p := Prefs{Single: get(SettingSingle) != "off", Pool: "library", Hours: DefaultHours}
+	if get(SettingPool) == "favorites" {
+		p.Pool = "favorites"
+	}
 	if n, err := strconv.Atoi(get(SettingHours)); err == nil {
 		p.Hours = n
 	}
@@ -530,14 +559,25 @@ func LoadPrefs(ctx context.Context, st *store.Store) Prefs {
 
 // SavePrefs stores the settings.
 func SavePrefs(ctx context.Context, st *store.Store, p Prefs) error {
-	sw := func(b bool) string {
-		if b {
-			return "on"
-		}
-		return "off"
+	single := "on"
+	if !p.Single {
+		single = "off"
 	}
-	return errors.Join(st.SetSetting(ctx, SettingArtist, sw(p.Artist)), st.SetSetting(ctx, SettingAfter, sw(p.After)),
+	return errors.Join(st.SetSetting(ctx, SettingSingle, single), st.SetSetting(ctx, SettingPool, p.Pool),
 		st.SetSetting(ctx, SettingHours, strconv.Itoa(p.Hours)))
+}
+
+// Following draws what follows a song that was not picked as a whole, as the settings say: nothing
+// when that is off. Every output asks this, so they all go on alike.
+func Following(ctx context.Context, st *store.Store, lib *library.Library, n int) []int64 {
+	p := LoadPrefs(ctx, st)
+	switch {
+	case !p.Single:
+		return nil
+	case p.Pool == "favorites":
+		return lib.RandomFavoriteIDs(n)
+	}
+	return lib.RandomIDs(n)
 }
 
 // follow has ids play one after another on a speaker, the first of which is about to be
@@ -554,7 +594,7 @@ func (d *Dispatcher) follow(q *queue) func(End) {
 // afterwards is how many random songs are drawn to follow a single one.
 const afterwards = 500
 
-// After looks after a single song: random ones follow it if that is wanted, it repeats if the
+// After looks after a single song: random songs follow it as the settings say, it repeats if the
 // speaker is set to that, and it can be skipped. rt is for a song that is not in the library;
 // its track is 0.
 func (d *Dispatcher) After(dev, hardware string, track int64, rt *routing.Route, web bool) func(End) {
@@ -562,7 +602,7 @@ func (d *Dispatcher) After(dev, hardware string, track int64, rt *routing.Route,
 		return nil
 	}
 	q := &queue{dev: dev, hardware: hardware, ids: []int64{track}, web: web, solo: true, first: rt}
-	if d.Random != nil && LoadPrefs(context.Background(), d.Store).After {
+	if d.Random != nil {
 		for _, id := range d.Random(afterwards) {
 			if id != track {
 				q.ids = append(q.ids, id)
@@ -806,7 +846,10 @@ func (d *Dispatcher) finished(q *queue, n int) {
 
 // play starts a song of a queue. over: the one before it has ended, so nothing needs silencing.
 func (d *Dispatcher) play(ctx context.Context, q *queue, rt *routing.Route, over bool) error {
-	tr := d.Live.Begin(live.Flow{Kind: "push", DeviceID: q.dev, Device: d.name(q.dev), Said: rt.Label()})
+	d.mu.Lock()
+	by := q.by
+	d.mu.Unlock()
+	tr := d.Live.Begin(live.Flow{Kind: "push", DeviceID: q.dev, Device: d.name(q.dev), Said: rt.Label(), By: by})
 	t, _, err := d.TrackOf(rt, tr)
 	if err != nil {
 		tr.Done("准备音频失败")
@@ -1009,6 +1052,16 @@ func (d *Dispatcher) Receive(ctx context.Context, dev store.Device, items []Item
 		}
 		q.ids[i] = -int64(i + 1)
 		q.outside[q.ids[i]] = it
+	}
+	if len(items) == 1 && d.Random != nil { // a song alone goes on as anywhere else
+		for _, id := range d.Random(afterwards) {
+			if id != q.ids[0] {
+				q.ids = append(q.ids, id)
+			}
+		}
+		if len(q.ids) > 1 {
+			q.list, q.solo = "接着随机放", false
+		}
 	}
 	var rt *routing.Route
 	if id := q.ids[index]; id > 0 {

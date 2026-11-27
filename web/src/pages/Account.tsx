@@ -9,6 +9,7 @@ import { SourceIcon } from '../components/SourceIcon';
 import { useInstall } from '../pwa';
 import { Signature } from '../components/Signature';
 import { Playing } from '../components/Playing';
+import { ThisDevice } from '../components/ThisDevice';
 import { Sources } from '../components/Sources';
 import { useBackdrop } from '../stage/Stage';
 import { LinkAccount } from '../components/LinkAccount';
@@ -118,6 +119,7 @@ export function Account({ account, build, startScanning, onChanged, onLogout }: 
       </Setting>
 
       <Sources onLight={sourceLight} />
+      <ThisDevice />
       <Playing />
       <HomeAssistant onLight={homeLight} />
       <PasswordCard onLogout={onLogout} />

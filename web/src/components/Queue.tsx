@@ -25,7 +25,7 @@ function End({ onSeen }: { onSeen: () => void }) {
 function Songs({ rows, busy, onPlay, onRemove, order }: { rows: Row[]; busy: string; onPlay: (r: Row) => void; onRemove: (r: Row) => void; order?: (row: Row) => ReactNode }) {
   return <>{rows.map((r) => (
     <li key={r.key} className={busy === r.key ? 'q-busy' : ''}>
-      <button type="button" className="q-song" disabled={!!busy} onClick={() => onPlay(r)} aria-label={`现在放${r.title}`}><Cover cover={r.cover} title={r.title} artist={r.artist} /><span><b>{r.title}</b><small>{[r.artist, length(r.duration_ms), r.automatic && '自动续播'].filter(Boolean).join('　')}</small></span></button>
+      <button type="button" className="q-song" disabled={!!busy} onClick={() => onPlay(r)} aria-label={`现在放${r.title}`}><Cover cover={r.cover} title={r.title} artist={r.artist} /><span><b>{r.title}</b><small>{[r.artist, length(r.duration_ms), r.automatic && '随机接上'].filter(Boolean).join('　')}</small></span></button>
       {order?.(r)}
       <button type="button" className="q-x" disabled={!!busy} onClick={() => onRemove(r)} aria-label={`移出${r.title}`}>{busy === r.key ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>}</button>
     </li>
@@ -122,7 +122,7 @@ export function HereQueue({ onClose }: { onClose: () => void }) {
   const pending = h.songs.slice(h.i + 1);
   const rest = h.mode === 'loop' && !editing ? [...pending, ...h.songs.slice(0, h.i)] : pending;
   return <Frame where={hereName} list={h.list} mode={h.mode} total={h.songs.length} busy="" error={null} loading={false} playing={h.on} now={on} wishes={[]} songs={rest.slice(0, n)}
-    tools={<div className="q-tools"><label><input type="checkbox" checked={h.autoplay} onChange={(event) => here.autoplay(event.target.checked)} /> 自动续播</label>{pending.length > 1 && <button type="button" aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? '完成排序' : '调整顺序'}</button>}{h.songs.length > 1 && <button type="button" onClick={() => { here.clearUpcoming(); setEditing(false); }}>仅保留当前曲目</button>}</div>}
+    tools={<div className="q-tools">{pending.length > 1 && <button type="button" aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? '完成排序' : '调整顺序'}</button>}{h.songs.length > 1 && <button type="button" onClick={() => { here.clearUpcoming(); setEditing(false); }}>仅保留当前曲目</button>}</div>}
     order={editing ? (row) => {
       const at = pending.findIndex((item) => item.key === row.key);
       return <span className="q-order"><button type="button" disabled={at <= 0} aria-label={`上移${row.title}`} onClick={() => here.moveUpcoming(row.key, -1)}>↑</button><button type="button" disabled={at >= pending.length - 1} aria-label={`下移${row.title}`} onClick={() => here.moveUpcoming(row.key, 1)}>↓</button></span>;

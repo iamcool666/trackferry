@@ -11,6 +11,7 @@ import { Sheet } from './Sheet';
 import { SpeakerChip } from './SpeakerChip';
 import { activeTV, useTVOutputs } from '../tv';
 import { useToast } from './Toast';
+import { tookNote } from '../took';
 
 const icon = (d: string) => <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 
@@ -32,7 +33,7 @@ export function TrackMenu({ track, from, devices, navigate }: { track: Track; fr
     try {
       const result = await playOn(target, what, how);
       if (result === 'queued') say({ tone: 'ok', text: `《${track.title}》已排到${output}${how === 'next' ? '的下一首' : '的队尾'}` });
-      else if (result === 'started' && (d || tv)) say({ tone: 'ok', text: `已送往${output}` });
+      else if (result === 'started' && (d || tv)) say({ tone: 'ok', text: `已送往${output}${tookNote()}` });
     } catch (e) { say({ tone: 'bad', text: (e as Error).message }); }
   };
   const d = list.find((x) => x.device_id === target);

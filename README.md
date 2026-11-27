@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/hero.svg" alt="TrackFerry" width="100%">
+<img src="docs/images/hero.webp" alt="TrackFerry：掌控喇叭的神" width="100%">
 
 <br>
 
@@ -12,6 +12,7 @@
 <img src="https://img.shields.io/badge/amd64_%7C_arm64_%7C_armv7-142c38?style=flat-square&logo=linux&logoColor=white" alt="amd64、arm64 与 armv7">
 <img src="https://img.shields.io/badge/Go-142c38?style=flat-square&logo=go" alt="Go">
 <img src="https://img.shields.io/badge/React-142c38?style=flat-square&logo=react" alt="React">
+<img src="https://img.shields.io/badge/Android_TV-142c38?style=flat-square&logo=android&logoColor=b7e4c7" alt="Android TV">
 <img src="https://img.shields.io/badge/SQLite-142c38?style=flat-square&logo=sqlite&logoColor=8fd3d6" alt="SQLite">
 
 <br><br>
@@ -26,98 +27,114 @@
 
 <br>
 
-TrackFerry 让小爱音箱播放你 NAS 上的歌，也把手机变成音箱的遥控器。
+<p align="center">家里会出声的东西，从今天起听同一个人的。</p>
 
-说一句“播放潮汐来信”，它先查飞牛音乐，再查酷我、酷狗、咪咕、网易云，都没有时小爱照常回答。不想开口，就在手机上搜，点一下，音箱就响。
+<br>
 
-音箱不用刷机，NAS 上跑一个 Docker 容器就行。
+TrackFerry 住在你的 NAS 里。小爱音箱、电视、DLNA 功放、Chromecast，还有你手里这台手机，只要能出声，它就能让那里响起你想听的那首歌。
 
-<img src="docs/images/route.svg" alt="点歌流程" width="100%">
+歌先从自己的地盘找：飞牛音乐，或者一个普通的音乐文件夹。找不到，再去酷我、酷狗、咪咕、网易云要免费完整版。都没有，才把话筒还给小爱。
 
-## 📱 掌上遥控器
+歌还会跟着你走。厨房音箱上放到一半，坐到沙发上在“切换到”里点一下电视，它就从刚才那一秒接着唱；出门前再接回手机，后面排着的歌一首不丢。一首歌，在家里每一只喇叭之间接力。
 
-<p align="center">
-  <img src="docs/images/m-home.webp" alt="此刻" width="24%">
-  <img src="docs/images/m-search.webp" alt="搜索" width="24%">
-  <img src="docs/images/m-song.webp" alt="一首歌的操作" width="24%">
-  <img src="docs/images/m-library.webp" alt="曲库" width="24%">
-</p>
+你只管开口，或者点一下。
 
-网页就是遥控器，添加到主屏后全屏打开，像一个应用。
+## 全能力拓扑
 
-- **此刻**：歌词跟着唱，切歌、拖音量、换播放方式、收藏、加入歌单、换一台音箱，都在一屏里
-- **搜索**：歌、歌手、专辑和在线源一起搜，点一下就放，也可以排到下一首
-- **曲库**：封面墙、收藏、歌单、新专辑和歌手，每一处都能整张、整单连播
-- **随手可控**：在哪一页都有正在放的那条，暂停和切歌不用回去
-- **液态玻璃**：底栏折射背后的水面，整页颜色跟着正在放的封面走
+<img src="docs/images/topology.svg" alt="全能力拓扑：四种发号施令的方式，三处歌源，五类出声设备，都经过 NAS 上的 TrackFerry" width="100%">
 
-<p align="center">
-  <img src="docs/images/m-album.webp" alt="专辑" width="24%">
-  <img src="docs/images/m-online.webp" alt="在线搜索" width="24%">
-  <img src="docs/images/m-speakers.webp" alt="音箱" width="24%">
-  <img src="docs/images/m-missing.webp" alt="缺歌清单" width="24%">
-</p>
+三端各司其职：
 
-## 📺 电视端
+- **服务端**：NAS 上一个 Docker 容器，是大脑。听小爱的对话、找歌、推流、记账，网页关了它照样干活。
+- **网页**：手机、平板、电脑打开就能用，装到主屏就是一个应用。遥控所有喇叭，也能自己出声。
+- **电视端**：Android TV 应用。大屏点歌、看歌词，自己就是一只喇叭，也能被手机遥控、和手机互相接力。
 
-Android 电视应用已发布，在 [Releases](https://github.com/madrays/trackferry/releases) 下载（32 位 armeabi-v7a、64 位 arm64-v8a）。电视在同一局域网里自动找到 NAS，网页上输入配对码就连上，之后曲库、搜索、歌词都在电视上，声音从电视出；网页也能把歌推到电视或从电视接回来。说明见 [docs/android-tv.md](docs/android-tv.md)。
+## 一句话，三秒钟
+
+<img src="docs/images/desk-flow.webp" alt="流转：一句“放一首成都”经过曲库、四个在线源，最终在客厅音箱出声" width="100%">
+
+对客厅的小爱说“放一首成都”。
+
+曲库里没有。四家在线源同时问，网易云先给出完整版。TrackFerry 先让小爱安静，再把歌推给音箱，等音箱真的取了流、报了在播，最后把音量还回去。从听到这句话到第一声出来，3.1 秒。
+
+这一路经过了谁、为什么选这首、每一步花了多久，都画在“流转”页上，事后还能回放。小爱嘴快想抢在前奏前面说“好的”？有三种压法，按音箱选。
 
 ## 功能
 
+<img src="docs/images/hero.svg" alt="小爱点歌，曲库优先" width="100%">
+
 <table>
 <tr>
-<td width="33%" valign="top"><h3>🗣️ 开口点歌</h3>按歌名、歌手、专辑、歌单、收藏点歌。“换成林屿的版本”“换个版本”“收藏这首歌”都能接上，听错一个字也能按曲库纠正。</td>
-<td width="33%" valign="top"><h3>🎵 飞牛曲库</h3>同步歌曲、封面、歌词、收藏和歌单，收藏和加歌单会写回飞牛。支持访问码。没有飞牛音乐，也可以只读挂载音乐文件夹。</td>
-<td width="33%" valign="top"><h3>🌊 在线补歌</h3>曲库没有的歌，从酷我、酷狗、咪咕、网易云找免费完整版；登录自己的网易云账号，会员能完整听的也能放。每个来源都能单独关闭。</td>
+<td width="33%" valign="top"><h3>🗣️ 开口点歌</h3>歌名、歌手、专辑、歌单、收藏都能点。“换成林屿的版本”“换个版本”“收藏这首”也接得住，听错一个字会按曲库纠正。</td>
+<td width="33%" valign="top"><h3>🎵 自己的曲库</h3>飞牛音乐的歌、封面、歌词、收藏、歌单全同步，收藏和加歌单写回飞牛。没装飞牛，挂一个音乐文件夹也是完整曲库。</td>
+<td width="33%" valign="top"><h3>🌊 在线补歌</h3>曲库没有的，从酷我、酷狗、咪咕、网易云找免费完整版；登录自己的网易云，会员能听的也能放。每个来源单独开关。</td>
 </tr>
 <tr>
-<td valign="top"><h3>🔁 连续播放</h3>专辑、歌手、收藏、歌单一首接一首，可选随机、顺序、单曲循环。点完一首也能从曲库接着放，还能设最长时间。</td>
-<td valign="top"><h3>⏭️ 下一首放</h3>听着歌就能把想听的排在后面，不打断正在放的。说“下一首”“上一首”也行。</td>
-<td valign="top"><h3>⏯️ 断点续播</h3>听歌时和小爱说话，说完从刚才的位置继续。说了暂停就停下。</td>
+<td valign="top"><h3>📡 投放</h3>DLNA 和 Chromecast 设备直接出现在“切换到”里，由服务器驱动。设备掉线自动重连，被别的应用占着不硬抢。</td>
+<td valign="top"><h3>📺 电视端</h3>同一局域网里自动找到 NAS，输入配对码就连上。曲库、搜索、歌词都在大屏上，声音从电视出。</td>
+<td valign="top"><h3>🔀 接力</h3>正在放的歌，从音箱推到电视，从电视接回手机，接着刚才的位置放，后面排着的歌一首不丢。</td>
 </tr>
 <tr>
-<td valign="top"><h3>🤫 压住小爱</h3>普通、加强、等小爱说完，三种方式按音箱选，不让它的回答抢在歌前面。</td>
-<td valign="top"><h3>🔊 多台音箱</h3>每台各放各的，单独设为不接入、观察或接管。观察只显示会放什么，不出声。</td>
-<td valign="top"><h3>🐟 点歌流转</h3>一句话经过了哪里、为什么选这首、每一步用了多久，实时可看，也能回放。</td>
+<td valign="top"><h3>🎚️ 真实音质</h3>“此刻”页标的是实际取到的格式和码率，不是猜的。点一下看同一首歌的其他版本，从当前进度换过去。</td>
+<td valign="top"><h3>🔁 连续播放</h3>专辑、歌手、收藏、歌单整张放；点一首就从曲库随机接下去，音箱、网页、电视同一套规则。随机、顺序、单曲循环任选，还能设最长时间。</td>
+<td valign="top"><h3>⏭️ 下一首放</h3>想听的排到后面，不打断正在放的。说“下一首”“上一首”也行。</td>
 </tr>
 <tr>
-<td valign="top"><h3>📝 缺歌清单</h3>从线上放过、曲库里还没有的歌自动记下来，带点播次数，可导出；补进曲库后自动消失。</td>
-<td valign="top"><h3>🏠 Home Assistant</h3>音箱成为媒体播放器，状态实时推送，歌词、队列和控制都能接进自动化。</td>
-<td valign="top"><h3>⬆️ 一键更新</h3>页面里点一下就升级，更新包验签，起不来自动退回原版本。</td>
+<td valign="top"><h3>⏯️ 断点续播</h3>听歌时和小爱聊两句，聊完从刚才的位置接着放。说了暂停，就真的停。</td>
+<td valign="top"><h3>🤫 压住小爱</h3>普通、加强、等她说完，三种方式按音箱选。小爱负责听，TrackFerry 负责放。</td>
+<td valign="top"><h3>🔊 多台音箱</h3>每台各放各的，分别设为不接入、观察或接管。观察只记录会放什么，不出声，适合先试再交权。</td>
+</tr>
+<tr>
+<td valign="top"><h3>📝 缺歌清单</h3>线上放过、曲库还没有的歌自动记下，带点播次数，可导出。补进曲库后自己消失。</td>
+<td valign="top"><h3>🏠 Home Assistant</h3>每只音箱都是一个媒体播放器，状态实时推送，歌词、队列和控制都能接进自动化。</td>
+<td valign="top"><h3>⬆️ 一键更新</h3>设置页点一下就升级。更新包验签，新版本起不来自动退回旧版本。</td>
 </tr>
 </table>
 
 ## 界面
 
-<img src="docs/images/home.webp" alt="此刻" width="100%">
+### 📱 手机：口袋里的总控台
 
-### 🐟 流转
+<p align="center">
+  <img src="docs/images/m-home.webp" alt="此刻：歌词与真实音质" width="24%">
+  <img src="docs/images/m-search.webp" alt="搜索" width="24%">
+  <img src="docs/images/m-library.webp" alt="曲库" width="24%">
+  <img src="docs/images/m-speakers.webp" alt="音箱" width="24%">
+</p>
 
-| 曲库命中 | 在线查找 |
+<p align="center">
+  <img src="docs/images/m-flow.webp" alt="流转" width="24%">
+  <img src="docs/images/m-tv.webp" alt="电视和投放" width="24%">
+  <img src="docs/images/m-settings.webp" alt="设置" width="24%">
+  <img src="docs/images/m-versions.webp" alt="换个版本" width="24%">
+</p>
+
+- **此刻**：歌词跟着唱，切歌、拖进度、调音量、换播放方式、收藏、加歌单、换一只喇叭，都在一屏里
+- **搜索**：曲库和在线源一起搜，点一下就放，也能排到下一首
+- **曲库**：收藏、歌单、歌手、随手翻到的，每一处都能整张、整单连播
+- **音箱**：每台的模式、音量、队列和压住小爱的方式，一眼看完
+- **电视和投放**：配对电视，开关 DLNA 和 Chromecast；也能用浏览器自带的 AirPlay 或 Cast 把这台手机的声音送出去
+- **整页跟着封面变色**，底栏是会折射的液态玻璃。好看不算功能，但确实好看
+
+### 🖥️ 电脑：同一套，更宽
+
+| 此刻 | 曲库 |
 | :---: | :---: |
-| ![曲库命中](docs/images/flow.webp) | ![在线查找](docs/images/flow-online.webp) |
+| ![此刻](docs/images/desk-home.webp) | ![曲库](docs/images/desk-library.webp) |
 
-### 💿 曲库与搜索
+### 📺 电视：大屏也归它管
 
-| 曲库 | 专辑 |
+| 首页 | 正在播放 |
 | :---: | :---: |
-| ![曲库](docs/images/library.webp) | ![专辑](docs/images/album.webp) |
+| ![电视首页](docs/images/tv-home.webp) | ![电视正在播放](docs/images/tv-player.webp) |
 
-| 搜索 | 怎么说 |
-| :---: | :---: |
-| ![搜索](docs/images/search.webp) | ![怎么说](docs/images/say.webp) |
+电视应用在 [Releases](https://github.com/madrays/trackferry/releases) 下载：64 位盒子用 `trackferry-tv-<版本>-android-arm64-v8a.apk`，32 位用 `trackferry-tv-<版本>-android-armeabi-v7a.apk`（拿不准就用 32 位的，64 位盒子也能装），之后可以在设置页一键更新。说明见 [docs/android-tv.md](docs/android-tv.md)。
 
-### ⚙️ 音箱与设置
-
-| 音箱 | 设置 |
-| :---: | :---: |
-| ![音箱](docs/images/speakers.webp) | ![设置](docs/images/settings.webp) |
-
-<sub>截图使用演示数据。</sub>
+<sub>截图全部使用演示数据：歌是生成的，乐队是虚构的，音箱是模拟的。</sub>
 
 ## 快速开始
 
-准备一台装有 Docker 的 NAS（amd64 或 arm64；32 位 armv7 也有镜像，但还没在实机上测过），以及同一局域网内的小爱音箱。
+准备一台装有 Docker 的 NAS（amd64 或 arm64；32 位 armv7 也有镜像，但还没在实机上测过），以及同一局域网内的小爱音箱。没有小爱也能用，只当电视和投放的总控。
 
 **1. 下载部署文件**
 
@@ -147,17 +164,17 @@ docker exec trackferry /trackferry setup-code
 
 **5. 完成设置**
 
-打开 `http://<NAS 地址>:18561`，设置管理密码，登录小米账号和飞牛音乐。先把音箱设为“观察”，试过后再改成“接管”。
+打开 `http://<NAS 地址>:18561`，设置管理密码，登录小米账号和飞牛音乐（或挂好音乐文件夹）。先把音箱设为“观察”，看过流转觉得靠谱，再改成“接管”。
 
 **6. 装到手机**
 
 iPhone 用 Safari 打开，分享 → 添加到主屏幕。安卓和电脑见[装到手机或电脑桌面](docs/usage.md#装到手机或电脑桌面)。
 
 > [!IMPORTANT]
-> 接管前，先让 xiaomusic 等程序退出对这台音箱的控制。
+> 接管前，先让 xiaomusic 等程序退出对这台音箱的控制。一只喇叭只能有一个神。
 
 > [!TIP]
-> 管理页打不开或音箱不出声，多半是防火墙没有放行 TCP 18561。见[部署教程](docs/deployment.md#第四步放行端口)。
+> 管理页打不开或音箱不出声，多半是防火墙没放行 TCP 18561。用电视端还要放行 18562/TCP 和 5353/UDP，投放到 DLNA 还要放行 1900/UDP。见[部署教程](docs/deployment.md#第四步放行端口)。
 
 <details>
 <summary><b>更新</b></summary>
@@ -194,10 +211,11 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --build
 | 🚀 [部署教程](docs/deployment.md) | 🧭 [架构](docs/architecture.md) |
 | 🗣️ [使用说明](docs/usage.md) | 🔌 [接口](docs/api.md) |
 | 📱 [装到手机](docs/usage.md#装到手机或电脑桌面) | 🎧 [音箱的三种模式](docs/usage.md#音箱的三种模式) |
-| 🏠 [接入 Home Assistant](docs/homeassistant.md) | 🔁 [连续播放](docs/usage.md#连续播放) |
-| ⚙️ [配置](docs/configuration.md) | 🤝 [参与贡献](CONTRIBUTING.md) |
-| 🩺 [问题排查](docs/troubleshooting.md) | 📝 [更新记录](CHANGELOG.md) |
-| 🔐 [隐私与安全](docs/security.md) | 💛 [致谢](docs/credits.md) |
+| 📺 [电视端](docs/android-tv.md) | 🔁 [连续播放](docs/usage.md#连续播放) |
+| 🏠 [接入 Home Assistant](docs/homeassistant.md) | 🤝 [参与贡献](CONTRIBUTING.md) |
+| ⚙️ [配置](docs/configuration.md) | 📝 [更新记录](CHANGELOG.md) |
+| 🩺 [问题排查](docs/troubleshooting.md) | 💛 [致谢](docs/credits.md) |
+| 🔐 [隐私与安全](docs/security.md) | |
 
 ## 参与
 

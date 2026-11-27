@@ -43,7 +43,7 @@ func TestOpenMigratesAndPersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("first boot = %+v, want %+v", got, first)
 	}
 	v, err := s.SchemaVersion(ctx)
-	if err != nil || v != 12 {
+	if err != nil || v != 13 {
 		t.Fatalf("schema version = %d, %v", v, err)
 	}
 }

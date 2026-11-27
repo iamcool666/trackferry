@@ -12,7 +12,7 @@ import { EQ_BANDS, eqPreamp, eqPreset, eqWidth, type EQName } from './eq';
 
 export interface HereSong extends Slot { title: string; artist: string; album?: string; cover?: string; duration_ms: number; track_id?: number; online?: string; source?: OnlineSong['source']; automatic?: boolean }
 type New = Omit<HereSong, 'n'>;
-export interface Here { songs: HereSong[]; i: number; list: string; mode: PlayMode; on: boolean; waiting: boolean; at: number; since: number; total: number; drift: boolean; autoplay: boolean; seeking: number | null; seekable: MediaRange[]; buffered: MediaRange[]; volume: number; canVolume: boolean; canEQ: boolean; eq: EQName; said: { text: string; n: number } | null }
+export interface Here { songs: HereSong[]; i: number; list: string; mode: PlayMode; on: boolean; waiting: boolean; at: number; since: number; total: number; drift: boolean; seeking: number | null; seekable: MediaRange[]; buffered: MediaRange[]; volume: number; canVolume: boolean; canEQ: boolean; eq: EQName; said: { text: string; n: number } | null }
 
 const coarse = matchMedia('(pointer: coarse)').matches;
 export const hereName = '本机';
@@ -23,10 +23,9 @@ const QUEUE_KEY = `${KEY}.queue`;
 const KEPT = 300; // fallback if the whole list won't fit in browser storage
 let savedSongs: HereSong[] | undefined;
 let savedRevision: string | undefined;
-let s: Here = { songs: [], i: 0, list: '', mode: 'loop', on: false, waiting: false, at: 0, since: 0, total: 0, drift: false, autoplay: false, seeking: null, seekable: [], buffered: [], volume: 100, canVolume: false, canEQ: false, eq: 'flat', said: null };
+let s: Here = { songs: [], i: 0, list: '', mode: 'loop', on: false, waiting: false, at: 0, since: 0, total: 0, drift: false, seeking: null, seekable: [], buffered: [], volume: 100, canVolume: false, canEQ: false, eq: 'flat', said: null };
 try {
   const k = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-  if (typeof k?.autoplay === 'boolean') s.autoplay = k.autoplay;
   const queue = k?.revision && JSON.parse(localStorage.getItem(QUEUE_KEY) ?? 'null');
   const songs = queue?.revision === k?.revision && queue ? queue.songs : k?.songs;
   if (Array.isArray(songs) && songs[k.i]) {
@@ -45,7 +44,7 @@ export const hereNow = () => s;
 export const hereSounding = (x: Here): Sounding | null => hereSong(x) && { phase: x.seeking !== null || x.waiting ? 'resuming' : !x.on ? 'paused' : 'playing', at: x.at, since: x.since, seek: x.seekable.length > 0, read: where };
 
 function keep() {
-  const state = { i: s.i, list: s.list, drift: s.drift, autoplay: s.autoplay, mode: s.mode, volume: s.volume, at: Math.round(where()) };
+  const state = { i: s.i, list: s.list, drift: s.drift, mode: s.mode, volume: s.volume, at: Math.round(where()) };
   try {
     if (savedSongs !== s.songs) {
       const revision = `${Date.now()}-${Math.random()}`;
@@ -347,12 +346,12 @@ let filling: object | null = null;
 /** Songs of the library come after one that was put on alone, and after those. */
 async function drift() {
   const x = hereSong(s);
-  if (!s.autoplay || !s.drift || !x || s.songs.length - s.i > 4 || filling) return;
+  if (!s.drift || !x || s.songs.length - s.i > 4 || filling) return;
   const f = filling = {};
   const action = intent;
   try {
     const r = await api.hereList({ source: 'random' });
-    if (!s.autoplay || !s.drift || !hereSong(s) || action !== intent || f !== filling) return;
+    if (!s.drift || !hereSong(s) || action !== intent || f !== filling) return;
     const had = new Set(s.songs.map((y) => y.key));
     let n = Math.max(0, ...s.songs.map((y) => y.n));
     const more = r.songs.map(ofListed).filter((y) => !had.has(y.key) && had.add(y.key)).map((y) => ({ ...y, n: ++n, automatic: true }));
@@ -415,18 +414,6 @@ export const here = {
     beginSeek(audio, Math.max(0, Math.min(ms, end)));
   },
   mode(m: PlayMode) { set({ ...(m === 'one' ? {} : arrange(s, m)), mode: m }); keep(); },
-  autoplay(on: boolean) {
-    if (!on) {
-      filling = null;
-      const current = hereSong(s);
-      const songs = s.songs.filter((item) => !item.automatic || item === current);
-      set({ autoplay: false, songs, i: current ? songs.indexOf(current) : 0 });
-    } else {
-      set({ autoplay: true });
-      if (s.on) void drift();
-    }
-    keep();
-  },
   clearUpcoming() {
     newIntent();
     const current = hereSong(s);
@@ -514,14 +501,15 @@ export const onlineHere = (o: OnlineSong): New => ({ key: o.key, title: o.title,
 /** A song of a decision that was shown. */
 export const routeHere = (r: { track_id?: number; title?: string; artist?: string; album?: string; cover?: string; duration_ms?: number }): New => ofListed({ id: r.track_id!, title: r.title ?? '', artist: r.artist ?? '', album: r.album, cover: r.cover, duration_ms: r.duration_ms ?? 0 });
 
-export function playListHere(list: string, tracks: HereListed[], trackID?: number) {
+/** drift: the library at random follows the list, for songs that were not picked as a whole. */
+export function playListHere(list: string, tracks: HereListed[], trackID?: number, drift = false) {
   newIntent();
   const seen = new Set<number>();
   const songs = tracks.filter((x) => !seen.has(x.id) && seen.add(x.id)).map((x, n) => ({ ...ofListed(x), n }));
   if (!songs.length) throw new Error('这里面没有能放的歌');
   const i = trackID === undefined ? (s.mode === 'shuffle' ? Math.floor(Math.random() * songs.length) : 0) : songs.findIndex((x) => x.track_id === trackID);
   if (i < 0) throw new Error('这首已不在播放列表里，刷新后再试');
-  set({ list, drift: false, ...(s.mode === 'shuffle' ? arrange({ songs, i }, 'shuffle') : { songs, i }) });
+  set({ list, drift, ...(s.mode === 'shuffle' ? arrange({ songs, i }, 'shuffle') : { songs, i }) });
   lookAt('here');
   start(s.i);
 }
@@ -607,7 +595,7 @@ export function receiveHere(items: import('./api').TVTrack[], index: number, at:
     ...(item.online ? { key: item.online, online: item.online, title: item.title, artist: item.artist, duration_ms: item.duration_ms } : ofListed(item)),
     key: `${item.online || `t${item.id}`}@${n}`, n,
   }));
-  set({ songs, i: index, list: '', mode, drift: false });
+  set({ songs, i: index, list: '', mode, drift: songs.length < 2 });
   const current = element();
   return new Promise<void>((resolve, reject) => {
     let firstPosition: number | undefined;

@@ -411,8 +411,8 @@ func serve() error {
 		return err
 	}
 	router.Lists = fn
-	dispatcher.Next, dispatcher.Put, dispatcher.Random = router.Next, router.Put, lib.RandomIDs
-	router.ArtistQueue = func() bool { return takeover.LoadPrefs(ctx, st).Artist }
+	dispatcher.Next, dispatcher.Put = router.Next, router.Put
+	dispatcher.Random = func(n int) []int64 { return takeover.Following(ctx, st, lib, n) }
 	played := func(dev, title, artist string, track int64) {
 		dispatcher.Drop(dev) // a song sent by hand ends a list
 		dispatcher.Remember(dev, title, artist, track)

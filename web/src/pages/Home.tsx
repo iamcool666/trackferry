@@ -43,7 +43,7 @@ const narrow = matchMedia('(max-width: 760px)');
 /** A phone in the hand: one screen, the log in a sheet. */
 const usePhone = () => useSyncExternalStore((f) => { narrow.addEventListener('change', f); return () => narrow.removeEventListener('change', f); }, () => narrow.matches);
 
-const sentBy = (r: Route | null) => r?.list ? `连播${r.list}` : '从曲库推送';
+const sentBy = (r: Route | null, by?: string) => by ? [`${by} 点的`, r?.list && `连播${r.list}`].filter(Boolean).join('　') : r?.list ? `连播${r.list}` : '从曲库推送';
 
 function title(s: Scene) {
   if (s.route && s.route.decision !== 'native' && s.route.title) return s.route.title;
@@ -51,6 +51,9 @@ function title(s: Scene) {
 }
 
 /** The newest request, unless it left the song on the speaker playing. */
+/** The browser that put a pushed song on, as the live flow of its run tells. */
+const byOf = (flows: Flow[], run?: number) => (run ? flows.find((f) => f.run?.id === run)?.by : undefined);
+
 function headline(items: Scene[], flows: Flow[]): Scene | null {
   const first = items.findIndex((x) => x.route && x.route.decision !== 'native');
   const top = items[0] ?? null;
@@ -364,7 +367,7 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
                       {nat ? <span className="cover nat-cover">{c.command?.intent_kind === 'favorite' ? <HeartMark /> : <SourceIcon name="xiaomi" />}</span> : <Cover cover={c.route!.cover} title={c.route!.title ?? c.said} artist={c.route!.artist} />}
                       <span className="log-main">
                         <b>{nat ? c.said : c.route!.title}</b>
-                        <small>{nat ? (c.route?.reason || '由小爱处理') : [singer(c.route!.artist), c.said ? `“${c.said}”` : sentBy(c.route)].filter(Boolean).join('　')}</small>
+                        <small>{nat ? (c.route?.reason || '由小爱处理') : [singer(c.route!.artist), c.said ? `“${c.said}”` : sentBy(c.route, byOf(flows, c.run?.id))].filter(Boolean).join('　')}</small>
                       </span>
                       <span className="log-end"><i>{playing ? <span className="tag tag-ok">{phaseText[playing.phase]}</span> : out && out.tone !== 'ok' && out.text !== '已播放' && <span className={`tag tag-${out.tone}`}>{out.text}</span>}</i><span>{c.device}</span><b>{c.command?.intent_kind === 'favorite' ? '收藏' : <><SourceIcon name={nat ? 'xiaomi' : c.route!.source ?? 'library'} />{nat ? '小爱' : stopLabel[c.route!.source ?? 'library']}</>}</b></span>
                     </button>
@@ -386,12 +389,12 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
 
   return (
     <div className="home">
-      <section className={`scene ${words ? 'player' : ''} ${wide ? 'player-wide' : ''} ${many ? 'with-spks' : ''}`} onPointerDown={touch} onPointerMove={trail}>
+      <section className={`scene ${words ? 'player' : ''} ${wide ? 'player-wide' : ''} ${many ? 'with-spks' : ''} ${scene ? '' : 'idle'}`} onPointerDown={touch} onPointerMove={trail}>
         {phone && alerts.length > 0 && <div className="scene-alerts">{alerts.map((a) => <div key={a.text} className={`scene-alert ${a.tone}`} role={a.tone === 'error' ? 'alert' : 'status'}><span>{a.text}</span>{a.act && <button type="button" onClick={a.go}>{a.act}</button>}</div>)}</div>}
         <div className="raft" ref={raft}>{native && <Fish water mood={trying ? 'searching' : 'idle'} />}</div>
         <div className="words">
           <div className="title" key={`t${scene?.key}`}>
-          <p className="said">{isHere ? [`在${hereName}放`, h.list].filter(Boolean).join('　') : onTV ? `在${tv!.name}放` : scene ? <>{scene.said ? `“${scene.said}”` : sentBy(scene.route)}<span>{where}</span></> : ownDevice ? '从曲库或搜索里选一首' : '对音箱说“小爱同学，播放晴天”'}</p>
+          <p className="said">{isHere ? [`在${hereName}放`, h.list].filter(Boolean).join('　') : onTV ? `在${tv!.name}放` : scene ? <>{scene.said ? `“${scene.said}”` : sentBy(scene.route, byOf(flows, scene.run?.id))}<span>{where}</span></> : ownDevice ? '从曲库或搜索里选一首' : '对音箱说“小爱同学，播放晴天”'}</p>
           <h1 style={{ '--n': Math.max(3, [...t].reduce((a, c) => a + (c.charCodeAt(0) < 256 ? 0.55 : 1), 0)) } as React.CSSProperties}>{t}</h1>
           {!scene && <button className="link say-link" onClick={() => navigate({ page: ownDevice ? 'search' : 'say' })}>{ownDevice ? '去找歌' : '看看都能怎么说'}</button>}
           {r && !native && <p className="by">{[singer(r.artist), singer(r.album)].filter(Boolean).join('　')}</p>}

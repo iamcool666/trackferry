@@ -1,7 +1,6 @@
 package update
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -152,10 +151,8 @@ func (c *Checker) fetchTV(ctx context.Context, version, abi string) error {
 	if err := os.MkdirAll(t.dir, 0o700); err != nil {
 		return err
 	}
-	name := "trackferry-tv-" + version + "-" + abi + ".apk"
-	base := githubSite + "/" + c.Repo + "/releases/download/v" + version + "/" + name
-	var sig bytes.Buffer
-	if err := c.fetch(ctx, base+".sig", &sig, 1<<10, nil); err != nil {
+	base, sig, err := c.findAsset(ctx, version, TVAssets(version, abi))
+	if err != nil {
 		return tvMissing(err)
 	}
 	tmp := t.file(version, abi) + ".download"
@@ -181,7 +178,7 @@ func (c *Checker) fetchTV(ctx context.Context, version, abi string) error {
 	if err != nil {
 		return tvMissing(err)
 	}
-	signature := strings.TrimSpace(sig.String())
+	signature := strings.TrimSpace(sig)
 	if err := verify(version, "android/"+abi, hex.EncodeToString(h.Sum(nil)), signature); err != nil {
 		return err
 	}
@@ -202,7 +199,7 @@ func (c *Checker) fetchTV(ctx context.Context, version, abi string) error {
 }
 
 func tvMissing(err error) error {
-	if err != nil && strings.Contains(err.Error(), "docker compose") {
+	if errors.Is(err, errNoAsset) {
 		return errors.New("这个版本的 Release 里没有电视应用")
 	}
 	return err

@@ -60,7 +60,9 @@ Android 官方参考：[电视界面](https://developer.android.com/training/tv/
 
 ## 应用更新
 
-服务器版本就是电视应用应有的版本。发版时 `scripts/publish.sh` 构建两个正式包，确认它们由电视发版密钥签名，再用更新签名密钥给 `trackferry-tv-<版本>-<abi>.apk` 签 `android/<abi>` 平台的签名，一并上传到 Release。
+服务器版本就是电视应用应有的版本。发版时 `scripts/publish.sh` 构建两个正式包，确认它们由电视发版密钥签名，再用更新签名密钥给 `trackferry-tv-<版本>-android-<abi>.apk` 签 `android/<abi>` 平台的签名，一并上传到 Release。
+
+Release 里的文件统一叫 `trackferry-<版本>-<系统>-<架构>`：服务端 `trackferry-<版本>-linux-amd64`、`-linux-arm64`、`-linux-armv7`，电视端 `trackferry-tv-<版本>-android-<abi>.apk`，各带一个 `.sig`。1.9.0 以前用的旧名字（`trackferry-linux-<amd64|arm64|arm>`、`trackferry-tv-<版本>-<abi>.apk`）同一份文件也照传，那些版本的服务器按旧名字找更新；新版先找新名字，没有再找旧名字。
 
 1. 电视在「设置 → 应用更新」用 `GET /api/tv/v1/app?abi=` 询问。服务器版本较新时，按「更新」发送 `POST`，服务器开始从 Release 下载并核对签名。电视每 1.2 秒询问一次进度；服务器重启后忘了这项任务，电视会重新发起。
 2. 服务器报告就绪后，电视从 `GET /api/tv/v1/app/apk?abi=` 下载。响应头里的校验值必须和就绪时给出的相同，下载完再算一遍 SHA-256。不一致的文件会被删除。网络中断最多重试三次。

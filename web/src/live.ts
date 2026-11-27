@@ -3,7 +3,7 @@ import type { Intent, Layer, LayerName, Route, TakeoverRun, WatchState } from '.
 
 export interface Flow {
   id: number; kind: 'command' | 'test' | 'try' | 'push'; device_id?: string; device?: string; command_id?: number;
-  said: string; upstream_ms?: number; seen_ms: number; intent?: Intent;
+  said: string; by?: string; upstream_ms?: number; seen_ms: number; intent?: Intent;
   layers: Partial<Record<LayerName, Layer>>; route?: Route; route_ms?: number; run?: TakeoverRun;
   audio?: { bytes: number; total?: number; requests: number; open: boolean; at_ms: number };
   player?: { status: number; position: number; duration: number; volume: number; ours: boolean; elapsed: number; phase?: 'playing' | 'paused' | 'talking' | 'resuming'; seek?: boolean; at_ms: number };

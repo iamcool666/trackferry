@@ -152,6 +152,11 @@ func (s *Server) tvCommand(w http.ResponseWriter, r *http.Request) {
 			c.Items = append(c.Items, tv.Ref{ID: id})
 		}
 	}
+	if req.Source == "" && c.Action == "load" && len(c.Items) == 1 && c.Index == 0 { // a song alone goes on as anywhere else
+		for _, id := range s.withRandom(c.Items[0].ID)[1:] {
+			c.Items = append(c.Items, tv.Ref{ID: id})
+		}
+	}
 	if c.Action == "load" || c.Action == "insert" {
 		if len(c.Items) == 0 || c.Action == "load" && (c.Index < 0 || c.Index >= len(c.Items)) || c.Action == "insert" && (len(c.Items) != 1 || c.QueueMode != "next" && c.QueueMode != "last") {
 			writeError(w, 409, "bad_queue", "没有可播放的队列，或选中的曲目已移走")
