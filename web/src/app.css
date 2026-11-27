@@ -806,6 +806,8 @@ button.quality { cursor: pointer; } button.quality:hover { color: var(--ink2); b
    they are, an interlude shown as three dots that fill while it lasts. */
 .sheet-words.follow:not(.free) li { transition: opacity .5s var(--out), transform .6s var(--out), color .4s, filter .5s; }
 @media (prefers-reduced-motion: no-preference) { .sheet-words.follow:not(.free) li:not(.now):not(.next) { filter: blur(calc(var(--d) * .42px)); } }
+/* iOS WebKit draws flickering coloured seams at the edges of blurred lines inside the masked, scrolling sheet; there the lines fade by opacity only. */
+@supports (-webkit-touch-callout: none) { .sheet-words.follow li, .sheet-words.follow:not(.free) li:not(.now):not(.next) { filter: none; } }
 .sheet-words.follow li.now .w { background: linear-gradient(90deg, #fff calc(var(--p, 1) * 100% - .5em), rgb(255 255 255 / .52) calc(var(--p, 1) * 100% + .5em)); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .sheet-words li.next { opacity: .9; }
 .sheet-words .rest { display: block; height: 1em; line-height: 1em; margin: .1em 0 .25em; transform-origin: 0 50%; animation: rest-breathe 2.6s ease-in-out infinite; }
