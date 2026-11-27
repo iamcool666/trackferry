@@ -130,7 +130,7 @@ func (s *Server) hereList(w http.ResponseWriter, r *http.Request) {
 	var list string
 	var ids []int64
 	if q.Get("source") == "random" { // what comes after a song that was put on alone
-		list, ids = "接着随机放", s.following(30)
+		list, ids = "接着随机放", s.following(fullList)
 	} else {
 		var ok bool
 		if list, ids, ok = s.collect(w, r, q.Get("source"), q.Get("id"), q.Get("name"), nil); !ok {

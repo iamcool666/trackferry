@@ -1,0 +1,15 @@
+# Published image with ffmpeg, for speakers that cannot play FLAC: the "无损转 MP3" switch.
+# Same binary as build/Dockerfile.release; alpine only to carry ffmpeg (much larger than scratch).
+FROM alpine:3.22
+ARG TARGETARCH
+RUN apk add --no-cache ffmpeg ca-certificates tzdata
+COPY dist/${TARGETARCH}/trackferry /trackferry
+# The shared volume takes this directory's owner.
+COPY --chown=10001:10001 build/run /run/trackferry
+# Starts as root only to hand /data over, then becomes PUID:PGID (10001 unless set).
+# Not updated from the settings page: pull the image again. Only on Docker Hub, not in the Release.
+ENV TRACKFERRY_CONFIG=/data/config.yaml TZ=Asia/Shanghai TRACKFERRY_IMAGE=ffmpeg
+EXPOSE 18561
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/trackferry", "healthcheck"]
+ENTRYPOINT ["/trackferry"]
+CMD ["serve"]

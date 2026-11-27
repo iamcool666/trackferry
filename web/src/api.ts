@@ -2,7 +2,7 @@
 // CSRF header the server requires for cookie sessions.
 
 export interface UpdateStatus { enabled: boolean; current: string; latest?: string; newer: boolean; url?: string; notes?: string; published?: string; checked_ms?: number; error?: string;
-  proxy?: string; installable?: boolean; failed?: string; install?: { phase: 'download' | 'check' | 'restart'; done?: number; total?: number; error?: string } }
+  proxy?: string; installable?: boolean; image?: string; failed?: string; install?: { phase: 'download' | 'check' | 'restart'; done?: number; total?: number; error?: string } }
 
 export interface TVDevice { id: string; name: string; paired_at: string }
 
@@ -59,6 +59,12 @@ export interface Device {
   /** Xiao AI can be silenced through Mi Home. */
   can_hush: boolean;
   hush: Hush;
+  /** Lossless songs reach it as MP3. */
+  mp3: boolean;
+  /** ffmpeg is there, so mp3 can be turned on. */
+  can_mp3: boolean;
+  /** What this model's firmware does differently. */
+  notes: { kind: string; text: string }[];
 }
 
 export type SyncOutcome = 'ok' | 'empty' | 'relink_required' | 'error';
@@ -172,6 +178,8 @@ export interface Route {
   artist?: string;
   path?: string;
   track_id?: number;
+  /** Key of the online song, to play it again. */
+  online?: string;
   cover?: string;
   album?: string;
   duration_ms?: number;
@@ -488,6 +496,7 @@ export const api = {
   setHome: (enabled: boolean) => request<HomeStatus>('PUT', '/api/home', { enabled }),
   homeToken: () => request<{ token: string }>('POST', '/api/home/token'),
   setHush: (id: string, hush: Hush) => request<Device>('PATCH', `/api/devices/${encodeURIComponent(id)}`, { hush }),
+  setMP3: (id: string, mp3: boolean) => request<Device>('PATCH', `/api/devices/${encodeURIComponent(id)}`, { mp3 }),
   play: (id: string, what: Sendable, signal?: AbortSignal) => request<TakeoverRun & { took?: string }>('POST', `/api/devices/${encodeURIComponent(id)}/play`, what, signal),
   queueSong: (id: string, what: Single, where: 'next' | 'last', signal?: AbortSignal) => request<{ queued?: boolean }>('POST', `/api/devices/${encodeURIComponent(id)}/play`, { ...what, [where]: true }, signal),
   playing: () => request<Playing>('GET', '/api/playing'),

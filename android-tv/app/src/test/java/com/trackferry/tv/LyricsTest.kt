@@ -37,4 +37,12 @@ class LyricsTest {
         val lines = parseLyrics("[00:5.00]<00:05.00>逐<00:05.40>字\n[00:07.00]")
         assertEquals(listOf(LyricLine(5000, "逐字", 7000)), lines)
     }
+
+    @Test
+    fun plainWordsShowUnlitAsInTheBrowser() {
+        val lines = readLyrics("\uFEFF[ti:晴天]\n故事的小黄花\n\n从出生那年就飘着\n")
+        assertEquals(listOf("故事的小黄花", "从出生那年就飘着"), lines.map { it.text })
+        assertEquals(-1, lineIndex(lines, 60_000))
+        assertEquals(2, readLyrics("[00:01.00]一\n[00:02.00]二").size)
+    }
 }

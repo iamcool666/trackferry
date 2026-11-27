@@ -259,6 +259,12 @@ function element() {
   a.addEventListener('timeupdate', () => {
     if (!loaded) return;
     const t = a.currentTime;
+    // Self-healing: the element plays on from a jump whose end was never told (it happens on
+    // iOS); the clock goes by the element again, so the words do not stay stuck or run off.
+    if (s.seeking !== null && wanted === null && !a.seeking && !a.paused && a.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && lastLoad === loadID && t > last && t - last < 1) {
+      clearTimeout(seekTimer);
+      mark({ at: nativePosition(a), seeking: null, waiting: false });
+    }
     if (!a.seeking && s.seeking === null && wanted === null) lastMediaTime = nativePosition(a);
     if (lastLoad === loadID && s.waiting && s.seeking === null && !a.paused && !a.seeking && wanted === null && t > last && t - last < 1) mark({ waiting: false });
     last = t;

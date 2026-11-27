@@ -260,10 +260,10 @@ internal class NasConnection(val link: TvLink) {
         }
     fun lyrics(id: Long): TrackLyrics {
         val response = get("lyrics/$id")
-        return TrackLyrics(parseLyrics(response.optString("lyrics")), response.optLong("offset_ms"))
+        return TrackLyrics(readLyrics(response.optString("lyrics")), response.optLong("offset_ms"))
     }
     /** Lyrics a platform has for an online song; its offset is kept on this screen only. */
-    fun onlineLyrics(key: String) = TrackLyrics(parseLyrics(get("online-lyrics", "key" to key).optString("lyrics")), 0)
+    fun onlineLyrics(key: String) = TrackLyrics(readLyrics(get("online-lyrics", "key" to key).optString("lyrics")), 0)
     fun artwork(id: String, large: Boolean): Bitmap? {
         // A platform's cover is named by its address, so its id runs long.
         if (!id.matches(Regex("[A-Za-z0-9_-]{1,700}"))) return null

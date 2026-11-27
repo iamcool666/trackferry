@@ -35,8 +35,9 @@ for arch in amd64 arm64 arm; do
     -ldflags "-s -w -X main.version=$v -X main.commit=${commit:0:7} -X main.repo=$repo" \
     -o dist/$arch/trackferry ./cmd/trackferry
 done
+# bx builds the plain image; with DOCKERFILE=build/Dockerfile.ffmpeg, the one carrying ffmpeg.
 bx() {
-  docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -f build/Dockerfile.release --provenance=false \
+  docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 -f "${DOCKERFILE:-build/Dockerfile.release}" --provenance=false \
     --label org.opencontainers.image.source="https://github.com/$repo" \
     --label org.opencontainers.image.version="$v" \
     --label org.opencontainers.image.revision="$commit" \
@@ -58,7 +59,7 @@ tv() {
 }
 step 电视应用
 tv
-if [ "${1:-}" = --build ]; then bx -t "$image:$v"; exit; fi
+if [ "${1:-}" = --build ]; then bx -t "$image:$v"; DOCKERFILE=build/Dockerfile.ffmpeg bx -t "$image:$v-ffmpeg"; exit; fi
 
 step 镜像
 git fetch -q origin main
@@ -72,6 +73,15 @@ else
 fi
 # Always: an earlier run may have stopped between the image and these.
 docker buildx imagetools create -t "$image:${v%.*}" -t "$image:latest" "$image:$v"
+# The same binary with ffmpeg, for the "无损转 MP3" switch: tags $v-ffmpeg, x.y-ffmpeg, ffmpeg.
+if out="$(docker buildx imagetools inspect "$image:$v-ffmpeg" --format '{{json .Image}}' 2>&1)"; then
+  grep -q "$commit" <<< "$out" || { echo "$image:$v-ffmpeg 已由别的提交发布，版本号不能重用" >&2; exit 1; }
+  echo "$image:$v-ffmpeg 已在 Docker Hub"
+else
+  grep -qiE "not found|does not exist|insufficient_scope|denied" <<< "$out" || { echo "$out" >&2; exit 1; }
+  DOCKERFILE=build/Dockerfile.ffmpeg bx -t "$image:$v-ffmpeg" --push
+fi
+docker buildx imagetools create -t "$image:${v%.*}-ffmpeg" -t "$image:ffmpeg" "$image:$v-ffmpeg"
 
 step "标签与 Release"
 git rev-parse -q --verify "refs/tags/$tag" >/dev/null || scripts/release-notes.sh "$v" | git tag -a "$tag" --cleanup=whitespace -F -

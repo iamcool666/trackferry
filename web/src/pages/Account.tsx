@@ -202,7 +202,9 @@ function About({ build, onLight }: { build: { version: string; commit: string };
           <h3><b className="num">{up.latest}</b>{up.published && <small>{new Date(up.published).toLocaleDateString('zh-CN')}发布</small>}{up.url && <a href={up.url} target="_blank" rel="noreferrer">更新说明</a>}</h3>
           {up.notes && <pre className="st-notes">{up.notes.replace(/^#+ +/gm, '').replace(/^[-*] +/gm, '· ')}</pre>}
           <Install up={up} running={build.version} onStatus={setUp} />
-          <div><p>{up.installable && '也可以用命令更新：'}在 compose.yaml 所在目录执行下面的命令，数据不受影响。镜像写了固定版本号的，先改成 latest 或 <span className="num">{up.latest}</span>：</p><pre>docker compose pull &amp;&amp; docker compose up -d</pre></div>
+          {up.image === 'ffmpeg'
+            ? <div><p>你用的是带 ffmpeg 的镜像，不提供页面内更新，只能拉新镜像：在 compose.yaml 所在目录执行下面的命令，数据不受影响。镜像写了固定版本号的，先改成 ffmpeg 或 <span className="num">{up.latest}-ffmpeg</span>：</p><pre>docker compose pull &amp;&amp; docker compose up -d</pre></div>
+            : <div><p>{up.installable && '也可以用命令更新：'}在 compose.yaml 所在目录执行下面的命令，数据不受影响。镜像写了固定版本号的，先改成 latest 或 <span className="num">{up.latest}</span>：</p><pre>docker compose pull &amp;&amp; docker compose up -d</pre></div>}
         </div>
       )}
       <div className="st-sig"><Signature /></div>

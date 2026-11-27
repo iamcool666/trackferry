@@ -646,7 +646,11 @@ func (d *Dispatcher) PlayList(ctx context.Context, dev store.Device, list string
 			continue
 		}
 		q := &queue{dev: dev.DeviceID, hardware: dev.Hardware, list: list, ids: ids, pos: at + i, order: order, web: true}
-		return d.push(ctx, dev, rt, func() func(End) { return d.follow(q) })
+		run, err := d.push(ctx, dev, rt, func() func(End) { return d.follow(q) })
+		if err == nil {
+			d.warm(q)
+		}
+		return run, err
 	}
 	return store.TakeoverRun{}, errors.New(list + "里的歌暂时读不到")
 }
@@ -672,7 +676,7 @@ func (d *Dispatcher) pushAt(ctx context.Context, dev store.Device, rt *routing.R
 		return store.TakeoverRun{}, err
 	}
 	tr := d.Live.Begin(live.Flow{Kind: "push", DeviceID: dev.DeviceID, Device: d.name(dev.DeviceID), Said: rt.Label()})
-	t, ok, err := d.TrackOf(rt, tr)
+	t, ok, err := d.TrackOf(dev.DeviceID, rt, tr)
 	if err == nil && !ok {
 		err = errors.New("没有可放的音频")
 	}
@@ -850,7 +854,7 @@ func (d *Dispatcher) play(ctx context.Context, q *queue, rt *routing.Route, over
 	by := q.by
 	d.mu.Unlock()
 	tr := d.Live.Begin(live.Flow{Kind: "push", DeviceID: q.dev, Device: d.name(q.dev), Said: rt.Label(), By: by})
-	t, _, err := d.TrackOf(rt, tr)
+	t, _, err := d.TrackOf(q.dev, rt, tr)
 	if err != nil {
 		tr.Done("准备音频失败")
 		return errors.New("准备音频失败：" + err.Error())
@@ -879,6 +883,7 @@ func (d *Dispatcher) play(ctx context.Context, q *queue, rt *routing.Route, over
 		tr.Done("没能开始")
 		return errors.New("没能开始：" + err.Error())
 	}
+	d.warm(q)
 	return nil
 }
 
@@ -902,7 +907,7 @@ func (d *Dispatcher) skip(q *queue, c store.Command, hardware string, tr *live.T
 	if !ok {
 		return nil, Request{}, false
 	}
-	t, _, err := d.TrackOf(rt, tr)
+	t, _, err := d.TrackOf(q.dev, rt, tr)
 	if err != nil {
 		return nil, Request{}, false
 	}
@@ -1078,5 +1083,9 @@ func (d *Dispatcher) Receive(ctx context.Context, dev store.Device, items []Item
 			return store.TakeoverRun{}, err
 		}
 	}
-	return d.pushAt(ctx, dev, rt, func() func(End) { return d.follow(q) }, at, true)
+	run, err := d.pushAt(ctx, dev, rt, func() func(End) { return d.follow(q) }, at, true)
+	if err == nil {
+		d.warm(q)
+	}
+	return run, err
 }

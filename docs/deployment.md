@@ -146,6 +146,8 @@ docker compose pull && docker compose up -d
 
 标签有三种：`latest` 跟随最新版，是默认值；`1.2` 只跟随 1.2 的小修复；`1.2.0` 固定不变。
 
+另有带 ffmpeg 的镜像，给音箱的“无损转 MP3”用：`ffmpeg`、`1.10-ffmpeg`、`1.10.0-ffmpeg`，对应关系同上。它只在 Docker Hub 上，设置页不会一键更新它，要用上面的命令更新。详见[配置](configuration.md#无损转-mp3)。
+
 ## 从源码构建
 
 想自己修改，或拉不到镜像时：

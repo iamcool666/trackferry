@@ -161,6 +161,8 @@ type Server struct {
 	// returns the URL extension (".flac") too; a nil Opener means it has no such song.
 	Remote       func(rel string) (Opener, string)
 	RemotePrefix string
+	// MP3 converts lossless songs for speakers that ask for it; nil without ffmpeg.
+	MP3 *MP3
 
 	mu      sync.Mutex
 	items   map[string]*item

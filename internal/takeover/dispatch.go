@@ -2,6 +2,7 @@ package takeover
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"trackferry/internal/routing"
 	"trackferry/internal/store"
 	"trackferry/internal/stream"
+	"trackferry/internal/xiaomi"
 )
 
 // Decider routes a command (routing.Router).
@@ -25,6 +27,8 @@ type Decider interface {
 type Streams interface {
 	Song(rel, label string, d time.Duration) (*stream.Handle, error)
 	Proxy(open stream.Opener, label string, d time.Duration) (*stream.Handle, error)
+	SongMP3(ctx context.Context, rel, label string, d time.Duration) (*stream.Handle, error)
+	WarmMP3(rel string)
 }
 
 // Starter runs takeovers (Engine).
@@ -60,6 +64,8 @@ type Dispatcher struct {
 	Live    *live.Hub // optional
 	// Name of a speaker, for the web UI; optional.
 	Name func(deviceID string) string
+	// MP3 is whether lossless songs reach this speaker converted to MP3; optional.
+	MP3 func(deviceID string) bool
 
 	mu   sync.Mutex
 	gens map[string]*generation
@@ -186,13 +192,40 @@ func (d *Dispatcher) begin(ctx context.Context, dev string) (context.Context, fu
 }
 
 // TrackOf prepares a route's audio. ok is false when Xiao AI keeps the request.
-func (d *Dispatcher) TrackOf(rt *routing.Route, tr *live.Trace) (Track, bool, error) {
+func (d *Dispatcher) TrackOf(dev string, rt *routing.Route, tr *live.Trace) (Track, bool, error) {
 	var h *stream.Handle
 	var err error
 	length := time.Duration(rt.DurationMS) * time.Millisecond
 	switch {
 	case rt.Match() != nil:
-		h, err = d.Streams.Song(rt.Path, rt.Label(), length)
+		if d.MP3 != nil && d.MP3(dev) {
+			ctx, cancel := context.WithTimeout(context.Background(), mp3Wait)
+			start := time.Now()
+			h, err = d.Streams.SongMP3(ctx, rt.Path, rt.Label(), length)
+			cancel()
+			switch {
+			case err == nil:
+				took := time.Since(start)
+				if took > time.Second {
+					d.Log.Info("转码　无损转成 MP3", "歌", rt.Label(), "用时ms", took.Milliseconds())
+					rt.Because("转码", "无损转成 320k MP3，等了 %.1f 秒", took.Seconds())
+				} else {
+					rt.Because("转码", "用转好的 320k MP3")
+				}
+			case errors.Is(err, stream.ErrNotLossless):
+			default:
+				d.Log.Warn("转码　没转成，改放原文件", "歌", rt.Label(), "原因", err)
+				rt.Because("转码", "没转成，放原文件：%v", err)
+			}
+		}
+		if h == nil || err != nil {
+			h, err = d.Streams.Song(rt.Path, rt.Label(), length)
+		}
+		if h != nil && h.Lossless() && d.Store != nil {
+			if dv, e := d.Store.Device(context.Background(), dev); e == nil && xiaomi.NoFLAC(dv.Hardware) {
+				rt.Because("格式", "这个型号放不了无损原文件：不出声就在音箱页打开“无损转 MP3”，或换在线 MP3 版本")
+			}
+		}
 	case rt.Found() != nil:
 		if h, err = d.Streams.Proxy(d.Open(rt), rt.Label(), length); err == nil && d.Keep != nil {
 			go d.keep(h, rt)
@@ -208,6 +241,31 @@ func (d *Dispatcher) TrackOf(rt *routing.Route, tr *live.Trace) (Track, bool, er
 	// speaker asking for the first byte again.
 	return Track{URL: h.URL, Label: h.Label, Fetched: h.Fetched(), Restarted: h.Restarted(),
 		Length: length, Lost: h.Lost, Resume: Resumer(h, tr), Seekable: h.Seekable()}, true, nil
+}
+
+// mp3Wait is the longest a speaker waits for a conversion before it gets the original file.
+// The conversion goes on and is kept for the next time.
+var mp3Wait = 90 * time.Second
+
+// warm converts the song after the current one of q while it plays.
+func (d *Dispatcher) warm(q *queue) {
+	if d.MP3 == nil || !d.MP3(q.dev) {
+		return
+	}
+	d.mu.Lock()
+	var id int64
+	if len(q.wishes) > 0 {
+		id = q.wishes[0].Track
+	} else if len(q.ids) > 1 {
+		id = q.ids[(q.pos+1)%len(q.ids)]
+	}
+	d.mu.Unlock()
+	if id <= 0 || d.Next == nil {
+		return
+	}
+	if rt, ok := d.song(q, id); ok && rt.Match() != nil {
+		d.Streams.WarmMP3(rt.Path)
+	}
 }
 
 // How long a song must be wanted before it is kept. Tests shorten it.
@@ -435,7 +493,7 @@ func (d *Dispatcher) OnCommand(ctx context.Context, c store.Command, hardware, m
 		stage(store.StageObserved, rt.Decision)
 		return
 	}
-	t, ok, err := d.TrackOf(rt, tr)
+	t, ok, err := d.TrackOf(c.DeviceID, rt, tr)
 	if err != nil {
 		rt.Reason, rt.Decision = "准备音频失败："+err.Error(), routing.Native
 		d.Log.Warn("点歌　准备音频失败", "记录", c.ID, "原因", err)

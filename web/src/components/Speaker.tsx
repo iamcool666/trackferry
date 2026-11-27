@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError, type Controls, type Device, type Hush, type Mode, type PlayMode, type Press, type WatchStatus } from '../api';
 import { here, hereName, useHere } from '../here';
-import { onDeck, useLive } from '../live';
+import { onDeck, songOf, useLive } from '../live';
 import { Deck, playModes } from './Deck';
 import { HereQueue, SpeakerQueue } from './Queue';
 import { useToast } from './Toast';
 import { Sheet } from './Sheet';
-import { EQ_PRESETS, eqPreset } from '../eq';
+import { EQ_BANDS, EQ_PRESETS, eqPreset, type EQName } from '../eq';
 import { Pick } from './Pick';
+import { Takeover } from './Takeover';
 import { deviceSubtitle, deviceTitle, isOnline, modeHint, modeLabel } from '../copy';
 
 const modes: Mode[] = ['off', 'observe', 'takeover'];
@@ -79,6 +80,24 @@ function HushPick({ device, onChange }: { device: Device; onChange: (d: Device) 
   );
 }
 
+/** Lossless songs converted to MP3 on the NAS, for models that cannot play them. */
+function MP3Switch({ device, onChange }: { device: Device; onChange: (d: Device) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = async (on: boolean) => {
+    setBusy(true);
+    try { onChange(await api.setMP3(device.device_id, on)); setError(null); } catch (e) { setError((e as ApiError).message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="hush spk-mp3">
+      <span>无损转 MP3</span>
+      <label className="switch"><input type="checkbox" role="switch" checked={device.mp3} disabled={busy} onChange={(e) => void set(e.target.checked)} aria-label={`${deviceTitle(device)}无损转 MP3`} /><span /></label>
+      <small>{device.mp3 ? '无损歌先在 NAS 上转成 320k MP3 再放，第一次要等几秒；转不成就放原文件' : '音箱放无损不出声时打开'}</small>
+      {error && <p className="field-error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
 /** The speaker itself; its ring shows what it is doing. */
 function Body({ mode, state }: { mode: Mode; state?: WatchStatus['state'] }) {
   const on = mode !== 'off' && state === 'listening';
@@ -97,31 +116,54 @@ function Body({ mode, state }: { mode: Mode; state?: WatchStatus['state'] }) {
   );
 }
 
-export function SpeakerRow({ device, watch, onChange }: { device: Device; watch?: WatchStatus; onChange: (d: Device) => void }) {
-  const [open, setOpen] = useState(() => innerWidth > 760 || device.mode === 'off' || watch?.state === 'error');
+/** What a speaker is up to, in a few words for its row. */
+function rowStatus(device: Device, watch: WatchStatus | undefined, song: string | undefined): { text: string; bad?: boolean } | null {
+  if (!device.in_account) return { text: '已不在账号中' };
+  if (device.mode === 'off') return null;
+  if (watch?.state === 'error') return { text: `读不到音箱，会自动重试${watch.error ? `：${watch.error}` : ''}`, bad: true };
+  if (song) return { text: `在放 ${song}` };
+  return watch ? { text: watchText[watch.state] } : null;
+}
+
+/** One speaker as one row of the list; its settings open over the page. */
+export function SpeakerRow({ device, watch, onChange, tests }: { device: Device; watch?: WatchStatus; onChange: (d: Device) => void; tests: boolean }) {
+  const [open, setOpen] = useState(false);
+  const f = onDeck(useLive().flows, device.device_id);
+  const song = f?.player?.phase === 'playing' ? songOf(f)?.title : undefined;
+  const status = rowStatus(device, watch, song);
+  const mode: Mode = device.in_account ? device.mode : 'off';
   return (
-    <li className={`speaker mode-${device.mode} ${device.in_account ? '' : 'speaker-gone'}`}>
-      <Body mode={device.in_account ? device.mode : 'off'} state={watch?.state} />
-      <div className="speaker-info">
-        <h2>{deviceTitle(device)}</h2>
-        <p className="speaker-meta">
-          {device.in_account
-            ? <span className={isOnline(device) ? 'on-dot' : 'off-dot'}>{isOnline(device) ? '在线' : '离线'}</span>
-            : <span className="off-dot">已不在账号中</span>}
-          <span>{deviceSubtitle(device)}</span>
-        </p>
-        {device.in_account && device.mode !== 'off' && <Buttons device={device} inlineVolume />}
-        <details className="spk-set" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-          <summary><span>{device.in_account ? modeLabel[device.mode] : '设置'}</span>{device.in_account && device.mode === 'takeover' && <small>压住小爱：{hushes.find((h) => h.value === device.hush)?.label}</small>}<svg viewBox="0 0 12 8" width="11" height="8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></summary>
-          <ModeSwitch device={device} onChange={onChange} />
-          {device.in_account && device.mode === 'takeover' && <HushPick device={device} onChange={onChange} />}
-          <p className="speaker-hint">
-            {device.in_account ? modeHint[device.mode] : '设置会保留，重新绑定后恢复。'}
-            {watch && device.mode !== 'off' && <small className={watch.state === 'error' ? 'bad' : ''}>{watchText[watch.state]}{watch.error ? `：${watch.error}` : watch.recorded > 0 ? `，启动后听到 ${watch.recorded} 次点歌` : ''}</small>}
-          </p>
-        </details>
-      </div>
+    <li className={`spk-row ${device.in_account ? '' : 'spk-gone'}`}>
+      <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog">
+        <Body mode={mode} state={watch?.state} />
+        <span className="spk-main">
+          <b>{deviceTitle(device)}</b>
+          <small><span className={isOnline(device) && device.in_account ? 'on-dot' : 'off-dot'}>{device.in_account ? (isOnline(device) ? '在线' : '离线') : '不在账号中'}</span>{deviceSubtitle(device)}</small>
+          {status && <small className={`spk-status ${status.bad ? 'bad' : ''}`}>{status.text}</small>}
+        </span>
+        <span className={`spk-mode spk-mode-${mode}`}>{device.in_account ? modeLabel[device.mode] : '设置'}</span>
+        <svg className="spk-go" viewBox="0 0 8 12" width="8" height="12" aria-hidden="true"><path d="M1.5 1l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && <SpeakerSettings device={device} watch={watch} onChange={onChange} tests={tests} onClose={() => setOpen(false)} />}
     </li>
+  );
+}
+
+/** Everything that is set on one speaker. */
+function SpeakerSettings({ device, watch, onChange, tests, onClose }: { device: Device; watch?: WatchStatus; onChange: (d: Device) => void; tests: boolean; onClose: () => void }) {
+  const on = device.in_account && device.mode !== 'off';
+  return (
+    <Sheet title={deviceTitle(device)} onClose={onClose} className="spk-sheet">
+      <p className="spk-meta">{deviceSubtitle(device)}{on && watch ? <span className={watch.state === 'error' ? 'bad' : ''}>{watchText[watch.state]}{watch.error ? `：${watch.error}` : watch.recorded > 0 ? `，启动后听到 ${watch.recorded} 次点歌` : ''}</span> : null}</p>
+      <section className="spk-part">
+        <ModeSwitch device={device} onChange={onChange} />
+        <p className="spk-hint">{device.in_account ? modeHint[device.mode] : '设置会保留，重新绑定后恢复。'}{device.in_account && !device.takeover_allowed && device.mode !== 'takeover' && <> 接管要先在 config.yaml 的 <code>takeover_speakers</code> 里写上它的名字。</>}</p>
+      </section>
+      {on && device.mode === 'takeover' && <section className="spk-part"><HushPick device={device} onChange={onChange} /></section>}
+      {on && (device.can_mp3 || device.mp3) && <section className="spk-part"><MP3Switch device={device} onChange={onChange} /></section>}
+      {on && device.notes?.length > 0 && <ul className="spk-notes">{device.notes.map((n) => <li key={n.kind}>{n.text}{n.kind === 'flac' && (device.can_mp3 ? (device.mp3 ? '' : '打开上面的“无损转 MP3”就能放。') : '换“换个版本”里的在线 MP3，或用带 ffmpeg 的镜像自动转码。')}</li>)}</ul>}
+      {on && tests && <Takeover devices={[device]} one />}
+    </Sheet>
   );
 }
 
@@ -203,13 +245,38 @@ export function HereButtons({ foot, tail }: { foot?: ReactNode; tail?: ReactNode
         vol={h.canVolume ? { value: h.volume, live: here.volume, set: here.volume } : null} foot={foot} tail={<>{eq}{tail}</>} />
       {open && <HereQueue onClose={() => setOpen(false)} />}
       {sound && <Sheet title="音效" onClose={() => setSound(false)}>
-        <div className="picks eq-picks">{EQ_PRESETS.map((p) => <button type="button" key={p.name} aria-pressed={h.eq === p.name} onClick={() => { if (!here.eq(p.name)) say({ tone: 'bad', text: '这个浏览器不能调音效' }); }}>
-          <i><svg viewBox="0 0 40 24" width="34" height="20" aria-hidden="true">{p.gains.map((g, n) => <rect key={n} x={2 + n * 8} y={12 - Math.max(0, g) * 1.6} width="4" height={Math.max(1.5, Math.abs(g) * 1.6)} rx="2" fill="currentColor" opacity={g === 0 ? .35 : 1} />)}</svg></i>
-          <span><b>{p.label}</b>{p.name === 'stereo' && <small>声场更宽，耳机里最明显</small>}{p.name === 'flat' && <small>不加处理</small>}</span>
-        </button>)}</div>
+        <EQPicker value={h.eq} onPick={(name) => { if (!here.eq(name)) say({ tone: 'bad', text: '这个浏览器不能调音效' }); }} />
         <p className="eq-note">只作用在这台设备上。小爱音箱不接受外来音效；电视在电视上选。</p>
       </Sheet>}
       {toast}
     </>
+  );
+}
+
+const bandName = (hz: number) => hz >= 1000 ? `${Math.round(hz / 100) / 10}k` : String(hz);
+/** dB a fader travels to its end. */
+const fullScale = 7;
+
+/** Sound presets: the five bands of the chosen one as faders, and the presets as a plain list. */
+function EQPicker({ value, onPick }: { value: string; onPick: (name: EQName) => void }) {
+  const p = eqPreset(value);
+  return (
+    <div className="fx">
+      <div className="faders" aria-hidden="true">
+        {p.gains.map((g, n) => {
+          const at = Math.max(-1, Math.min(1, g / fullScale)) * 50;
+          return <div key={n} className="fader">
+            <span className="fader-track"><b style={{ bottom: `${Math.min(50, 50 + at)}%`, height: `${Math.abs(at)}%` }} /><i style={{ bottom: `${50 + at}%` }} /></span>
+            <small>{bandName(EQ_BANDS[n])}</small>
+          </div>;
+        })}
+      </div>
+      <div className="fx-list" role="radiogroup" aria-label="音效">
+        {EQ_PRESETS.map((x) => <button type="button" key={x.name} role="radio" aria-checked={x.name === p.name} onClick={() => onPick(x.name)}>
+          <span>{x.label}</span>
+          {x.name === p.name && <svg viewBox="0 0 16 12" width="14" height="11" aria-hidden="true"><path d="M1.5 6.5l4 4 9-9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+        </button>)}
+      </div>
+    </div>
   );
 }

@@ -147,6 +147,9 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 // whole: a single one or the few that happened to be shown. The same on every output.
 const afterRandom = 500
 
+// fullList is how many random songs the browser and the television draw at a time to go on with.
+const fullList = 100
+
 // following draws what follows songs that were not picked as a whole, as the settings say.
 func (s *Server) following(n int) []int64 {
 	return takeover.Following(context.Background(), s.Store, s.Library, n)
@@ -309,6 +312,25 @@ func (s *Server) deviceHush(w http.ResponseWriter, r *http.Request, hush string)
 	}
 	d.Hush = hush
 	s.Log.Info("音箱　改了静音方式", "音箱", d.Name, "方式", hush)
+	writeJSON(w, http.StatusOK, s.deviceView(d))
+}
+
+func (s *Server) deviceMP3(w http.ResponseWriter, r *http.Request, on bool) {
+	d, err := s.Store.Device(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no_device", "没有这台音箱")
+		return
+	}
+	if on && (s.Stream == nil || s.Stream.MP3 == nil) {
+		writeError(w, http.StatusConflict, "no_ffmpeg", "没找到 ffmpeg：换用带 ffmpeg 的镜像（madrays/trackferry:ffmpeg），或者放这首歌的在线 MP3 版本")
+		return
+	}
+	if err := s.Store.SetDeviceMP3(r.Context(), d.DeviceID, on); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	d.MP3 = on
+	s.Log.Info("音箱　改了无损转 MP3", "音箱", d.Name, "打开", on)
 	writeJSON(w, http.StatusOK, s.deviceView(d))
 }
 

@@ -32,10 +32,13 @@ export async function take(source: string, signal?: AbortSignal): Promise<Taken>
   if (tv) {
     const { playback: p, items } = await api.tvSnapshot(tv, signal);
     if (!items[p.index] || p.phase === 'buffering') throw new Error('电视还没有可接续的播放');
-    return { source, refs: items.map(refOf), tracks: items, index: p.index, at: tvPosition(p), mode: p.mode, playing: p.phase === 'playing', read, release: (s) => commandTV(tv, { action: 'pause', revision: p.revision, entry: p.entry }, s) };
+    // tvPosition counts up to this moment, so the time the answer took is not counted twice.
+    return { source, refs: items.map(refOf), tracks: items, index: p.index, at: tvPosition(p), mode: p.mode, playing: p.phase === 'playing', read: Date.now(), release: (s) => commandTV(tv, { action: 'pause', revision: p.revision, entry: p.entry }, s) };
   }
+  const asked = Date.now();
   const s = await api.speakerHandoff(source, signal);
-  return { source, refs: s.items, tracks: s.tracks, index: s.index, at: s.position_ms, mode: s.mode, playing: true, read, release: (sig) => api.speakerHandoffPause(source, s.run_id, sig) };
+  // The server reads the position while answering: halfway between asking and the answer.
+  return { source, refs: s.items, tracks: s.tracks, index: s.index, at: s.position_ms, mode: s.mode, playing: true, read: asked + (Date.now() - asked) / 2, release: (sig) => api.speakerHandoffPause(source, s.run_id, sig) };
 }
 
 const sameSong = (a?: TVRef, b?: TVRef) => !!a && !!b && (a.id ? a.id === b.id : !!a.online && a.online === b.online);
@@ -52,10 +55,18 @@ export async function give(taken: Taken, target: string, signal: AbortSignal) {
     await receiveHere(tracks, index, at, mode, signal, () => taken.release(signal));
     const released = Date.now(), key = hereSong(hereNow())?.key;
     // Self-healing: the source now stands where it stopped; this device follows if it is far off.
-    if (key) await take(taken.source, signal).then((again) => {
-      if (again.playing || again.index !== index || !sameSong(again.refs[index], refs[index])) return;
-      correctHere(index, again.at + (Date.now() - released), key);
-    }, () => {});
+    // The pause takes a moment to show there, so it is looked at a few times before giving up.
+    // Only a television says whether it has stopped; a speaker is taken to have stopped where asked.
+    if (key && tvID(taken.source)) void (async () => {
+      for (let n = 0; n < 6 && !signal.aborted; n++) {
+        const again = await take(taken.source, signal).catch(() => null);
+        if (again && !again.playing) {
+          if (again.index === index && sameSong(again.refs[index], refs[index])) correctHere(index, again.at + (Date.now() - released), key);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    })();
     return;
   }
   const tv = tvID(target);

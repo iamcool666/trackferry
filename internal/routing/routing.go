@@ -55,6 +55,7 @@ type Route struct {
 	Artist     string   `json:"artist,omitempty"`
 	Path       string   `json:"path,omitempty"`
 	TrackID    int64    `json:"track_id,omitempty"`
+	Online     string   `json:"online,omitempty"` // key of the online song, to play it again
 	Cover      string   `json:"cover,omitempty"`
 	Album      string   `json:"album,omitempty"`
 	DurationMS int64    `json:"duration_ms,omitempty"`
@@ -304,7 +305,7 @@ func (r *Router) Decide(ctx context.Context, in intent.Intent, query string) *Ro
 
 func (rt *Route) takeOnline(f *online.Found) {
 	c := f.Candidate
-	rt.Decision, rt.Source, rt.Title, rt.Artist, rt.found = Online, c.Source, c.Title, c.Artist, f
+	rt.Decision, rt.Source, rt.Title, rt.Artist, rt.found, rt.Online = Online, c.Source, c.Title, c.Artist, f, c.Key
 	rt.DurationMS = f.Stream.Duration.Milliseconds()
 }
 

@@ -25,6 +25,7 @@ type Device struct {
 	Presence    string    `json:"presence"`
 	Mode        string    `json:"mode"`
 	Hush        string    `json:"hush"` // "" (up to the model) | normal | strong | wait
+	MP3         bool      `json:"mp3"`  // lossless songs reach it as MP3, when ffmpeg is there
 	FirstSeenAt time.Time `json:"first_seen_at"`
 	LastSeenAt  time.Time `json:"last_seen_at"`
 	InAccount   bool      `json:"in_account"`
@@ -111,7 +112,7 @@ func (s *Store) SyncDevices(ctx context.Context, found []DiscoveredDevice, now t
 
 // Devices lists all known speakers, those still in the account first.
 func (s *Store) Devices(ctx context.Context) ([]Device, error) {
-	rows, err := s.rd.QueryContext(ctx, `SELECT device_id, name, alias, model, hardware, miot_did, presence, mode, first_seen_at, last_seen_at, in_account, hush
+	rows, err := s.rd.QueryContext(ctx, `SELECT device_id, name, alias, model, hardware, miot_did, presence, mode, first_seen_at, last_seen_at, in_account, hush, mp3
 		FROM devices ORDER BY in_account DESC, name, device_id`)
 	if err != nil {
 		return nil, err
@@ -137,7 +138,7 @@ func (s *Store) SetDeviceMode(ctx context.Context, id, mode string) (Device, err
 	if n, _ := res.RowsAffected(); n == 0 {
 		return Device{}, ErrNotFound
 	}
-	row := s.rd.QueryRowContext(ctx, `SELECT device_id, name, alias, model, hardware, miot_did, presence, mode, first_seen_at, last_seen_at, in_account, hush
+	row := s.rd.QueryRowContext(ctx, `SELECT device_id, name, alias, model, hardware, miot_did, presence, mode, first_seen_at, last_seen_at, in_account, hush, mp3
 		FROM devices WHERE device_id = ?`, id)
 	d, err := scanDevice(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -152,16 +153,26 @@ func (s *Store) SetDeviceHush(ctx context.Context, id, hush string) error {
 	return err
 }
 
+// SetDeviceMP3 turns the lossless-to-MP3 conversion on or off for one speaker.
+func (s *Store) SetDeviceMP3(ctx context.Context, id string, on bool) error {
+	v := 0
+	if on {
+		v = 1
+	}
+	_, err := s.db.ExecContext(ctx, "UPDATE devices SET mp3 = ? WHERE device_id = ?", v, id)
+	return err
+}
+
 type scanner interface{ Scan(...any) error }
 
 func scanDevice(r scanner) (Device, error) {
 	var d Device
 	var first, last string
-	var in int
-	if err := r.Scan(&d.DeviceID, &d.Name, &d.Alias, &d.Model, &d.Hardware, &d.MiotDID, &d.Presence, &d.Mode, &first, &last, &in, &d.Hush); err != nil {
+	var in, mp3 int
+	if err := r.Scan(&d.DeviceID, &d.Name, &d.Alias, &d.Model, &d.Hardware, &d.MiotDID, &d.Presence, &d.Mode, &first, &last, &in, &d.Hush, &mp3); err != nil {
 		return d, err
 	}
-	d.InAccount = in == 1
+	d.InAccount, d.MP3 = in == 1, mp3 == 1
 	d.FirstSeenAt, _ = time.Parse(time.RFC3339Nano, first)
 	d.LastSeenAt, _ = time.Parse(time.RFC3339Nano, last)
 	return d, nil

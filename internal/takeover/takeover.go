@@ -498,6 +498,10 @@ func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRu
 		if v, ok, err := e.st.PendingVolume(bg, dev); err == nil && ok {
 			volume, muted = v, true
 		}
+	} else if req.Handoff {
+		// A handoff answers no voice command: nothing of Xiao AI's is about to speak or start, so
+		// one stop, without the mute and the second round, is enough and saves about a second.
+		go func() { stop1 <- e.halt(ctx, dev) }()
 	} else {
 		go func() { stop1 <- e.halt(ctx, dev) }()
 		m := e.mute(ctx, dev)
@@ -531,7 +535,13 @@ func (e *Engine) execute(ctx context.Context, req Request, run *store.TakeoverRu
 	}
 
 	// 2. Stop again: Xiao AI's playlist starts after a single stop.
-	if !req.Follows {
+	if !req.Follows && req.Handoff {
+		err := <-stop1
+		r.step(StepStop1, err == nil, describe(err))
+		if cancelled() {
+			return
+		}
+	} else if !req.Follows {
 		err := <-stop1
 		r.step(StepStop1, err == nil, describe(err))
 		if e.sleep(ctx, e.timing.Settle); cancelled() {

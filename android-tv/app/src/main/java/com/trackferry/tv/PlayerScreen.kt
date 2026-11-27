@@ -249,10 +249,13 @@ internal fun PlayerScreen(player: MediaController, back: () -> Unit, libraryChan
     LaunchedEffect(playback.mediaId, nas) {
         if (nasKey == null) return@LaunchedEffect
         loadingLyrics = true
-        try { remoteWords = withContext(Dispatchers.IO) { if (nasTrack != null) nas?.lyrics(nasTrack) else nas?.onlineLyrics(nasKey) } }
-        catch (e: CancellationException) { throw e }
-        catch (_: Exception) { /* Lyrics never block playback. */ }
-        finally { loadingLyrics = false }
+        // Asked again after a failure, as a slow server or platform may answer the next time.
+        for (attempt in 0 until 3) {
+            try { remoteWords = withContext(Dispatchers.IO) { if (nasTrack != null) nas?.lyrics(nasTrack) else nas?.onlineLyrics(nasKey) }; break }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (attempt < 2) delay(2_000L * (attempt + 1)) /* Lyrics never block playback. */ }
+        }
+        loadingLyrics = false
     }
     val lyrics = if (local != null) remember(context, local.id) { loadLyrics(context, local) } else remoteWords?.lines.orEmpty()
     // The offset belongs to the song and is kept by the server, so every screen shows it alike.

@@ -791,3 +791,22 @@ func TestPanicInARunLeavesNothingMutedOrBusy(t *testing.T) {
 		t.Fatalf("playing %v volume %d", e.Playing("d1"), sp.volume)
 	}
 }
+
+func TestHandoffStopsOnceWithoutMute(t *testing.T) {
+	e, sp, _ := setup(t)
+	rq := req(sp)
+	rq.Handoff = true
+	run, err := e.Run(context.Background(), rq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Outcome != store.OutcomeConfirmed {
+		t.Fatalf("outcome %s %s: %s", run.Outcome, run.Detail, steps(run))
+	}
+	if got := steps(run); got != "stop1,play,fetched,confirmed" {
+		t.Fatalf("steps %s", got)
+	}
+	if len(sp.volumes) != 0 {
+		t.Fatalf("a handoff touched the volume: %v", sp.volumes)
+	}
+}

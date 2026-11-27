@@ -692,12 +692,17 @@ func (s *Server) deviceUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Mode string  `json:"mode"`
 		Hush *string `json:"hush"`
+		MP3  *bool   `json:"mp3"`
 	}
 	if !readJSON(w, r, &req) {
 		return
 	}
 	if req.Hush != nil {
 		s.deviceHush(w, r, *req.Hush)
+		return
+	}
+	if req.MP3 != nil {
+		s.deviceMP3(w, r, *req.MP3)
 		return
 	}
 	switch req.Mode {
@@ -730,11 +735,18 @@ type deviceView struct {
 	TakeoverAllowed bool `json:"takeover_allowed"`
 	CanWake         bool `json:"can_wake"`
 	CanHush         bool `json:"can_hush"`
+	// CanMP3 is whether ffmpeg is there for the lossless-to-MP3 switch.
+	CanMP3 bool          `json:"can_mp3"`
+	Notes  []xiaomi.Note `json:"notes"`
 }
 
 func (s *Server) deviceView(d store.Device) deviceView {
 	d.Hush = firstNonEmpty(takeover.HushStyle(d.Hush, d.Hardware, d.MiotDID), takeover.HushChosenNormal)
-	return deviceView{d, s.takeoverAllowed(d), xiaomi.CanWake(d.Hardware, d.MiotDID), xiaomi.CanHush(d.Hardware, d.MiotDID)}
+	notes := xiaomi.Notes(d.Hardware)
+	if notes == nil {
+		notes = []xiaomi.Note{}
+	}
+	return deviceView{d, s.takeoverAllowed(d), xiaomi.CanWake(d.Hardware, d.MiotDID), xiaomi.CanHush(d.Hardware, d.MiotDID), s.Stream != nil && s.Stream.MP3 != nil, notes}
 }
 
 func (s *Server) takeoverAllowed(d store.Device) bool {

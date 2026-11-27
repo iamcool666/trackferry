@@ -253,7 +253,7 @@ func (s *Server) tvQueue(w http.ResponseWriter, r *http.Request) {
 	var name string
 	var ids []int64
 	if q.Get("source") == "random" { // what comes after a song that was put on alone, as in the browser
-		name, ids = "接着随机放", s.following(30)
+		name, ids = "接着随机放", s.following(fullList)
 	} else {
 		var ok bool
 		if name, ids, ok = s.collect(w, r, q.Get("source"), q.Get("id"), q.Get("name"), picks); !ok {

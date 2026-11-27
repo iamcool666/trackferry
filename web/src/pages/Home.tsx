@@ -11,6 +11,9 @@ import { Heart } from '../components/Heart';
 import { LyricSheet, Progress, useSeek, useWords } from '../components/Lyrics';
 import { Notice } from '../components/Notice';
 import { Play, PlaybackTarget } from '../components/Play';
+import { useToast } from '../components/Toast';
+import { useTarget } from '../outputs';
+import { tookNote } from '../took';
 import { SourceIcon } from '../components/SourceIcon';
 import { Sheet } from '../components/Sheet';
 import { Quality, type QualityRef } from '../components/Quality';
@@ -18,7 +21,8 @@ import type { SongVersion } from '../api';
 import { swapOn } from '../handoff';
 import { connected, HERE } from '../ear';
 import { useEar } from '../outputs';
-import { here, hereName, hereSong, hereSounding, routeHere, useHere } from '../here';
+import { here, hereName, hereSong, hereSounding, onlineHere, routeHere, useHere } from '../here';
+import { playOn, type Playback } from '../playback';
 import { onSpeaker, phaseText, sounding, useLive, type Flow, type Sounding } from '../live';
 import { Buttons, HereButtons, watchText } from '../components/Speaker';
 import { clock, day, deviceTitle, length, singer } from '../copy';
@@ -99,6 +103,15 @@ let known: { obs: ObserverStatus; cmds: Command[]; runs: TakeoverRun[]; more: bo
 
 type HomeProps = { devices: Device[]; navigate: (p: Place) => void; onRelink: () => void };
 
+/** How a song of a record is played again: from the library, or the same online song. */
+function again(r?: Route | null): Playback | null {
+  if (!r || r.decision === 'native') return null;
+  if (r.track_id) return { single: { source: 'track', track_id: r.track_id }, song: routeHere(r) };
+  if (r.online && r.source && r.source !== 'library') return { single: { source: 'online', id: r.online, title: r.title, artist: r.artist },
+    song: onlineHere({ key: r.online, source: r.source, title: r.title ?? '', artist: r.artist ?? '', album: r.album, cover: r.cover, duration_ms: r.duration_ms ?? 0, restricted: false }) };
+  return null;
+}
+
 export function Home({ devices, navigate, onRelink }: HomeProps) {
   const water = useWater();
   const [obs, setObs] = useState<ObserverStatus | null>(known?.obs ?? null);
@@ -106,7 +119,8 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
   const [runs, setRuns] = useState<TakeoverRun[]>(known?.runs ?? []);
   const [more, setMore] = useState(known?.more ?? false);
   const [error, setError] = useState<string | null>(null);
-  const [picked, setPicked] = useState<string | null>(null);
+  const [card, setCard] = useState<Scene | null>(null);
+  const [said, say] = useToast();
   const [tried, setTried] = useState<Scene | null>(null);
   const [text, setText] = useState('');
   const [trying, setTrying] = useState(false);
@@ -184,10 +198,10 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
   const top = tv ? onTV?.key : local ? locally?.key : mine[0]?.key;
   const was = useRef({ ear, top });
   useEffect(() => {
-    if (was.current.ear !== ear || (was.current.top && was.current.top !== top)) { setPicked(null); setTried(null); setPage(0); }
+    if (was.current.ear !== ear || (was.current.top && was.current.top !== top)) { setTried(null); setPage(0); }
     was.current = { ear, top };
   }, [ear, top]);
-  const scene: Scene | null = tv ? onTV : tried ?? items.find((x) => x.key === picked) ?? (local ? locally : headline(mine, flows));
+  const scene: Scene | null = tv ? onTV : tried ?? (local ? locally : headline(mine, flows));
   const isHere = local && !!scene && scene === locally;
   const kept = tv ? undefined : mine.find((x) => x.command?.intent_kind === 'favorite');
 
@@ -295,11 +309,14 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
     const top = log.current?.getBoundingClientRect().top ?? 0;
     if (top < 0) scrollTo({ top: scrollY + top - 88 });
   };
-  const pick = (c: Scene) => {
-    setTried(null);
-    setPicked(c.key);
+  const pick = (c: Scene) => setCard(c);
+  // Played again from its card: the card and the log close, the page shows what now plays.
+  const played = (where: string, speaker: boolean) => {
+    setCard(null);
     setHistory(false);
+    setTried(null);
     scrollTo({ top: 0, behavior: 'smooth' });
+    if (speaker) say({ tone: 'ok', text: `已送往${where}${tookNote()}` });
   };
 
   if (!ready) return error ? <Notice tone="error" title={error} /> : <div className="boot"><span className="spinner" /></div>;
@@ -358,7 +375,7 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
               {d.items.map((c) => {
                 const nat = !c.route || c.route.decision === 'native';
                 const out = c.run && outcome(c.run);
-                const on = scene?.key === c.key;
+                const on = card?.key === c.key;
                 const playing = sounding(flows, c.run?.id);
                 return (
                   <li key={c.key} className={on ? 'on' : ''}>
@@ -417,10 +434,10 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
             {o ? <span className={`tag tag-${now ? (now.phase === 'playing' ? 'ok' : 'warn') : o.tone}`}>{now ? phaseText[now.phase] : o.text}</span> : scene && !isHere && !native && <span className="tag">{scene.command ? (r?.preview ? '只记录，没有出声' : '没有接管') : `${stopLabel[r!.source ?? 'library']}，${ms(r!.ms)} 找到`}</span>}
             {r && !native && r.duration_ms ? <span className="num">{length(r.duration_ms)}</span> : null}
             {scene && r && !isHere && <button className="link" onClick={() => navigate(flowOf)}>看它怎么走</button>}
-            {kept && scene && kept.deviceId === scene.deviceId && kept.at! > scene.at! && kept.key !== scene.key && !picked && !tried ? <span className="kept-note"><HeartMark />{kept.route?.reason}</span> : null}
+            {kept && scene && kept.deviceId === scene.deviceId && kept.at! > scene.at! && kept.key !== scene.key && !tried ? <span className="kept-note"><HeartMark />{kept.route?.reason}</span> : null}
             {r?.basis?.some((f) => f.name === '选它') && !tried ? <span className="muted more">{r.basis.find((f) => f.name === '选它')!.text}</span> : null}
             {r?.others?.length ? <span className="muted more">也有{r.others.join('、')}的版本</span> : null}
-            {r?.track_id && !native && !isHere ? <><Play key={r.track_id} what={{ single: { source: 'track', track_id: r.track_id }, song: routeHere(r) }} title={t} devices={devices} /><PlaybackTarget devices={devices} /></> : null}
+            {!native && !isHere && again(r) ? <><Play key={r!.track_id ?? r!.online} what={again(r)!} title={t} devices={devices} /><PlaybackTarget devices={devices} /></> : null}
           </div>
           <div className="recent">
             {mine.slice(0, 7).map((c) => {
@@ -440,8 +457,69 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
         {alerts.length > 0 && <div className="alerts">{alerts.map((a) => <Notice key={a.text} tone={a.tone} title={a.text}>{a.act && <div className="notice-actions"><button className="btn btn-small" onClick={a.go}>{a.act}</button></div>}</Notice>)}</div>}
         {record}
       </section>}
-      {!tv && phone && history && <Sheet title="点歌记录" onClose={() => setHistory(false)}><div className="log">{record}</div></Sheet>}
+      {/* One sheet at a time: a record takes the place of the log and gives it back when closed. */}
+      {!tv && phone && history && !card && <Sheet title="点歌记录" onClose={() => setHistory(false)}><div className="log">{record}</div></Sheet>}
+      {card && <RecordCard key={card.key} scene={card} devices={devices} navigate={navigate} onClose={() => setCard(null)} onPlayed={played} />}
+      {said}
       {far.toast}
     </div>
+  );
+}
+
+/** One record of the log, opened from it: what was asked, what came of it, and playing it again. */
+function RecordCard({ scene, devices, navigate, onClose, onPlayed }: { scene: Scene; devices: Device[]; navigate: (p: Place) => void; onClose: () => void; onPlayed: (where: string, speaker: boolean) => void }) {
+  const r = scene.route;
+  const native = !r || r.decision === 'native';
+  const what = again(r);
+  const [shown] = useTarget(devices);
+  const speakers = connected(devices);
+  // Again where it was asked for, when that speaker is still here; else where this page plays.
+  const [target, setTarget] = useState(() => speakers.some((d) => d.device_id === scene.deviceId) ? scene.deviceId! : shown);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const tv = activeTV(target);
+  const speaker = speakers.find((d) => d.device_id === target);
+  const where = tv?.name ?? (speaker ? deviceTitle(speaker) : hereName);
+  const out = scene.run && outcome(scene.run);
+  const name = native ? scene.said : r!.title ?? scene.said;
+  const play = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      if (await playOn(target, what!)) onPlayed(where, target !== HERE);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const look = () => {
+    const w = [r?.title, singer(r?.artist ?? '')].filter(Boolean).join(' ');
+    void import('./Search').then((m) => { m.lookFor(w); navigate({ page: 'search' }); });
+  };
+  return (
+    <Sheet title="这条点歌" onClose={onClose} className="record-card">
+      <div className="rc-song">
+        {native ? <span className="cover nat-cover"><SourceIcon name="xiaomi" /></span> : <Cover cover={r!.cover} title={name} artist={r!.artist} />}
+        <span><b>{name}</b>{!native && r!.artist && <small>{singer(r!.artist)}</small>}</span>
+      </div>
+      <dl className="rc-facts">
+        <div><dt>什么时候</dt><dd>{scene.at ? `${day(scene.at)} ${clock(scene.at).slice(0, 5)}` : ''}{scene.device ? `，${scene.device}` : ''}</dd></div>
+        {scene.said && <div><dt>说的是</dt><dd>“{scene.said}”</dd></div>}
+        <div><dt>结果</dt><dd>{native ? (r?.reason || '由小爱处理') : [`${stopLabel[r!.source ?? 'library']}找到${r!.ms ? `，${ms(r!.ms)}` : ''}`, out && out.text].filter(Boolean).join('，')}</dd></div>
+      </dl>
+      {what ? <>
+        <button type="button" className="btn rc-play" disabled={busy} onClick={play}>
+          {busy ? <span className="spinner spinner-tiny" /> : <svg viewBox="0 0 12 14" width="12" height="14" aria-hidden="true"><path d="M1 1l10 6-10 6z" fill="currentColor" /></svg>}
+          在{where}再放一次
+        </button>
+        {error && <p className="rc-error" role="alert">{error}</p>}
+      </> : native ? <p className="muted rc-none">这句是小爱自己处理的，没有可以重放的歌。</p>
+        : <><p className="muted rc-none">这条记录没存下能重放的版本。</p><button type="button" className="btn rc-play" onClick={look}>去搜这首</button></>}
+      <div className="rc-more">
+        {what ? <SpeakerChip devices={devices} value={target} onChange={setTarget} title="换地方" bare="换地方" say="换地方" televisions inline /> : <span />}
+        {(scene.command || scene.run) && <button type="button" className="link" onClick={() => navigate({ page: 'flow', id: scene.command ? String(scene.command.id) : `r${scene.run!.id}` })}>看它怎么走</button>}
+      </div>
+    </Sheet>
   );
 }

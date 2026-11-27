@@ -139,7 +139,7 @@ export function Search({ devices, navigate }: { devices: Device[]; navigate: Nav
     return (
       <li key={s.key} className={`${locked ? 'locked' : ''} ${here ? 'here' : ''}`}>
         <button type="button" className="hit" disabled={locked || !!busy} onClick={() => play(s)} aria-label={`播放${s.title}${s.artist ? `，${s.artist}` : ''}`}>
-          <i>{s.track || s.online?.cover ? <Cover cover={s.track?.cover ?? s.online!.cover} title={s.title} artist={s.artist} /> : <SourceIcon name={s.online!.source} />}{busy === s.key ? <span className="spinner" /> : here ? <em className="eq" aria-hidden="true"><u /><u /><u /></em> : null}</i>
+          <i>{s.track || s.online?.cover ? <Cover cover={s.track ? s.track.cover : s.online!.cover} title={s.title} artist={s.artist} /> : <SourceIcon name={s.online!.source} />}{busy === s.key ? <span className="spinner" /> : here ? <em className="eq" aria-hidden="true"><u /><u /><u /></em> : null}</i>
           <span><b>{s.title}</b><small>{[s.artist || '没有歌手信息', s.track ? singer(s.track.album) : stopLabel[s.online!.source], locked ? '要会员' : s.online?.note].filter(Boolean).join('　')}</small></span>
         </button>
         {!locked && <button type="button" className="hit-more" onClick={() => setMore(s)} aria-haspopup="dialog" aria-label={`${s.title}，更多操作`}>{dots()}</button>}

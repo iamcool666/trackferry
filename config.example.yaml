@@ -19,6 +19,11 @@ update_check: true
 # 投放到局域网里的 DLNA 和 Chromecast 设备（TRACKFERRY_CAST）
 cast: true
 
+# 无损转 MP3 用的 ffmpeg，空着用 PATH 里的（TRACKFERRY_FFMPEG）；默认镜像里没有，要用 :ffmpeg 镜像
+# ffmpeg: /usr/bin/ffmpeg
+# 转好的 MP3 最多占多少 MB（TRACKFERRY_MP3_CACHE_MB）
+mp3_cache_mb: 2048
+
 # 容器内的目录，一般不用改
 data_dir: /data
 music_dir: /music  # 只读挂载的音乐文件夹（TRACKFERRY_MUSIC_DIR），连了飞牛音乐时不读

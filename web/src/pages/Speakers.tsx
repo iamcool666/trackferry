@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react';
 import { api, ApiError, type Account, type Device, type ObserverStatus, type SyncInfo } from '../api';
 import { Notice } from '../components/Notice';
 import { SpeakerRow } from '../components/Speaker';
-import { Takeover } from '../components/Takeover';
 import { useBackdrop } from '../stage/Stage';
 import { explainSync, timeAgo } from '../copy';
 
-export function Speakers({ account, devices, takeoverSupported, onDevices, onRescan }: {
+export function Speakers({ account, devices, onDevices, onRescan }: {
   account: Account;
   devices: Device[];
   takeoverSupported: boolean;
@@ -45,7 +44,8 @@ export function Speakers({ account, devices, takeoverSupported, onDevices, onRes
   const gone = devices.filter((d) => !d.in_account);
   const last = account.last_sync;
   const explanation = last ? explainSync(last) : null;
-  const row = (d: Device) => <SpeakerRow key={d.device_id} device={d} watch={obs?.devices.find((w) => w.device_id === d.device_id)} onChange={update} />;
+  const watchOf = (d: Device) => obs?.devices.find((w) => w.device_id === d.device_id);
+  const row = (d: Device) => <SpeakerRow key={d.device_id} device={d} watch={watchOf(d)} onChange={update} tests={watchOf(d)?.state !== 'unsupported'} />;
 
   return (
     <section className="speakers">
@@ -80,17 +80,15 @@ export function Speakers({ account, devices, takeoverSupported, onDevices, onRes
       {error && <Notice tone="error" title={error} />}
 
       {present.length > 0 ? (
-        <ul className="speaker-list">{present.map(row)}</ul>
+        <ul className="spk-list">{present.map(row)}</ul>
       ) : (
         <div className="empty">
           <p>{account.linked ? '这个小米账号里没有音箱。' : '还没有关联小米账号。'}</p>
           <button className="btn btn-primary" onClick={onRescan}>{account.linked ? '换个账号登录' : '关联小米账号'}</button>
         </div>
       )}
-      {present.length > 0 && !takeoverSupported && <p className="hint">接管要先在 config.yaml 的 <code>takeover_speakers</code> 里写上音箱名字。</p>}
-      {gone.length > 0 && <><h2 className="sub">已不在账号中</h2><ul className="speaker-list">{gone.map(row)}</ul></>}
+      {gone.length > 0 && <><h2 className="sub">已不在账号中</h2><ul className="spk-list">{gone.map(row)}</ul></>}
 
-      {present.length > 0 && <Takeover devices={present.filter((d) => d.mode !== 'off' && obs?.devices.find((w) => w.device_id === d.device_id)?.state !== 'unsupported')} />}
     </section>
   );
 }

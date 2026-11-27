@@ -20,7 +20,7 @@ export const outputIcon = (kind?: string) => (kind ? castIcon : tvIcon);
 const allIcon = <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 15V9M10 19V5M15 16V8M20 13.5v-3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>;
 
 /** Which speaker it is about, in a word; a tap changes it. all: "" may be chosen too. */
-export function SpeakerChip({ devices, value, onChange, all = false, title = '看哪台音箱', bare = '', showTitle = false, televisions = false, inline = false }: { devices: Device[]; value: string; onChange: (id: string) => void; all?: boolean; title?: string; /** A word without a button around it; what it says when none is chosen. */ bare?: string; showTitle?: boolean; televisions?: boolean; inline?: boolean }) {
+export function SpeakerChip({ devices, value, onChange, all = false, title = '看哪台音箱', bare = '', showTitle = false, televisions = false, inline = false, say }: { devices: Device[]; /** Words on the chip instead of the chosen name. */ say?: string; value: string; onChange: (id: string) => void; all?: boolean; title?: string; /** A word without a button around it; what it says when none is chosen. */ bare?: string; showTitle?: boolean; televisions?: boolean; inline?: boolean }) {
   const { flows, pulses } = useLive();
   const [open, setOpen] = useState(false);
   const list = connected(devices);
@@ -64,7 +64,7 @@ export function SpeakerChip({ devices, value, onChange, all = false, title = '�
       <button type="button" className={bare ? 'chip chip-bare' : 'chip glass'} onClick={() => setOpen((value) => !value)} aria-haspopup={inline ? undefined : 'dialog'} aria-expanded={open} aria-label={`${title}：${name}`}>
         {busy && !showTitle ? <em className="eq" aria-hidden="true"><u /><u /><u /></em> : local ? hereIcon : tv ? tvIcon : d || only ? speakerIcon : allIcon}
         {showTitle && <small className="chip-purpose">{title}</small>}
-        <b>{name}</b>
+        <b>{say ?? name}</b>
         <svg viewBox="0 0 12 8" width="11" height="8" aria-hidden="true"><path d="M1 1.5l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
       {open && inline && <div className="output-inline" role="group" aria-label={title}>{options}</div>}

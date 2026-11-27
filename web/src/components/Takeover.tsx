@@ -5,7 +5,7 @@ import { Notice } from './Notice';
 import { RunRow } from './Run';
 
 /** Interrupts Xiao AI on one speaker through the same loop a real takeover uses. */
-export function Takeover({ devices }: { devices: Device[] }) {
+export function Takeover({ devices, one }: { devices: Device[]; /** Inside one speaker's settings: no picking, only its own runs. */ one?: boolean }) {
   const [runs, setRuns] = useState<TakeoverRun[] | null>(null);
   const [ready, setReady] = useState(true);
   const [device, setDevice] = useState('');
@@ -16,12 +16,12 @@ export function Takeover({ devices }: { devices: Device[] }) {
   const refresh = useCallback(async () => {
     try {
       const r = await api.takeoverRuns(30);
-      setRuns(r.runs.filter((x) => x.kind === 'test').slice(0, 8));
+      setRuns(r.runs.filter((x) => x.kind === 'test' && (!one || x.device_id === devices[0]?.device_id)).slice(0, one ? 3 : 8));
       setReady(r.stream_ready);
     } catch {
       /* transient */
     }
-  }, []);
+  }, [one, devices[0]?.device_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const running = runs?.some((r) => r.outcome === 'running') ?? false;
   useEffect(() => {
@@ -46,9 +46,9 @@ export function Takeover({ devices }: { devices: Device[] }) {
   };
 
   return (
-    <section className="takeover">
+    <section className={`takeover ${one ? 'takeover-one' : ''}`}>
       <div className="takeover-head">
-        <h2>接管测试</h2>
+        <h2>{one ? '试一下接管' : '接管测试'}</h2>
         <p>会打断音箱并出声，在家时再试。</p>
       </div>
       {!ready && <Notice tone="error" title="还没有设置 public_base_url"><p>在 config.yaml 写上音箱能访问的地址，再重启。</p></Notice>}
@@ -57,9 +57,9 @@ export function Takeover({ devices }: { devices: Device[] }) {
         <p className="muted">先把一台音箱设为观察。</p>
       ) : (
         <div className="takeover-form">
-          <div className="segmented" role="group" aria-label="音箱">
+          {!one && <div className="segmented" role="group" aria-label="音箱">
             {devices.map((d) => <button key={d.device_id} type="button" className={`seg ${d.device_id === target?.device_id ? 'on' : ''}`} aria-pressed={d.device_id === target?.device_id} onClick={() => setDevice(d.device_id)}>{deviceTitle(d)}</button>)}
-          </div>
+          </div>}
           <div className="segmented" role="group" aria-label="测试音频">
             {([['tone', '提示音'], ['library', '曲库随机一首']] as const).map(([v, l]) => <button key={v} type="button" className={`seg ${source === v ? 'on' : ''}`} aria-pressed={source === v} onClick={() => setSource(v)}>{l}</button>)}
           </div>

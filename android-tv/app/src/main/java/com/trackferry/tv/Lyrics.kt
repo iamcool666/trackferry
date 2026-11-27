@@ -35,6 +35,12 @@ internal fun parseLyrics(text: String): List<LyricLine> {
     }
 }
 
+/** Words as the browser shows them: timed lines when there are any, else the plain text, unlit (atMs -1). */
+internal fun readLyrics(text: String): List<LyricLine> = parseLyrics(text).ifEmpty {
+    text.removePrefix("\uFEFF").lineSequence().map { it.replace(anyTag, "").trim() }.filter { it.isNotEmpty() }.map { LyricLine(-1, it) }.toList()
+}
+private val anyTag = Regex("""\[[^\]]*]""")
+
 /** How long line [i] is sung: to its marked end, else to the next line, never through a long interlude. */
 internal fun spanOf(lines: List<LyricLine>, i: Int): Long {
     val line = lines[i]
@@ -54,6 +60,7 @@ internal fun restAt(lines: List<LyricLine>, index: Int, atMs: Long): LyricRest? 
 }
 
 internal fun lineIndex(lines: List<LyricLine>, positionMs: Long): Int {
+    if (lines.firstOrNull()?.atMs?.let { it < 0 } == true) return -1 // words without times: none is lit
     val index = lines.binarySearchBy(positionMs) { it.atMs }
     return if (index >= 0) index else -index - 2
 }

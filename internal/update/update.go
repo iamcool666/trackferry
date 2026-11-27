@@ -35,6 +35,7 @@ type Status struct {
 	Installable bool      `json:"installable"`       // the page may offer to install it
 	Install     *Progress `json:"install,omitempty"` // the installation going on
 	FailedLast  string    `json:"failed,omitempty"`  // a version that was installed but did not run
+	Image       string    `json:"image,omitempty"`   // "ffmpeg": the image with ffmpeg, updated only by pulling
 }
 
 // Checker remembers the last answer.
@@ -46,6 +47,7 @@ type Checker struct {
 	Log     *slog.Logger
 	// Installer is nil where updates cannot be installed.
 	Installer *Installer
+	Image     string // TRACKFERRY_IMAGE of the image that runs us
 
 	mu     sync.Mutex
 	st     Status
@@ -72,6 +74,7 @@ func (c *Checker) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	st := c.st
+	st.Image = c.Image
 	if _, ok := parse(st.Current); ok && c.Installer != nil {
 		st.Installable = true
 		if r, ok := readRecord(Dir(c.Installer.Data)); ok {

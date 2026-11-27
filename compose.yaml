@@ -9,6 +9,7 @@ name: trackferry
 
 services:
   trackferry:
+    # 音箱放不了无损、要用“无损转 MP3”时改成 madrays/trackferry:ffmpeg（带 ffmpeg，不能在设置页一键更新）
     image: madrays/trackferry:latest
     container_name: trackferry
     restart: unless-stopped

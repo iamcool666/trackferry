@@ -252,6 +252,16 @@ func serve() error {
 	hub := live.New()
 	streams := stream.New(cfg.PublicBaseURL, cfg.MusicDir)
 	streams.Log = log
+	if ff := stream.FindFFmpeg(cfg.FFmpeg); ff != "" {
+		mb := cfg.MP3CacheMB
+		if mb <= 0 {
+			mb = 2048
+		}
+		streams.MP3 = stream.NewMP3(ff, filepath.Join(cfg.DataDir, "mp3"), int64(mb)<<20)
+		log.Info("转码　找到 ffmpeg，音箱可以打开“无损转 MP3”", "路径", ff, "缓存上限MB", mb)
+	} else if cfg.FFmpeg != "" {
+		log.Warn("转码　配置的 ffmpeg 找不到，“无损转 MP3”不可用", "配置", cfg.FFmpeg)
+	}
 	if streams.Ready() != nil {
 		log.Warn("配置　没有填 TRACKFERRY_URL，音箱取不到歌，接管不会开始")
 	}
@@ -373,6 +383,13 @@ func serve() error {
 		return d.Name
 	}
 	dispatcher := &takeover.Dispatcher{Live: hub, Name: speakerName, Engine: engine, Store: st, Router: router, Streams: streams, Log: log,
+		MP3: func(id string) bool {
+			if streams.MP3 == nil {
+				return false
+			}
+			d, err := st.Device(context.Background(), id)
+			return err == nil && d.MP3
+		},
 		Allowed: func(id string) bool {
 			name := speakerName(id)
 			return name != "" && cfg.TakeoverAllowed(name)
@@ -435,7 +452,9 @@ func serve() error {
 		log.Warn("更新　保存的代理地址不能用", "原因", "格式不对或读不出来")
 	}
 	restart := make(chan struct{})
-	if runtime.GOOS == "linux" {
+	// The image with ffmpeg is updated by pulling it: its binary is not among the Release files.
+	checker.Image = os.Getenv("TRACKFERRY_IMAGE")
+	if runtime.GOOS == "linux" && checker.Image != "ffmpeg" {
 		checker.Installer = &update.Installer{Data: cfg.DataDir, Backup: st.Backup, Restart: func() { close(restart) }}
 	}
 	checker.SetTVDir(filepath.Join(update.Dir(cfg.DataDir), "tv"))

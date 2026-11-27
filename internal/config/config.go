@@ -29,6 +29,10 @@ type Config struct {
 	UpdateCheck bool `yaml:"update_check"`
 	// Cast looks for DLNA and Chromecast devices on the network to play on.
 	Cast bool `yaml:"cast"`
+	// FFmpeg is the ffmpeg for the lossless-to-MP3 switch; empty: the one on PATH, if any.
+	FFmpeg string `yaml:"ffmpeg"`
+	// MP3CacheMB bounds the converted songs kept under data_dir/mp3.
+	MP3CacheMB int `yaml:"mp3_cache_mb"`
 }
 
 // fromEnv lets compose.yaml carry the whole configuration.
@@ -42,6 +46,10 @@ func (c *Config) fromEnv() {
 	set("TRACKFERRY_TV_LISTEN", &c.TVListen)
 	set("TRACKFERRY_URL", &c.PublicBaseURL)
 	set("TRACKFERRY_MUSIC_DIR", &c.MusicDir)
+	set("TRACKFERRY_FFMPEG", &c.FFmpeg)
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("TRACKFERRY_MP3_CACHE_MB"))); err == nil && n > 0 {
+		c.MP3CacheMB = n
+	}
 	c.PublicBaseURL = strings.TrimRight(c.PublicBaseURL, "/")
 	if v, ok := os.LookupEnv("TRACKFERRY_TAKEOVER"); ok {
 		c.TakeoverSpeakers = nil
@@ -78,7 +86,7 @@ func (c Config) TakeoverAllowed(name string) bool {
 
 // Default returns the configuration used when no file is present.
 func Default() Config {
-	return Config{Listen: ":18561", TVListen: ":18562", DataDir: "/data", MusicDir: "/music", UpdateCheck: true, Cast: true}
+	return Config{Listen: ":18561", TVListen: ":18562", DataDir: "/data", MusicDir: "/music", UpdateCheck: true, Cast: true, MP3CacheMB: 2048}
 }
 
 // Load reads path and then the environment, which wins. A missing file yields Default(); any
