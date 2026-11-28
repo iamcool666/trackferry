@@ -226,7 +226,7 @@ function PlaylistPage({ guid, devices, navigate }: { guid: string; devices: Devi
         {list.tracks.length > 30 && <Filter q={q} setQ={setQ} label="在这个歌单里找" />}
         {list.online_songs ? <ol className="tracks">
           {list.online_songs.map((song) => <li key={song.key}>
-            <span className="track-lead"><Play what={{ single: { source: 'online', id: song.key }, song: onlineHere(song) }} title={song.title} devices={devices} /></span>
+            <span className="track-lead"><Cover cover={song.cover} title={song.title} artist={song.artist} /><Play what={{ single: { source: 'online', id: song.key }, song: onlineHere(song) }} title={song.title} devices={devices} /></span>
             <span className="track-name"><b>{song.title}</b><small>{song.artist || '没有歌手信息'}{song.album ? ` · ${song.album}` : ''}</small></span>
             <span className="track-tech">{song.note ?? 'LXServer'}</span>
             <span className="num track-len">{length(song.duration_ms)}</span>
