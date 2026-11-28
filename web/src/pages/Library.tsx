@@ -126,7 +126,7 @@ const listHref = (l: Playlist): Place => ({ page: 'library', kind: 'playlist', i
 function ListTile({ l, devices, navigate }: { l: Playlist; devices: Device[]; navigate: Nav }) {
   return (
     <li className="list-tile">
-      <a className="tile" href={href(listHref(l))} onClick={(e) => { e.preventDefault(); navigate(listHref(l)); }}><Cover title={l.name} /><b>{l.name}</b></a>
+      <a className="tile" href={href(listHref(l))} onClick={(e) => { e.preventDefault(); navigate(listHref(l)); }}><Cover cover={l.cover} title={l.name} /><b>{l.name}</b></a>
       <Play what={{ collection: { source: 'playlist', id: l.guid } }} title={`歌单${l.name}`} devices={devices} />
     </li>
   );
