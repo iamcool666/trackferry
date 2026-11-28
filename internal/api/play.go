@@ -120,6 +120,36 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		s.answerRun(w, r, d)(s.Dispatcher.Push(r.Context(), d, rt))
 		return
 	}
+	// LX online playlists are resolved on the server: the browser sends only the stable
+	// playlist ID, not hundreds of song records in a request body.
+	if req.Source == "playlist" && strings.HasPrefix(req.ID, "online:playlist:") {
+		lx := s.Router.Online.Lx()
+		if lx == nil {
+			writeError(w, http.StatusConflict, "no_lx", "还没有连接 LXServer")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		p, err := lx.Playlist(ctx, strings.TrimPrefix(req.ID, "online:playlist:"))
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "lx_playlist", "没能读取在线歌单："+err.Error())
+			return
+		}
+		songs := s.Router.Online.Offer(p.Songs)
+		items := make([]takeover.Item, 0, len(songs))
+		for _, song := range songs {
+			if song.Key == "" { continue }
+			items = append(items, takeover.Item{Online: song.Key, Title: song.Title, Artist: song.Artist})
+		}
+		if len(items) == 0 {
+			writeError(w, http.StatusNotFound, "empty", "这个在线歌单里没有可播放的歌曲")
+			return
+		}
+		list := strings.TrimSpace(p.Name)
+		if list == "" { list = "在线歌单" }
+		s.answerRun(w, r, d)(s.Dispatcher.PlayItems(ctx, d, list, items, 0))
+		return
+	}
 	if req.Source == "online_playlist" {
 		if req.Next || req.Last || len(req.OnlineTracks) == 0 || len(req.OnlineTracks) > 500 {
 			writeError(w, http.StatusBadRequest, "bad_list", "在线歌单为空或超过 500 首")
