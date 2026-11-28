@@ -1,7 +1,7 @@
 import { lookFor } from './Search';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { api, ApiError, type Album, type Artist, type Device, type FeiniuInfo, type LibraryStatus, type Missing, type Playlist, type Shelf, type Track } from '../api';
+import { api, ApiError, type Album, type Artist, type Device, type FeiniuInfo, type LibraryStatus, type Missing, type OnlineSong, type Playlist, type Shelf, type Track } from '../api';
 import { useOnNow } from '../onNow';
 import { Cover } from '../components/Cover';
 import { Heart } from '../components/Heart';
@@ -208,7 +208,7 @@ function FavoritesPage({ devices, navigate }: { devices: Device[]; navigate: Nav
 function PlaylistPage({ guid, devices, navigate }: { guid: string; devices: Device[]; navigate: Nav }) {
   useEffect(() => { keepNext = true; }, []);
   useBackdrop();
-  const [list, setList] = useState<{ name: string; tracks: Track[]; total: number } | null>(null);
+  const [list, setList] = useState<{ name: string; tracks: Track[]; total: number; online_songs?: OnlineSong[] } | null>(null);
   const { shown, grow } = useGrow();
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -221,9 +221,16 @@ function PlaylistPage({ guid, devices, navigate }: { guid: string; devices: Devi
       {error && <Notice tone="error" title={error} />}
       {!list && !error && <div className="boot"><span className="spinner" /></div>}
       {list && <>
-        <header className="list-head"><h1>{list.name}</h1><span className="num">{list.total.toLocaleString('zh-CN')} 首</span>{list.total > 0 && <Play what={from} title={`歌单${list.name}`} devices={devices} label="播放歌单" />}</header>
+        <header className="list-head"><h1>{list.name}</h1><span className="num">{list.total.toLocaleString('zh-CN')} 首</span>{list.total > 0 && !list.online_songs && <Play what={from} title={`歌单${list.name}`} devices={devices} label="播放歌单" />}</header>
         {list.tracks.length > 30 && <Filter q={q} setQ={setQ} label="在这个歌单里找" />}
-        <Tracks tracks={hit.slice(0, shown)} from={from} devices={devices} showAlbum navigate={navigate} />
+        {list.online_songs ? <ol className="tracks">
+          {list.online_songs.map((song) => <li key={song.key}>
+            <span className="track-lead"><Play what={{ single: { source: 'online', id: song.key } }} title={song.title} devices={devices} /></span>
+            <span className="track-name"><b>{song.title}</b><small>{song.artist || '没有歌手信息'}{song.album ? ` · ${song.album}` : ''}</small></span>
+            <span className="track-tech">{song.note ?? 'LXServer'}</span>
+            <span className="num track-len">{length(song.duration_ms)}</span>
+          </li>)}
+        </ol> : <Tracks tracks={hit.slice(0, shown)} from={from} devices={devices} showAlbum navigate={navigate} />}
         {q.trim() && !hit.length && <p className="muted">这个歌单里没有找到。</p>}
         {shown < hit.length && <More onMore={grow} />}
         {!q && shown >= list.tracks.length && list.total > list.tracks.length && <p className="muted center">只列前 {list.tracks.length} 首，播放时全都会放。</p>}
