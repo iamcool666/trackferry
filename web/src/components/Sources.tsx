@@ -95,9 +95,14 @@ export function Sources({ onLight }: { onLight: (l: Light) => void }) {
       </ul>
       {quality && (
         <div className="kept">
-          <div><b>在线音质</b><small>{quality === 'high' ? '能要到多高就要多高：登录了会员的网易云可到 320k；酷我、酷狗、咪咕的免费接口目前只给 128k MP3，选这项也一样' : '一律要 128k，省流量、起播快'}。每首歌真实的格式和码率显示在“此刻”页，点一下能换别的版本。曲库里的歌始终是原文件</small></div>
+          <div><b>在线音质</b><small>优先按所选音质获取；当前音质拿不到或返回不可播放音频时，自动逐级降低，直到 MP3 128。Hi-Res 请求 FLAC（无损、无码率上限）；各平台实际能提供的规格不同，播放页显示实际检测到的格式和码率。曲库里的歌始终是原文件</small></div>
           <Pick label="在线音质" value={quality} onPick={pickQuality}
-            choices={[{ value: 'high', label: '要最高' }, { value: 'standard', label: '省流量' }]} />
+            choices={[
+              { value: 'hires', label: 'Hi-Res（FLAC 24bit）' },
+              { value: 'mp3320', label: 'MP3 320' },
+              { value: 'mp3192', label: 'MP3 192' },
+              { value: 'mp3128', label: 'MP3 128' },
+            ]} />
         </div>
       )}
       {fill && (
