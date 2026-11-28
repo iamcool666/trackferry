@@ -150,6 +150,39 @@ type item struct {
 	off, total int64
 	expires    time.Time
 	here       bool // heard in a browser, not on a speaker
+
+	mu       sync.Mutex // over data and filling, which the serving itself sets
+	filling  bool       // a first whole pull is draining the song into memory
+}
+
+// whole is the song held in memory, when it is all there.
+func (it *item) whole() []byte {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+	return it.data
+}
+
+// keepWhole holds a whole song in memory. A false report means someone got there first.
+func (it *item) keepWhole(b []byte) bool {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+	if it.data != nil {
+		return false
+	}
+	it.data = b
+	it.filling = false
+	return true
+}
+
+// claimFill takes the one right to drain a song into memory.
+func (it *item) claimFill() bool {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+	if it.data != nil || it.filling {
+		return false
+	}
+	it.filling = true
+	return true
 }
 
 // Server registers and serves streams.
@@ -475,8 +508,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, it *item) {
 		s.middle(w, r, it)
 		return
 	}
-	if it.data != nil {
-		http.ServeContent(w, r, it.name, time.Time{}, bytes.NewReader(it.data))
+	if d := it.whole(); d != nil {
+		http.ServeContent(w, r, it.name, time.Time{}, bytes.NewReader(d))
 		return
 	}
 	if it.open != nil {
@@ -497,11 +530,29 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, it *item) {
 	http.ServeContent(w, r, it.name, fi.ModTime(), f)
 }
 
+// wholeCap is the largest song a first whole pull keeps in memory for the pulls that follow.
+const wholeCap = 64 << 20
+
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, it *item) {
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	resp, err := openAgain(ctx, it.open, r.Header.Get("Range"))
+	// A first whole request may outlive the speaker that made it: speakers sniff a file with
+	// several short pulls at different offsets before they play it, and every one of those is
+	// a whole address asked for again. So the first pull's source is not the speaker's to cut,
+	// and what the speaker does not take is drained into memory for the pulls that follow.
+	draining := fromStart(r.Header.Get("Range")) && it.claimFill()
+	// The lifeline and the read are two: a stalled read is cut on its own, while the lifeline
+	// carries the reopens, a speaker's hangup included for the pull that drains.
+	life, lcancel := context.WithCancel(r.Context())
+	if draining {
+		life, lcancel = context.WithCancel(context.Background())
+	}
+	defer lcancel()
+	read, readCancel := context.WithCancel(life)
+	defer readCancel()
+	resp, err := openAgain(read, it.open, r.Header.Get("Range"))
 	if err != nil {
+		if draining {
+			it.releaseFill()
+		}
 		if s.Log != nil && r.Context().Err() == nil {
 			s.Log.Warn("音频　来源中断", "音频", it.h.Label) // the error may carry the address
 		}
@@ -515,17 +566,48 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, it *item) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	if r.Method != http.MethodHead {
-		body := io.Reader(resp.Body)
-		if st := s.steady(r.Context(), it, resp, cancel); st != nil {
-			defer st.Close()
-			body = st
+	if r.Method == http.MethodHead {
+		if draining {
+			it.releaseFill()
 		}
-		n, err := io.Copy(w, body)
-		if s.Log != nil && !it.here {
-			s.Log.Info("音频　传完", "音频", it.h.Label, "字节", n, "完整", err == nil)
-		}
+		return
 	}
+	body := io.Reader(resp.Body)
+	var st *steady
+	var buf *bytes.Buffer
+	if st = s.steady(life, it, resp, readCancel); st != nil {
+		defer st.Close()
+		body = st
+		if draining && st.off == 0 && st.end == st.total && st.total > 0 && st.total <= wholeCap {
+			buf = bytes.NewBuffer(make([]byte, 0, st.total))
+			body = io.TeeReader(body, buf)
+		} else if draining {
+			it.releaseFill()
+		}
+	} else if draining {
+		it.releaseFill()
+	}
+	n, err := io.Copy(w, body)
+	if s.Log != nil && !it.here {
+		s.Log.Info("音频　传完", "音频", it.h.Label, "字节", n, "完整", err == nil)
+	}
+	if buf != nil && st.body != nil { // a source that died for good is not asked again for the drain
+		io.Copy(io.Discard, body) // what the speaker did not take goes into memory, not to waste
+		if int64(buf.Len()) != st.total {
+			it.releaseFill() // the source did not give the whole song: nothing to keep
+		} else {
+			it.keepWhole(buf.Bytes())
+		}
+	} else if buf != nil {
+		it.releaseFill()
+	}
+}
+
+// releaseFill gives up the one right to drain a song into memory.
+func (it *item) releaseFill() {
+	it.mu.Lock()
+	it.filling = false
+	it.mu.Unlock()
 }
 
 // steady wraps a response so it survives its source breaking off; nil when the response does

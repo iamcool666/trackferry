@@ -811,7 +811,7 @@ func (s *Service) plays(ctx context.Context, client *http.Client, u string) (boo
 		return false, httpError(resp.StatusCode)
 	}
 	head, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	return audioHead(head), nil
+	return AudioHead(head), nil
 }
 
 // check probes an address: it must answer with audio about as long as the song.
@@ -961,11 +961,11 @@ func looksAudio(resp *http.Response) (head []byte, ok bool) {
 		io.Reader
 		io.Closer
 	}{io.MultiReader(bytes.NewReader(head), resp.Body), resp.Body}
-	return head, audioHead(head)
+	return head, AudioHead(head)
 }
 
-// audioHead reports a recognised audio container from its first bytes.
-func audioHead(b []byte) bool {
+// AudioHead reports a recognised audio container from its first bytes.
+func AudioHead(b []byte) bool {
 	if len(b) >= 4 {
 		switch string(b[:4]) {
 		case "fLaC", "OggS", "RIFF", "FORM":

@@ -157,7 +157,7 @@ func (c *Cache) rename() {
 	for k, e := range c.songs {
 		if e.File == "" {
 			old[k] = c.file(k)
-			e.File = freeName(c.audio, e.Song, e.Size, c.taken)
+			e.File = freeName(c.audio, e.Song, e.Size, ".mp3", c.taken)
 		}
 	}
 	if len(old) == 0 {
@@ -396,7 +396,7 @@ func (c *Cache) Keep(ctx context.Context, f *online.Found, asked string, remote 
 	}
 	tmp := filepath.Join(c.audio, key+".part")
 	defer os.Remove(tmp)
-	n, err := c.download(ctx, tmp, min(limit, maxSong), remote)
+	n, ext, err := c.download(ctx, tmp, min(limit, maxSong), remote)
 	if err != nil {
 		return err
 	}
@@ -406,7 +406,7 @@ func (c *Cache) Keep(ctx context.Context, f *online.Found, asked string, remote 
 		return nil
 	}
 	c.trim(n)
-	e = &entry{Song: s, File: freeName(c.audio, s, n, c.taken), Size: n, UsedMS: time.Now().UnixMilli()}
+	e = &entry{Song: s, File: freeName(c.audio, s, n, ext, c.taken), Size: n, UsedMS: time.Now().UnixMilli()}
 	c.answer(e, asked)
 	c.songs[key] = e
 	c.save() // first, so that no crash leaves a file nobody knows
@@ -418,30 +418,35 @@ func (c *Cache) Keep(ctx context.Context, f *online.Found, asked string, remote 
 	return nil
 }
 
-func (c *Cache) download(ctx context.Context, to string, most int64, remote Opener) (int64, error) {
+func (c *Cache) download(ctx context.Context, to string, most int64, remote Opener) (int64, string, error) {
 	resp, err := remote(ctx, "")
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer resp.Body.Close()
 	ctype := resp.Header.Get("Content-Type")
 	size := resp.ContentLength
 	switch {
 	case resp.StatusCode != http.StatusOK || strings.HasPrefix(ctype, "text/") || strings.Contains(ctype, "json"):
-		return 0, errors.New("来源没有给出音频")
+		return 0, "", errors.New("来源没有给出音频")
 	case size < minSong || size > most: // an unknown length cannot be checked for being complete
-		return 0, errors.New("来源没有给出合适的长度")
+		return 0, "", errors.New("来源没有给出合适的长度")
 	}
 	if left, err := c.free(c.audio); err == nil && left < size+keepFree {
-		return 0, errors.New("磁盘空间不多了")
+		return 0, "", errors.New("磁盘空间不多了")
 	}
 	f, err := os.OpenFile(to, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	var head [1]byte
-	if _, err = io.ReadFull(resp.Body, head[:]); err == nil && head[0] != 'I' && head[0] != 0xFF { // ID3 or an MP3 frame
-		err = errors.New("来源给的不是 MP3")
+	var head [64 << 10]byte
+	var ext string
+	if _, err = io.ReadFull(resp.Body, head[:]); err == nil {
+		if !online.AudioHead(head[:]) {
+			err = errors.New("来源给的不是音频")
+		} else {
+			ext = audioExt(head[:])
+		}
 	}
 	var n int64
 	if err == nil {
@@ -453,7 +458,7 @@ func (c *Cache) download(ctx context.Context, to string, most int64, remote Open
 	if err == nil && n != size {
 		err = errors.New("没有取完整")
 	}
-	return n, err
+	return n, ext, err
 }
 
 func (c *Cache) answer(e *entry, asked string) {

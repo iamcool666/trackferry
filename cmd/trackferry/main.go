@@ -433,7 +433,7 @@ func serve() error {
 			kctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer cancel()
 			if err := kept.Keep(kctx, rt.Found(), rt.Asked(), sources.Opener(rt.Found())); err != nil && ctx.Err() == nil {
-				log.Warn("缓存　没有存下", "音频", rt.Label()) // the error may carry the address
+				log.Warn("缓存　没有存下", "音频", rt.Label(), "原因", err) // the error may carry the address
 			}
 		}}
 	obs := observe.New(xm, st, log, time.Second)

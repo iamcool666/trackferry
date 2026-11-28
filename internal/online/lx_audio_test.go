@@ -149,8 +149,8 @@ func TestLxPlaysSeesRealAudio(t *testing.T) {
 		{"empty", nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := audioHead(tc.head); got != tc.want {
-				t.Fatalf("audioHead = %v, want %v", got, tc.want)
+			if got := AudioHead(tc.head); got != tc.want {
+				t.Fatalf("AudioHead = %v, want %v", got, tc.want)
 			}
 		})
 	}

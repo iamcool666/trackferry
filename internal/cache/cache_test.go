@@ -116,6 +116,25 @@ func TestKeepServeAndEvict(t *testing.T) {
 	}
 }
 
+func TestKeepStoresLossless(t *testing.T) {
+	ctx, dir, log := context.Background(), t.TempDir(), slog.New(slog.DiscardHandler)
+	c, err := Open(dir, "", 1, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.free = func(string) (int64, error) { return 1 << 40, nil }
+	flac := append([]byte("fLaC"), bytes.Repeat([]byte{9}, 400<<10-4)...)
+	if err := c.Keep(ctx, song("f1"), "askf1", from(flac, int64(len(flac)))); err != nil {
+		t.Fatal(err) // a flac is audio, not a failed MP3
+	}
+	if e := c.songs[keyOf(online.Save(song("f1")))]; e == nil || !strings.HasSuffix(e.File, ".flac") {
+		t.Fatal(e.File)
+	}
+	if c, err = Open(dir, "", 1, log); err != nil || c.Find("askf1") == nil {
+		t.Fatal(err, c.Find("askf1")) // the name survives a restart
+	}
+}
+
 func TestNames(t *testing.T) {
 	for _, x := range [][3]string{
 		{"晴天", "周杰伦", "晴天-周杰伦"},

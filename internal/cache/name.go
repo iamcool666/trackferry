@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -47,14 +48,17 @@ func clean(s string, most int) string {
 	return strings.Trim(s, " .")
 }
 
+// audioExts are the endings a kept song may carry, newest content first.
+var audioExts = []string{".mp3", ".flac", ".ogg", ".wav", ".m4a"}
+
 // freeName is a name no other file in dir has. A file of the same name and size is the same
 // song, left there when the index was lost.
-func freeName(dir string, s online.Saved, size int64, taken func(string) bool) string {
+func freeName(dir string, s online.Saved, size int64, ext string, taken func(string) bool) string {
 	base := baseName(s)
 	for i := 1; ; i++ {
-		name := base + ".mp3"
+		name := base + ext
 		if i > 1 {
-			name = fmt.Sprintf("%s (%d).mp3", base, i)
+			name = fmt.Sprintf("%s (%d)%s", base, i, ext)
 		}
 		fi, err := os.Lstat(filepath.Join(dir, name))
 		if !taken(name) && (os.IsNotExist(err) || err == nil && fi.Mode().IsRegular() && fi.Size() == size) {
@@ -66,7 +70,25 @@ func freeName(dir string, s online.Saved, size int64, taken func(string) bool) s
 	}
 }
 
+// audioExt names the extension a song's first bytes ask for; MP3 when nothing is recognised.
+func audioExt(head []byte) string {
+	if len(head) >= 4 {
+		switch string(head[:4]) {
+		case "fLaC":
+			return ".flac"
+		case "OggS":
+			return ".ogg"
+		case "RIFF":
+			return ".wav"
+		}
+		if len(head) >= 12 && string(head[4:8]) == "ftyp" {
+			return ".m4a"
+		}
+	}
+	return ".mp3"
+}
+
 // ownName reports whether a name read from the index stays inside the folder.
 func ownName(name string) bool {
-	return name == filepath.Base(name) && strings.HasSuffix(name, ".mp3") && len(name) > len(".mp3")
+	return name == filepath.Base(name) && len(name) > len(".mp3") && slices.Contains(audioExts, filepath.Ext(name))
 }

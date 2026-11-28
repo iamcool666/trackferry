@@ -32,6 +32,17 @@ func (h *Handle) Lost() bool {
 
 // source reads a song's bytes from an offset; end < 0 reads to its end.
 func (it *item) source(ctx context.Context, from, end int64) (io.ReadCloser, int64, error) {
+	if d := it.whole(); d != nil { // a song held in memory needs no source at all
+		n := int64(len(d))
+		if from < 0 || from > n {
+			return nil, 0, ErrNoSeek
+		}
+		to := n
+		if end >= 0 && end+1 < to {
+			to = end + 1
+		}
+		return io.NopCloser(io.NewSectionReader(bytes.NewReader(d), from, to-from)), n, nil
+	}
 	if it.open == nil {
 		f, err := os.Open(it.path)
 		if err != nil {
@@ -80,7 +91,7 @@ func (it *item) peek(ctx context.Context, from int64, n int) ([]byte, int64, err
 // Seekable reports whether Resume is likely to work, without reading the song.
 func (h *Handle) Seekable() bool {
 	it := h.it
-	if it == nil || it.data != nil || it.head != nil || h.Duration <= 0 {
+	if it == nil || it.head != nil || h.Duration <= 0 {
 		return false
 	}
 	return it.ctype == "audio/mpeg" || strings.Contains(it.ctype, "wav") || strings.Contains(it.ctype, "flac")
@@ -89,7 +100,7 @@ func (h *Handle) Seekable() bool {
 // Resume hands out the same song from about at. It returns where it really starts.
 func (h *Handle) Resume(ctx context.Context, at time.Duration) (*Handle, time.Duration, error) {
 	it, s := h.it, h.srv
-	if it == nil || it.data != nil || it.head != nil || h.Duration <= 0 || at <= 0 || at >= h.Duration {
+	if it == nil || it.head != nil || h.Duration <= 0 || at <= 0 || at >= h.Duration {
 		return nil, 0, ErrNoSeek
 	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
