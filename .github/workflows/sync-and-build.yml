@@ -1,15 +1,8 @@
 name: sync-and-build
 
-# Mirror upstream into this fork. The release workflow publishes the signed dev
-# release and then builds the GHCR image after this sync pushes updated application code.
+# Manual upstream sync only. When started from Actions, sync upstream and
+# publish a signed dev release plus GHCR image only if upstream has new code.
 on:
-  push:
-    branches:
-      - feature/trackferry-plus
-    paths:
-      - .github/workflows/sync-and-build.yml
-  schedule:
-    - cron: '17 18 * * *' # Daily at 02:17 Beijing time
   workflow_dispatch:
 
 concurrency:
@@ -124,6 +117,7 @@ jobs:
             echo "- Target: this repository's ${TARGET_BRANCH}"
             echo "- Preserved: build.yml, sync-and-build.yml, release.yml"
             echo "- Re-applied: fork-owned release repository, Ed25519 public key, and dev-aware updater"
+            echo "- Trigger: manual workflow_dispatch only (no schedule or automatic push trigger)"
             echo "- No upstream code change: no release or image build"
             echo "- Upstream code changed: sync, publish signed dev release, then build GHCR image"
           } >> "$GITHUB_STEP_SUMMARY"
