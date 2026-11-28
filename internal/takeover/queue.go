@@ -1008,10 +1008,10 @@ func (d *Dispatcher) Snapshot(dev string, current Item) ([]Item, int) {
 
 // Item is one song handed over: a song of the library (ID) or an online one (Online, its key).
 type Item struct {
-	ID     int64
-	Online string
-	Title  string
-	Artist string
+	ID int64 `json:"id,omitempty"`
+	Online string `json:"online,omitempty"`
+	Title string `json:"title,omitempty"`
+	Artist string `json:"artist,omitempty"`
 }
 
 // onlineKey is the key of an online song that is not in the library, or "".
@@ -1041,6 +1041,39 @@ func (d *Dispatcher) outsider(q *queue, id int64) (*routing.Route, bool) {
 }
 
 // Receive keeps the incoming order and starts the selected occurrence at a measured offset.
+// PlayItems starts an ordered list containing library and online songs.
+func (d *Dispatcher) PlayItems(ctx context.Context, dev store.Device, list string, items []Item, start int) (store.TakeoverRun, error) {
+	if len(items) == 0 || len(items) > 500 || start < 0 || start >= len(items) {
+		return store.TakeoverRun{}, ErrMoved
+	}
+	q := &queue{dev: dev.DeviceID, hardware: dev.Hardware, list: list, ids: make([]int64, len(items)), pos: start, web: true}
+	for i, it := range items {
+		if it.ID > 0 {
+			q.ids[i] = it.ID
+			continue
+		}
+		if it.Online == "" {
+			return store.TakeoverRun{}, ErrNoSong
+		}
+		if q.outside == nil { q.outside = map[int64]Item{} }
+		q.ids[i] = -int64(i + 1)
+		q.outside[q.ids[i]] = it
+	}
+	q.order = slices.Clone(q.ids)
+	if d.PlayMode(ctx, dev.DeviceID) == ModeShuffle {
+		current := q.ids[start]
+		q.ids = slices.Delete(q.ids, start, start+1)
+		rand.Shuffle(len(q.ids), func(i, j int) { q.ids[i], q.ids[j] = q.ids[j], q.ids[i] })
+		q.ids = slices.Insert(q.ids, 0, current)
+		q.pos = 0
+	}
+	rt, ok := d.song(q, q.ids[q.pos])
+	if !ok { return store.TakeoverRun{}, errors.New(list + "里的第一首歌暂时读不到") }
+	run, err := d.push(ctx, dev, rt, func() func(End) { return d.follow(q) })
+	if err == nil { d.warm(q) }
+	return run, err
+}
+
 func (d *Dispatcher) Receive(ctx context.Context, dev store.Device, items []Item, index int, at time.Duration) (store.TakeoverRun, error) {
 	const list = "接力播放"
 	if index < 0 || index >= len(items) {
