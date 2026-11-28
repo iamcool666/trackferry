@@ -1,8 +1,4 @@
 
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     if: github.event_name != 'release' || github.event.release.tag_name == 'dev'name: release
 on:
   # Edit the rolling "dev" Release notes after all code changes are complete.
@@ -17,6 +13,7 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 jobs:
   frontend:
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +34,7 @@ jobs:
           path: internal/webui/dist/
           retention-days: 1
   test:
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     needs: frontend
     runs-on: ubuntu-latest
     steps:
@@ -53,6 +51,7 @@ jobs:
       - name: Test Go packages
         run: go test ./...
   signed:
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     needs: frontend
     runs-on: ubuntu-latest
     strategy:
@@ -99,6 +98,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
   image:
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -136,6 +136,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
   publish:
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     needs: [test, signed, image]
     runs-on: ubuntu-latest
     permissions:
