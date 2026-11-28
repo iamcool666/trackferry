@@ -132,10 +132,11 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: ${{ matrix.arch }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
           mkdir -p dist
           CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build \
-            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA" \
+            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" \
             -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
       - name: Sign server binary
         env:
