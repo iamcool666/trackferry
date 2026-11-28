@@ -145,7 +145,7 @@ type release struct {
 	Published string `json:"published_at"`
 }
 
-// latest checks this fork's releases and includes signed dev prereleases.
+// latest checks this fork's release list, including signed dev prereleases.
 func (c *Checker) latest(ctx context.Context) (*release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.API+"/repos/"+c.Repo+"/releases?per_page=100", nil)
 	if err != nil {
