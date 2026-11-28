@@ -90,6 +90,8 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
   const asksCode = gate || f.code || !!code || !!found?.servers.some((s) => s.gate && s.base === base);
   const n = (v: number) => v.toLocaleString('zh-CN');
   const last = lib.last;
+  const onlineTracks = last?.online_tracks ?? 0;
+  const onlinePlaylists = last?.online_playlists ?? 0;
 
   return (
     <Setting id="feiniu" icon={<SourceIcon name="feiniu" />} title="飞牛音乐" light={light ?? 'off'} state={f.expired ? '登录已失效' : f.linked ? '已连接' : '未连接'}
@@ -99,8 +101,10 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
         {f.linked && (
           <>
             <dl className="tally">
-              <div><dd className="num">{n(running ? lib.seen : lib.tracks)}</dd><dt>{running ? '首已读' : '首歌'}</dt></div>
-              <div><dd className="num">{n(lib.artists)}</dd><dt>位歌手</dt></div>
+              <div><dd className="num">{n(running ? lib.seen : lib.tracks + onlineTracks)}</dd><dt>{running ? '首已读' : '首歌（含在线）'}</dt></div>
+              {!running && onlinePlaylists > 0 && <div><dd className="num">{n(onlineTracks)}</dd><dt>首在线歌单歌曲</dt></div>}
+              {!running && onlinePlaylists > 0 && <div><dd className="num">{n(onlinePlaylists)}</dd><dt>个在线歌单</dt></div>}
+              <div><dd className="num">{n(lib.artists)}</dd><dt>位歌手（曲库）</dt></div>
               {!running && last?.finished_ms ? <div><dd className="num">{clock(last.finished_ms).slice(0, 5)}</dd><dt>{day(last.finished_ms)}同步</dt></div> : null}
               {!running && last?.skipped ? <div><dd className="num">{n(last.skipped)}</dd><dt>首音箱放不了</dt></div> : null}
             </dl>
@@ -108,6 +112,7 @@ export function FeiniuCard({ onLight }: { onLight: (l: Light) => void }) {
             <div className="kept"><div><b>自动同步</b><small>飞牛里新加的歌、收藏和歌单隔多久读一次，没变化时几乎不费资源</small></div>
               <Pick label="自动同步" value={lib.every_minutes ?? 360} choices={[5, 15, 30, 60, 180, 360, 720, 1440].map((m) => ({ value: m, label: m < 60 ? `每 ${m} 分钟` : `每 ${m / 60} 小时` })).concat({ value: 0, label: '关' })} onPick={every} /></div>
             {last?.error && <p className="field-error">{last.error}</p>}
+            {last?.online_error && <p className="field-error">在线歌单统计失败：{last.online_error}</p>}
             <dl className="kv">
               <div><dt>地址</dt><dd className="mono">{f.base}</dd></div>
               {f.version && <div><dt>版本</dt><dd className="num">{f.version}</dd></div>}
