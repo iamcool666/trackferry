@@ -52,6 +52,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		Name   string  `json:"name"`   // the artist
 		Track  int64   `json:"track_id"`
 		Tracks []int64 `json:"track_ids"` // the discovery draw already on screen
+		OnlineTracks []takeover.Item `json:"online_tracks"` // a complete online playlist
 		Title  string  `json:"title"`
 		Artist string  `json:"artist"`
 		Next   bool    `json:"next"` // after the song that is on
@@ -117,6 +118,22 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.answerRun(w, r, d)(s.Dispatcher.Push(r.Context(), d, rt))
+		return
+	}
+	if req.Source == "online_playlist" {
+		if req.Next || req.Last || len(req.OnlineTracks) == 0 || len(req.OnlineTracks) > 500 {
+			writeError(w, http.StatusBadRequest, "bad_list", "在线歌单为空或超过 500 首")
+			return
+		}
+		for _, song := range req.OnlineTracks {
+			if song.Online == "" || len(song.Online) > 200 {
+				writeError(w, http.StatusBadRequest, "bad_track", "在线歌单中有无法识别的歌曲")
+				return
+			}
+		}
+		list := strings.TrimSpace(req.Name)
+		if list == "" || len([]rune(list)) > 100 { list = "在线歌单" }
+		s.answerRun(w, r, d)(s.Dispatcher.PlayItems(r.Context(), d, list, req.OnlineTracks, 0))
 		return
 	}
 	if req.Source == "online" {
