@@ -43,7 +43,7 @@ func lxServer(t *testing.T, bodies map[string][]byte) (*httptest.Server, *[]stri
 				"searchResult3": map[string]any{"song": songs}}})
 		case "/rest/stream":
 			rate := r.URL.Query().Get("maxBitRate")
-			asked = append(asked, rate)
+			asked = append(asked, r.URL.Query().Get("format")+":"+rate)
 			b, ok := bodies[rate]
 			if !ok {
 				b = bodies["*"]
@@ -77,10 +77,10 @@ func TestLxStreamFallsToARateThatPlays(t *testing.T) {
 	if f == nil {
 		t.Fatalf("nothing found: %+v", outs)
 	}
-	if f.Stream.Type != "320" {
+	if f.Stream.Type != string(MP3320) {
 		t.Fatalf("stream taken at %q, want the first rate that plays", f.Stream.Type)
 	}
-	if want := []string{"", "320"}; strings.Join(*asked, ",") != strings.Join(want, ",") {
+	if want := []string{"flac:0", "mp3:320"}; strings.Join(*asked, ",") != strings.Join(want, ",") {
 		t.Fatalf("asked %v, want %v", *asked, want)
 	}
 }
@@ -94,7 +94,7 @@ func TestLxStreamThatPlaysIsTakenAsItIs(t *testing.T) {
 	if f == nil {
 		t.Fatalf("nothing found: %+v", outs)
 	}
-	if len(*asked) != 1 || (*asked)[0] != "" {
+	if len(*asked) != 1 || (*asked)[0] != "flac:0" {
 		t.Fatalf("asked %v, want the best form only", *asked)
 	}
 	if f.Stream.Type != "" {
@@ -111,7 +111,7 @@ func TestLxStreamThatNeverPlaysIsRefused(t *testing.T) {
 	if f != nil {
 		t.Fatalf("offered a stream that is no audio: %+v", f.Stream)
 	}
-	if len(*asked) != len(lxFalls) {
+	if len(*asked) != len(lxRates(HiRes)) {
 		t.Fatalf("asked %v, want every rate tried", *asked)
 	}
 }
@@ -122,12 +122,12 @@ func TestLxStandardQualityAsksTheSmallRateOnly(t *testing.T) {
 	srv, asked := lxServer(t, map[string][]byte{"128": flacHead(285)})
 	defer srv.Close()
 	svc := lxService(srv)
-	svc.SetQuality(Standard)
+	svc.SetQuality(MP3128)
 	f, _ := svc.Find(context.Background(), []Reading{{Title: "雨中的恋人", Artist: "曼丽"}}, "雨中的恋人 曼丽")
 	if f == nil {
 		t.Fatal("nothing found, though the small rate plays")
 	}
-	if len(*asked) != 1 || (*asked)[0] != "128" {
+	if len(*asked) != 1 || (*asked)[0] != "mp3:128" {
 		t.Fatalf("asked %v, want 128 alone", *asked)
 	}
 }
