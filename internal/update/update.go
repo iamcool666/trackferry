@@ -196,29 +196,37 @@ func (c *Checker) latest(ctx context.Context) (*release, error) {
 			continue
 		}
 		if c.Channel == "dev" {
-			// Dev binaries follow the single rolling prerelease at tag "dev".
-			// Accept both the current title/notes ("TrackFerry Dev 0.0.x" /
-			// "Development build 0.0.x") and the earlier Version: notes format.
-			if !r.Prerelease || r.Tag != "dev" || !strings.HasPrefix(strings.TrimSpace(r.Name), "TrackFerry Dev") {
+			// Dev channel: the release title is the only selector. Keep this
+			// deliberately broad so title changes, tags, and prerelease flags
+			// do not hide a development build.
+			if !strings.Contains(strings.ToLower(r.Name), "dev") {
 				continue
 			}
-			nameVersion := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(r.Name), "TrackFerry Dev"))
-			if nameVersion != "" {
-				fields := strings.Fields(nameVersion)
-				if len(fields) > 0 {
-					r.Version = strings.TrimRight(fields[0], ".,;")
+			// Prefer a semantic version embedded in the title.
+			r.Version = ""
+			for _, field := range strings.Fields(r.Name) {
+				candidate := strings.TrimRight(strings.TrimLeft(field, "([vV"), ".,;:)]")
+				if _, ok := parse(candidate); ok {
+					r.Version = candidate
+					break
 				}
 			}
+			// Older release titles may only say "Dev"; retain compatibility
+			// with version numbers in the release notes.
 			if _, ok := parse(r.Version); !ok {
-				r.Version = ""
 				for _, marker := range []string{"Version:", "Development build"} {
 					parts := strings.SplitN(r.Body, marker, 2)
 					if len(parts) != 2 {
 						continue
 					}
-					fields := strings.Fields(parts[1])
-					if len(fields) > 0 {
-						r.Version = strings.TrimRight(fields[0], ".,;")
+					for _, field := range strings.Fields(parts[1]) {
+						candidate := strings.TrimRight(field, ".,;:)]")
+						if _, ok := parse(candidate); ok {
+							r.Version = candidate
+							break
+						}
+					}
+					if _, ok := parse(r.Version); ok {
 						break
 					}
 				}
