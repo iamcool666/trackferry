@@ -26,7 +26,6 @@ const (
 	Native = "native"
 )
 
-// Candidate is one song a layer considered.
 // QueueSong is a member of a singer's mixed local and online playback queue.
 type QueueSong struct {
 	Online     string
@@ -36,6 +35,7 @@ type QueueSong struct {
 	DurationMS int64
 }
 
+// Candidate is one song a layer considered.
 type Candidate struct {
 	Title      string `json:"title"`
 	Artist     string `json:"artist"`
