@@ -33,23 +33,23 @@ func TestListingJumpAndRemove(t *testing.T) {
 		t.Fatal(got)
 	}
 	// One that came before: the song that is on stays the same.
-	if err := d.Remove("d1", Pick{Slot: Slot{0, 1}}); err != nil || q.ids[q.pos] != 2 || !slices.Equal(q.order, []int64{2, 4, 5}) {
+	if err := d.Remove("d1", Pick{Slot: Slot{At: 0, ID: 1}}); err != nil || q.ids[q.pos] != 2 || !slices.Equal(q.order, []int64{2, 4, 5}) {
 		t.Fatal(err, q.ids, q.pos, q.order)
 	}
 	// What the page knows is out of date by one place.
-	if err := d.Remove("d1", Pick{Slot: Slot{3, 4}}); err != nil || !slices.Equal(q.ids, []int64{2, 5}) {
+	if err := d.Remove("d1", Pick{Slot: Slot{At: 3, ID: 4}}); err != nil || !slices.Equal(q.ids, []int64{2, 5}) {
 		t.Fatal(err, q.ids)
 	}
-	if err := d.Remove("d1", Pick{Slot: Slot{1, 4}}); !errors.Is(err, ErrMoved) {
+	if err := d.Remove("d1", Pick{Slot: Slot{At: 1, ID: 4}}); !errors.Is(err, ErrMoved) {
 		t.Fatal(err)
 	}
-	if err := d.Remove("d1", Pick{Slot: Slot{0, 2}}); err == nil {
+	if err := d.Remove("d1", Pick{Slot: Slot{At: 0, ID: 2}}); err == nil {
 		t.Fatal("took off the song that is on")
 	}
-	if err := d.Jump(ctx, "d1", Pick{Slot: Slot{1, 5}}); err != nil || q.pos != 1 || (*asked)[len(*asked)-1] != 5 || len(sp.started) != 1 {
+	if err := d.Jump(ctx, "d1", Pick{Slot: Slot{At: 1, ID: 5}}); err != nil || q.pos != 1 || (*asked)[len(*asked)-1] != 5 || len(sp.started) != 1 {
 		t.Fatal(err, q.pos, *asked)
 	}
-	if err := d.Jump(ctx, "d1", Pick{Slot: Slot{0, 9}}); !errors.Is(err, ErrMoved) || q.pos != 1 {
+	if err := d.Jump(ctx, "d1", Pick{Slot: Slot{At: 0, ID: 9}}); !errors.Is(err, ErrMoved) || q.pos != 1 {
 		t.Fatal(err)
 	}
 	if err := d.RemoveCurrent(ctx, "d1"); err != nil || !slices.Equal(q.ids, []int64{2}) || q.pos != 0 || len(sp.started) != 2 {
