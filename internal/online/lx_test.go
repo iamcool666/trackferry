@@ -57,3 +57,29 @@ func TestLxClientReachesAPrivateAddress(t *testing.T) {
 		t.Fatal("the shared client reached a private address")
 	}
 }
+
+func TestLxReadsPublicOnlinePlaylist(t *testing.T) {
+	const playlistID = "public:lx:tx:playlist:7769010449"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/getPlaylist" || r.URL.Query().Get("id") != playlistID {
+			t.Errorf("unexpected playlist request: %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
+			"status": "ok",
+			"playlist": map[string]any{"id": playlistID, "name": "[QQ] 英文经典", "songCount": 1,
+				"entry": []map[string]any{{"id": "tx_123", "title": "Hello", "artist": "Adele", "duration": 295, "suffix": "mp3"}}},
+		}})
+	}))
+	defer srv.Close()
+	l := &Lx{BaseURL: srv.URL + "/rest", User: "u", Password: "p", Client: srv.Client()}
+	p, err := l.Playlist(context.Background(), playlistID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Name != "[QQ] 英文经典" || len(p.Songs) != 1 {
+		t.Fatalf("playlist = %+v", p)
+	}
+	if p.Songs[0].ID != "tx_123" || p.Songs[0].Source != "lx" || p.Songs[0].DurationMS != 295000 {
+		t.Fatalf("song = %+v", p.Songs[0])
+	}
+}
