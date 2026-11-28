@@ -1361,8 +1361,6 @@ func (s *Service) fetcher(src Source) *http.Client {
 	return s.probe
 }
 
-// Lx returns the self-hosted 洛雪 source, or nil when it is not set up.
-
 // FindArtistCandidates searches LXServer for a singer and keeps the results available
 // to the playback queue without persisting member-backed candidates.
 func (s *Service) FindArtistCandidates(ctx context.Context, artist string, limit int) ([]Candidate, []Outcome) {
@@ -1456,7 +1454,7 @@ func (s *Service) FindArtist(ctx context.Context, artist string, limit int) (*Fo
 		}
 		if len(outs) > 0 {
 			outs[0].State, outs[0].Detail = StateError, lastErr.Error()
-			if errors.Is(lastErr, ErrRestricted) || errors.Is(lastErr, ErrTrial) || errors.Is(lastErr, ErrNoAudio) {
+			if lastErr.Error() == ErrRestricted.Error() || lastErr.Error() == ErrTrial.Error() || lastErr.Error() == ErrNoAudio.Error() {
 				outs[0].State = StateRestricted
 			}
 		}
