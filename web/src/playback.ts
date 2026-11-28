@@ -21,6 +21,11 @@ export async function playOn(output: string, what: Playback, how: 'now' | 'next'
   if (output === HERE) {
     if ('single' in what) return playHere(what.song, how) ? 'queued' : 'started';
     if ('onlineList' in what) playOnlineListHere(what.onlineList.list, what.onlineList.tracks);
+    else if ('collection' in what && what.collection.source === 'playlist' && what.collection.id.startsWith('online:playlist:')) {
+      const list = await api.playlist(what.collection.id);
+      if (!list.online_songs?.length) throw new Error('这个在线歌单里没有可播放的歌曲');
+      playOnlineListHere(list.name, list.online_songs);
+    }
     else if ('picks' in what) playListHere(what.picks.list, what.picks.tracks, what.start, true);
     else if (what.snapshot) playListHere(what.snapshot.list, what.snapshot.tracks, what.start);
     else if (!await listHere(what.collection, what.start)) return;
