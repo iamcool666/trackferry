@@ -67,12 +67,15 @@ func TestFindArtistUsesLXAndResolvesPlayableSong(t *testing.T) {
 
 	lx := &Lx{BaseURL: srv.URL + "/rest", User: "u", Password: "p", Client: srv.Client()}
 	svc := New(nil, Client(), lx)
-	found, outcomes := svc.FindArtist(context.Background(), "周杰伦", 20)
+	found, candidates, outcomes := svc.FindArtist(context.Background(), "周杰伦", 20)
 	if found == nil {
 		t.Fatalf("FindArtist returned no song: %+v", outcomes)
 	}
 	if found.Candidate.Title != "晴天" || found.Candidate.Key != "lx:kw_123" || !found.Candidate.Member {
 		t.Fatalf("found candidate = %+v", found.Candidate)
+	}
+	if len(candidates) != 1 || candidates[0].Key != "lx:kw_123" || !candidates[0].Member {
+		t.Fatalf("temporary artist candidates = %+v", candidates)
 	}
 	if len(outcomes) != 1 || outcomes[0].State != StateHit {
 		t.Fatalf("outcomes = %+v", outcomes)
