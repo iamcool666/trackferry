@@ -1,0 +1,236 @@
+name: release
+
+on:
+  push:
+    branches:
+      - feature/trackferry-plus
+    tags:
+      - 'v*'
+    paths-ignore:
+      - '.github/workflows/**'
+      - '**/*.md'
+      - '**/*_test.go'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag (leave empty to publish a dev build from this branch)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: false
+        type: string
+      source_ref:
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: trackferry-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      ref: ${{ steps.version.outputs.ref }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || inputs.tag || github.sha }}
+      - name: Resolve release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_INPUT: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ inputs.source_ref || github.sha }}
+        shell: bash
+        run: |
+          if [[ -z "$TAG_INPUT" && "$GITHUB_REF" == refs/heads/* ]]; then
+            base="$(cat VERSION)"
+            if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "VERSION must be numeric x.y.z: $base"
+              exit 1
+            fi
+            IFS=. read -r major minor _ <<< "$base"
+            max_patch=0
+            while IFS= read -r old_tag; do
+              old_version="${old_tag#v}"
+              if [[ "$old_version" =~ ^${major//./\.}.${minor//./\.}.([0-9]+)$ ]]; then
+                patch="${BASH_REMATCH[1]}"
+                patch_num=$((10#$patch))
+                if (( patch_num > max_patch )); then max_patch=$patch_num; fi
+              fi
+            done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName')
+            version="$major.$minor.$((max_patch + 1))"
+            tag="v$version"
+            ref="$COMMIT_SHA"
+            commit="$COMMIT_SHA"
+            prerelease=true
+          else
+            tag="$TAG_INPUT"
+            [[ -n "$tag" ]] || tag="$REF_NAME"
+            version="${tag#v}"
+            ref="$tag"
+            commit="$(git rev-parse "$tag^{commit}")"
+            prerelease=false
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid semantic version: $version"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Publishing $tag (prerelease=$prerelease)"
+
+  build:
+    name: Build and sign linux/${{ matrix.arch }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          mkdir -p ../internal/webui
+          npm run build
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build server binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build \
+            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA" \
+            -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
+      - name: Sign server binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          test -n "$UPDATE_SIGNING_KEY" || { echo "Missing UPDATE_SIGNING_KEY secret"; exit 1; }
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
+          chmod 600 "$RUNNER_TEMP/update-signing.key"
+          asset="dist/trackferry-$VERSION-linux-$ARCH"
+          digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
+          printf 'trackferry\n%s\nlinux/%s\n%s\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
+          openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
+            -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
+          base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
+          echo >> "$asset.sig"
+          rm -f "$RUNNER_TEMP/update-signing.key" "$RUNNER_TEMP/message" "$RUNNER_TEMP/signature"
+      - name: Upload signed assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 2
+
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download signed assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          TARGET_SHA: ${{ needs.prepare.outputs.commit }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            if [[ "$PRERELEASE" == "true" ]]; then
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease
+            fi
+          elif [[ "$PRERELEASE" == "true" ]]; then
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_SHA" --title "TrackFerry $TAG (dev)" --prerelease --generate-notes
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "TrackFerry ${TAG#v}" --generate-notes
+          fi
+
+  image:
+    name: Build and publish Docker image
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/feature/trackferry-plus' && inputs.tag == '' }}
+            type=ref,event=tag
+            type=sha,format=short
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ci
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            COMMIT=${{ needs.prepare.outputs.commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

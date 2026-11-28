@@ -1,0 +1,132 @@
+name: sync-and-build
+
+# Mirror upstream into this fork. The release workflow publishes the signed dev
+# release and then builds the GHCR image after this sync pushes updated application code.
+on:
+  push:
+    branches:
+      - feature/trackferry-plus
+    paths:
+      - .github/workflows/sync-and-build.yml
+  schedule:
+    - cron: '17 18 * * *' # Daily at 02:17 Beijing time
+  workflow_dispatch:
+
+concurrency:
+  group: trackferry-upstream-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  UPSTREAM_REPO: workroom2008/trackferry
+  UPSTREAM_BRANCH: feature/trackferry-plus
+  TARGET_BRANCH: feature/trackferry-plus
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+      synced_sha: ${{ steps.synced.outputs.sha }}
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Fetch upstream and target
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream "+refs/heads/${UPSTREAM_BRANCH}:refs/remotes/upstream/${UPSTREAM_BRANCH}"
+          git fetch origin "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
+      - name: Check whether upstream application code changed
+        id: changes
+        run: |
+          old_sha=$(git rev-parse "origin/${TARGET_BRANCH}")
+          echo "old_sha=$old_sha" >> "$GITHUB_OUTPUT"
+          if git diff --quiet "origin/${TARGET_BRANCH}" "upstream/${UPSTREAM_BRANCH}" -- . \
+            ':(exclude).github/workflows/**' \
+            ':(exclude)internal/update/update.go' \
+            ':(exclude)internal/update/update_test.go'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream application changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream application changes detected."
+          fi
+      - name: Replace repository code with upstream
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          mkdir -p /tmp/trackferry-own-workflows
+          git show "origin/${TARGET_BRANCH}:.github/workflows/build.yml" > /tmp/trackferry-own-workflows/build.yml
+          git show "origin/${TARGET_BRANCH}:.github/workflows/sync-and-build.yml" > /tmp/trackferry-own-workflows/sync-and-build.yml
+          git show "origin/${TARGET_BRANCH}:.github/workflows/release.yml" > /tmp/trackferry-own-workflows/release.yml
+          # Keep our dev-release-aware updater patch while applying upstream code.
+          git diff "upstream/${UPSTREAM_BRANCH}" "origin/${TARGET_BRANCH}" -- \
+            internal/update/update.go internal/update/update_test.go \
+            > /tmp/trackferry-own-workflows/update-checker.patch
+          git checkout --detach "upstream/${UPSTREAM_BRANCH}"
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp /tmp/trackferry-own-workflows/build.yml .github/workflows/build.yml
+          cp /tmp/trackferry-own-workflows/sync-and-build.yml .github/workflows/sync-and-build.yml
+          cp /tmp/trackferry-own-workflows/release.yml .github/workflows/release.yml
+          if [[ -s /tmp/trackferry-own-workflows/update-checker.patch ]]; then
+            git apply /tmp/trackferry-own-workflows/update-checker.patch
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          replacements = {
+              "cmd/trackferry/main.go": (
+                  'repo = "workroom2008/trackferry"',
+                  'repo = "iamcool666/trackferry"',
+              ),
+              "internal/update/install.go": (
+                  'publicKey = "bP7NiKgkGYPrGf03hYHGEhM/nW1ZiXyfx6ewvLVXkLw="',
+                  'publicKey = "3OboEDZ9oWm53Mb6GNkvz2l8UZRA8KTghLAlMjkMVVE="',
+              ),
+          }
+          for name, (old, new) in replacements.items():
+              path = Path(name)
+              content = path.read_text()
+              if old not in content:
+                  raise SystemExit(f"Expected upstream marker not found in {name}; refusing to sync over fork settings")
+              path.write_text(content.replace(old, new, 1))
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Sync from ${UPSTREAM_REPO}@${UPSTREAM_BRANCH}"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}" \
+            --force-with-lease="refs/heads/${TARGET_BRANCH}:${{ steps.changes.outputs.old_sha }}"
+      - name: Record synced commit
+        if: steps.changes.outputs.changed == 'true'
+        id: synced
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## TrackFerry upstream mirror"
+            echo "- Source: ${UPSTREAM_REPO}/${UPSTREAM_BRANCH}"
+            echo "- Target: this repository's ${TARGET_BRANCH}"
+            echo "- Preserved: build.yml, sync-and-build.yml, release.yml"
+            echo "- Re-applied: fork-owned release repository, Ed25519 public key, and dev-aware updater"
+            echo "- No upstream code change: no release or image build"
+            echo "- Upstream code changed: sync, publish signed dev release, then build GHCR image"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      source_ref: ${{ needs.sync.outputs.synced_sha }}
+    secrets: inherit
+    permissions:
+      contents: write
+      packages: write
