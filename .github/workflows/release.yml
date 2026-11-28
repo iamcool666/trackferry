@@ -7,7 +7,7 @@ permissions:
   contents: write
 concurrency:
   group: trackferry-dev
-  cancel-in-progress: false
+  cancel-in-progress: true
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 jobs:
