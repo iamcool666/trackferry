@@ -649,6 +649,22 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 		}
 	}
 
+	// Start the LX singer search before touching the local library. Both layers work
+	// at the same time; the local result must not delay asking the online source.
+	type artistSearch struct {
+		candidates []online.Candidate
+		outs       []online.Outcome
+	}
+	var onlineResult <-chan artistSearch
+	if in.Kind == intent.KindArtist && r.Online != nil {
+		ch := make(chan artistSearch, 1)
+		onlineResult = ch
+		go func() {
+			candidates, outs := r.Online.FindArtistCandidates(ctx, in.Artist, 60)
+			ch <- artistSearch{candidates: candidates, outs: outs}
+		}()
+	}
+
 	artistIDs := []int64{}
 	if in.Kind == intent.KindArtist {
 		artistIDs = r.playableArtistIDs(in.Artist)
@@ -682,25 +698,7 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 				rt.Basis[len(rt.Basis)-1].Text = l.Detail
 			}
 
-			// Keep the local library first. Only ask LX when the local singer list is
-			// shorter than the target queue, then append distinct online songs to it.
-			if len(artistIDs) < artistQueueTarget && r.Online != nil {
-				candidates, outs := r.Online.FindArtistCandidates(ctx, in.Artist, 60)
-				for _, o := range outs {
-					rt.Layers = append(rt.Layers, layer(o))
-				}
-				additions := r.artistQueue(candidates, artistIDs, artistQueueTarget-len(artistIDs))
-				if len(additions) > 0 {
-					if len(rt.queue) == 0 {
-						rt.queue, rt.order = []int64{m.ID}, []int64{m.ID}
-					}
-					rt.List = in.Artist + "的歌"
-					rt.onlineQueue = additions
-					l.Detail = fmt.Sprintf("%s的 %d 首本地歌曲 + %d 首 LX 在线歌曲，连着放", in.Artist, len(artistIDs), len(additions))
-					rt.Basis[len(rt.Basis)-1].Text = l.Detail
-					rt.Because("补充歌单", "本地歌曲不足 %d 首，从 LX 补充了 %d 首", artistQueueTarget, len(additions))
-				}
-			}
+		}
 		}
 		break
 	}
@@ -709,41 +707,66 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 		rt.Reason = "曲库里没有可以随机的歌"
 		if in.Kind == intent.KindArtist {
 			rt.Reason = "曲库里没有" + in.Artist + "的歌"
-			if r.Online != nil {
-				found, candidates, outs := r.Online.FindArtist(ctx, in.Artist, 60)
-				for _, o := range outs {
-					rt.Layers = append(rt.Layers, layer(o))
+		}
+	}
+
+	// Join the parallel LX search after the local selection has completed. The queue
+	// still contains both sources, with duplicate titles removed.
+	if in.Kind == intent.KindArtist && onlineResult != nil {
+		result := <-onlineResult
+		for _, o := range result.outs {
+			rt.Layers = append(rt.Layers, layer(o))
+		}
+		if localPlayed {
+			additions := r.artistQueue(result.candidates, artistIDs, artistQueueTarget-len(artistIDs))
+			if len(additions) > 0 {
+				if len(rt.queue) == 0 {
+					rt.queue, rt.order = []int64{rt.TrackID}, []int64{rt.TrackID}
 				}
-				if found != nil {
-					rt.takeOnline(found)
-					rt.Reason = ""
-					rt.List = in.Artist + "的歌"
-					rt.onlineQueue = r.artistQueue(candidates, nil, artistQueueTarget)
-					key := found.Candidate.Key
-					foundSong := QueueSong{Online: key, Title: found.Candidate.Title, Artist: found.Candidate.Artist,
-						Cover: onlineCover(found.Candidate.ID), DurationMS: found.Candidate.DurationMS}
-					foundAt := -1
-					for i := range rt.onlineQueue {
-						if rt.onlineQueue[i].Online == key {
-							foundAt = i
-							break
-						}
-					}
-					if foundAt >= 0 {
-						ordered := make([]QueueSong, 0, len(rt.onlineQueue))
-						ordered = append(ordered, foundSong)
-						ordered = append(ordered, rt.onlineQueue[:foundAt]...)
-						ordered = append(ordered, rt.onlineQueue[foundAt+1:]...)
-						rt.onlineQueue = ordered
-					} else {
-						rt.onlineQueue = append([]QueueSong{foundSong}, rt.onlineQueue...)
-					}
-					l.Detail = fmt.Sprintf("本地没有歌曲，LX 找到 %d 首，建立在线连续播放队列", len(rt.onlineQueue))
-					rt.Because("选它", "本地没有，改从 LX 歌手歌曲中播放")
-				} else if len(outs) > 0 {
-					rt.Reason += "；" + outs[0].Detail
+				rt.List = in.Artist + "的歌"
+				rt.onlineQueue = additions
+				l.Detail = fmt.Sprintf("%s的 %d 首本地歌曲 + %d 首 LX 在线歌曲，连着放", in.Artist, len(artistIDs), len(additions))
+				rt.Basis[len(rt.Basis)-1].Text = l.Detail
+				rt.Because("补充歌单", "本地与 LX 并行搜索，合并成最多 %d 首的连续播放队列", artistQueueTarget)
+			}
+		} else if len(result.candidates) > 0 {
+			ctxTake, cancel := context.WithTimeout(ctx, 2*5*time.Second)
+			defer cancel()
+			var found *online.Found
+			for _, c := range result.candidates[:min(3, len(result.candidates))] {
+				if f, err := r.Online.Take(ctxTake, c.Key); err == nil {
+					found = f
+					break
 				}
 			}
+			if found != nil {
+				rt.takeOnline(found)
+				rt.Reason = ""
+				rt.List = in.Artist + "的歌"
+				rt.onlineQueue = r.artistQueue(result.candidates, nil, artistQueueTarget)
+				key := found.Candidate.Key
+				foundSong := QueueSong{Online: key, Title: found.Candidate.Title, Artist: found.Candidate.Artist,
+					Cover: onlineCover(found.Candidate.ID), DurationMS: found.Candidate.DurationMS}
+				foundAt := -1
+				for i := range rt.onlineQueue {
+					if rt.onlineQueue[i].Online == key { foundAt = i; break }
+				}
+				if foundAt >= 0 {
+					ordered := make([]QueueSong, 0, len(rt.onlineQueue))
+					ordered = append(ordered, foundSong)
+					ordered = append(ordered, rt.onlineQueue[:foundAt]...)
+					ordered = append(ordered, rt.onlineQueue[foundAt+1:]...)
+					rt.onlineQueue = ordered
+				} else {
+					rt.onlineQueue = append([]QueueSong{foundSong}, rt.onlineQueue...)
+				}
+				l.Detail = fmt.Sprintf("LX 找到 %d 首，建立在线连续播放队列", len(rt.onlineQueue))
+				rt.Because("选它", "本地没有可播放歌曲，使用并行搜索到的 LX 结果")
+			} else if len(result.outs) > 0 {
+				rt.Reason += "；" + result.outs[0].Detail
+			}
+		} else if len(result.outs) > 0 && !localPlayed {
+			rt.Reason += "；" + result.outs[0].Detail
 		}
 	}
 	l.MS = time.Since(start).Milliseconds()
