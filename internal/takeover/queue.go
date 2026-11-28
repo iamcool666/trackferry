@@ -266,8 +266,12 @@ func (d *Dispatcher) Skip(ctx context.Context, dev string, by int) error {
 
 // Slot is a song of a list: where it stands, and which it is.
 type Slot struct {
-	At int   `json:"at"`
-	ID int64 `json:"id"`
+	At         int    `json:"at"`
+	ID         int64  `json:"id"`
+	Title      string `json:"title,omitempty"`
+	Artist     string `json:"artist,omitempty"`
+	Cover      string `json:"cover,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
 // Listing is all that comes after the song on a speaker, in order.
@@ -293,12 +297,19 @@ func (d *Dispatcher) Listing(ctx context.Context, dev string) (Listing, bool) {
 		out.List, out.Total = "", 1
 		return out, true
 	}
+	appendSlot := func(i int) {
+		slot := Slot{At: i, ID: q.ids[i]}
+		if item, ok := q.outside[slot.ID]; ok {
+			slot.Title, slot.Artist = item.Title, item.Artist
+		}
+		out.Songs = append(out.Songs, slot)
+	}
 	for i := q.pos + 1; i < len(q.ids); i++ {
-		out.Songs = append(out.Songs, Slot{i, q.ids[i]})
+		appendSlot(i)
 	}
 	if loops { // shuffled lists start over in another order
 		for i := range q.pos {
-			out.Songs = append(out.Songs, Slot{i, q.ids[i]})
+			appendSlot(i)
 		}
 	}
 	return out, true
