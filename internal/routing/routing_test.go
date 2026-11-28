@@ -248,3 +248,55 @@ func TestArtistQueueCountsOnlyPlayableLocalSongs(t *testing.T) {
 		t.Fatalf("queue detail should report playable local and LX counts: %+v", rt.Layers[0])
 	}
 }
+
+func TestArtistSearchRunsLXAlongsideFullLocalLibrary(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	for i := 0; i < artistQueueTarget; i++ {
+		name := fmt.Sprintf("周杰伦 - 本地歌曲%02d", i)
+		if err := os.WriteFile(filepath.Join(dir, name+".mp3"), []byte("no tags in this little file"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	log := slog.New(slog.DiscardHandler)
+	lib := library.New(dir, st, log)
+	if err := lib.Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	requested := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/search3" {
+			http.NotFound(w, r)
+			return
+		}
+		select {
+		case requested <- struct{}{}:
+		default:
+		}
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
+			"status": "ok",
+			"searchResult3": map[string]any{"song": []map[string]any{
+				{"id": "kw_online", "title": "在线歌曲", "artist": "周杰伦", "duration": 240, "suffix": "flac"},
+			}},
+		}})
+	}))
+	defer srv.Close()
+
+	lx := &online.Lx{BaseURL: srv.URL + "/rest", User: "u", Password: "p", Client: srv.Client()}
+	r := &Router{Library: lib, Online: online.New(log, online.Client(), lx), Log: log}
+	rt := r.Decide(ctx, intent.Parse("播放周杰伦的歌"), "播放周杰伦的歌")
+	select {
+	case <-requested:
+	default:
+		t.Fatal("LX singer search was skipped because the local queue was already full")
+	}
+	if rt.Decision != Local || len(rt.Queue()) != artistQueueTarget {
+		t.Fatalf("local queue should still be playable: decision=%s queue=%d", rt.Decision, len(rt.Queue()))
+	}
+}
