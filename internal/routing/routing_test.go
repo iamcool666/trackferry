@@ -2,13 +2,17 @@ package routing
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"trackferry/internal/intent"
 	"trackferry/internal/library"
+	"trackferry/internal/online"
 	"trackferry/internal/store"
 )
 
@@ -84,3 +88,47 @@ func TestLocalRouting(t *testing.T) {
 		t.Errorf("unreadable file: %+v", rt)
 	}
 }
+
+func TestArtistRoutingFallsBackToLX(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	log := slog.New(slog.DiscardHandler)
+	lib := library.New(dir, st, log)
+	if err := lib.Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/search3":
+			json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
+				"status": "ok",
+				"searchResult3": map[string]any{"song": []map[string]any{
+					{"id": "kw_123", "title": "晴天", "artist": "周杰伦", "duration": 269, "suffix": "flac"},
+				}},
+			}})
+		case "/rest/stream":
+			w.Header().Set("Content-Type", "audio/flac")
+			_, _ = w.Write([]byte("fLaC"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	lx := &online.Lx{BaseURL: srv.URL + "/rest", User: "u", Password: "p", Client: srv.Client()}
+	r := &Router{Library: lib, Online: online.New(log, online.Client(), lx), Log: log}
+	rt := r.Decide(ctx, intent.Parse("播放周杰伦的歌"), "播放周杰伦的歌")
+	if rt.Decision != Online || rt.Source != "lx" || rt.Title != "晴天" || rt.Artist != "周杰伦" {
+		t.Fatalf("artist request did not fall back to LX: %+v", rt)
+	}
+	if len(rt.Layers) < 2 || rt.Layers[1].Name != "lx" || rt.Layers[1].State != online.StateHit {
+		t.Fatalf("LX route layer = %+v", rt.Layers)
+	}
+}
+
