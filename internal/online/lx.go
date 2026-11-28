@@ -278,18 +278,25 @@ type Playlist struct {
 
 func lxPlaylistID(id string) (string, error) {
 	if !strings.HasPrefix(id, "public:lx:") {
-		return "", errors.New("不支持的洛雪在线歌单 ID")
+		return "", errors.New("不支持的洛雪在线列表 ID")
 	}
 	parts := strings.SplitN(strings.TrimPrefix(id, "public:lx:"), ":", 3)
-	if len(parts) != 3 || parts[1] != "playlist" || parts[2] == "" {
-		return "", errors.New("不支持的洛雪在线歌单 ID")
+	if len(parts) != 3 || parts[2] == "" {
+		return "", errors.New("不支持的洛雪在线列表 ID")
 	}
 	if _, ok := lxNames[parts[0]]; !ok {
-		return "", errors.New("不支持的洛雪在线歌单来源")
+		return "", errors.New("不支持的洛雪在线列表来源")
 	}
-	// LXServer exposes shared online playlists through Subsonic IDs like
-	// pl_tx_7769010449, not the TrackFerry route ID public:lx:tx:playlist:7769010449.
-	return "pl_" + parts[0] + "_" + parts[2], nil
+	switch parts[1] {
+	case "playlist":
+		// LXServer shared playlists use pl_<source>_<id>.
+		return "pl_" + parts[0] + "_" + parts[2], nil
+	case "chart":
+		// LXServer leaderboards use lb_<source>_<bangid>.
+		return "lb_" + parts[0] + "_" + parts[2], nil
+	default:
+		return "", errors.New("不支持的洛雪在线列表类型")
+	}
 }
 
 func (l *Lx) Playlist(ctx context.Context, id string) (Playlist, error) {
