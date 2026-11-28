@@ -300,6 +300,9 @@ function Front({ devices, navigate }: { devices: Device[]; navigate: Nav }) {
 
   if (!lib || !fn) return error ? <Notice tone="error" title={error} /> : <div className="boot"><span className="spinner" /></div>;
   const n = (v: number) => v.toLocaleString('zh-CN');
+  const onlineTracks = lib.last?.online_tracks ?? 0;
+  const onlinePlaylists = lib.last?.online_playlists ?? 0;
+  const totalTracks = (running ? Math.max(lib.seen, lib.tracks) : lib.tracks) + onlineTracks;
   const artists = shelf?.artists ?? [];
   const newest = shelf?.newest ?? [];
   // Without the wall, 换一批 only redraws the picks, so it sits in their heading instead of floating alone.
@@ -313,8 +316,8 @@ function Front({ devices, navigate }: { devices: Device[]; navigate: Nav }) {
   return (
     <div className="library">
       <header className="lib-head">
-        <h1><span className="num">{n(running ? Math.max(lib.seen, lib.tracks) : lib.tracks)}</span> 首歌</h1>
-        <p className="lib-sub">{running ? (fn.feiniu.linked ? '正在从飞牛音乐同步' : '正在扫描音乐文件夹') : <>{shelf && shelf.albums > 0 && <>{n(shelf.albums)} 张专辑，</>}{n(lib.artists)} 位歌手{fn.feiniu.linked ? <>，来自飞牛音乐</> : lib.tracks > 0 && <>，来自音乐文件夹</>}</>}</p>
+        <h1><span className="num">{n(totalTracks)}</span> 首歌</h1>
+        <p className="lib-sub">{running ? (fn.feiniu.linked ? '正在从飞牛音乐同步' : '正在扫描音乐文件夹') : <>{shelf && shelf.albums > 0 && <>{n(shelf.albums)} 张专辑，</>}{n(lib.artists)} 位歌手{fn.feiniu.linked ? <>，来自飞牛音乐</> : lib.tracks > 0 && <>，来自音乐文件夹</>}{onlinePlaylists > 0 && <>，另含 {n(onlineTracks)} 首在线歌单歌曲（{n(onlinePlaylists)} 个歌单）</>}</>}</p>
         <a className="lib-search glass" href="#/search" onClick={(e) => { e.preventDefault(); navigate({ page: 'search' }); }}>
           <svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><circle cx="8.5" cy="8.5" r="6" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M13 13l5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           <span>歌名、歌手、专辑</span>
