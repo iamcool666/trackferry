@@ -241,6 +241,13 @@ func proxied(open Opener, label string, d time.Duration) *item {
 	return &item{h: &Handle{Label: label, Duration: d}, open: open, ctype: "audio/mpeg"}
 }
 
+
+// joinedReadCloser replays the sniffed bytes, then continues with the still-open source body.
+type joinedReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
 // sniffer makes an opener say what its first bytes are: the platforms hand out their own
 // encodings, and a name or a header is no sign of them.
 func sniffer(open Opener) Opener {
@@ -250,8 +257,13 @@ func sniffer(open Opener) Opener {
 			return resp, err
 		}
 		head, _ := io.ReadAll(io.LimitReader(resp.Body, 3<<10))
-		resp.Body.Close()
-		resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(head), resp.Body))
+		// Keep the original body open: the bytes after the sniffed head are still unread.
+		// Closing it here makes every later read fail and leaves the speaker with a broken stream.
+		body := resp.Body
+		resp.Body = &joinedReadCloser{
+			Reader: io.MultiReader(bytes.NewReader(head), body),
+			Closer: body,
+		}
 		resp.Header.Set("Content-Type", sniff(head))
 		return resp, nil
 	}
