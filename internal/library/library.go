@@ -52,8 +52,11 @@ type Report struct {
 	Removed    int64        `json:"removed"`
 	Source     string       `json:"source,omitempty"`  // feiniu | files
 	Total      int          `json:"total,omitempty"`   // songs 飞牛音乐 reports
-	Skipped    int          `json:"skipped,omitempty"` // formats or CUE parts speakers cannot play
-	Roots      []RootReport `json:"roots"`
+	Skipped         int          `json:"skipped,omitempty"` // formats or CUE parts speakers cannot play
+	OnlinePlaylists int          `json:"online_playlists,omitempty"` // LX playlists read during a 飞牛 sync
+	OnlineTracks    int          `json:"online_tracks,omitempty"` // unique songs across those playlists
+	OnlineError     string       `json:"online_error,omitempty"` // playlist statistics can fail without failing the library sync
+	Roots           []RootReport `json:"roots"`
 }
 
 // Status is the library as a whole.
@@ -73,6 +76,9 @@ type Library struct {
 	log *slog.Logger
 	// Remote, when linked, is the library; the music directory is then not scanned.
 	Remote Remote
+	// OnlinePlaylistStats reads LX online playlists alongside a 飞牛 library sync.
+	// Its failure is reported separately and never invalidates the local library index.
+	OnlinePlaylistStats func(context.Context) (playlists, uniqueTracks int, err error)
 
 	mu      sync.RWMutex
 	idx     *index
