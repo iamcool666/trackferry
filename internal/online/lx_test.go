@@ -58,6 +58,25 @@ func TestLxClientReachesAPrivateAddress(t *testing.T) {
 	}
 }
 
+
+func TestLxMapsPublicOnlineListIDs(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"public:lx:tx:playlist:7769010449", "pl_tx_7769010449"},
+		{"public:lx:tx:chart:4", "lb_tx_4"},
+		{"public:lx:wy:chart:19723756", "lb_wy_19723756"},
+		{"public:lx:kw:chart:16", "lb_kw_16"},
+	}
+	for _, tt := range tests {
+		got, err := lxPlaylistID(tt.input)
+		if err != nil || got != tt.want {
+			t.Errorf("lxPlaylistID(%q) = %q, %v; want %q", tt.input, got, err, tt.want)
+		}
+	}
+}
+
 func TestLxReadsPublicOnlinePlaylist(t *testing.T) {
 	const playlistID = "public:lx:tx:playlist:7769010449"
 	const subsonicID = "pl_tx_7769010449"
