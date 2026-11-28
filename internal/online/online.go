@@ -672,7 +672,7 @@ type Tech struct {
 const maxTech = 5000
 
 func (s *Service) noteTech(key string, t Tech) {
-	if t.Kbps == 0 {
+	if t.Kbps == 0 && t.Bits == 0 && t.SampleRate == 0 {
 		return
 	}
 	s.techMu.Lock()
@@ -744,7 +744,29 @@ func (s *Service) tryAt(ctx context.Context, src Source, c Candidate, q Quality)
 		// The listing's own length: every platform claims one, and it need not hold.
 		return Stream{URL: u, Duration: c.Duration}, nil
 	}
-	return s.check(ctx, s.fetcher(src), u, c.Duration)
+	st, err := s.check(ctx, s.fetcher(src), u, c.Duration)
+	if err != nil {
+		return st, err
+	}
+	if !qualitySatisfied(q, st) {
+		return Stream{}, ErrNoAudio
+	}
+	return st, nil
+}
+
+func qualitySatisfied(q Quality, st Stream) bool {
+	switch q {
+	case HiRes:
+		return st.Type == "flac" && st.Bits >= 24
+	case MP3320:
+		return st.Type == "mp3" && st.Kbps >= 310
+	case MP3192:
+		return st.Type == "mp3" && st.Kbps >= 182
+	case MP3128:
+		return st.Type == "mp3" && st.Kbps >= 120
+	default:
+		return false
+	}
 }
 
 // lxRate is one Subsonic stream request in the quality ladder.
@@ -799,7 +821,7 @@ func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream,
 		}
 		switch rate.quality {
 		case HiRes:
-			playable = playable && format == "flac"
+			playable = playable && format == "flac" && bits >= 24
 		case MP3320:
 			playable = playable && format == "mp3" && kbps >= 310
 		case MP3192:
