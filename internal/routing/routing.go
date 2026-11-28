@@ -626,6 +626,19 @@ func (rt *Route) take(m library.Match) {
 
 const artistQueueTarget = 20
 
+// playableArtistIDs counts only local files that can be opened now. Unreadable indexed files
+// must not make a singer's queue look full and suppress LX supplementation.
+func (r *Router) playableArtistIDs(artist string) []int64 {
+	all := r.Library.ArtistIDs(artist)
+	ids := make([]int64, 0, len(all))
+	for _, id := range all {
+		if _, ok := r.Track(id); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 	start := time.Now()
 	l := Layer{Name: "library", State: online.StateMiss, Candidates: []Candidate{}}
@@ -638,7 +651,7 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 
 	artistIDs := []int64{}
 	if in.Kind == intent.KindArtist {
-		artistIDs = r.Library.ArtistIDs(in.Artist)
+		artistIDs = r.playableArtistIDs(in.Artist)
 	}
 	localPlayed := false
 	for range 5 {
@@ -662,7 +675,7 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 		rt.take(m)
 		localPlayed = true
 		if in.Kind == intent.KindArtist {
-			artistIDs = r.Library.ArtistIDs(in.Artist)
+			artistIDs = r.playableArtistIDs(in.Artist)
 			if len(artistIDs) > 1 {
 				rt.List, rt.queue, rt.order = in.Artist+"的歌", shuffled(artistIDs, m.ID), artistIDs
 				l.Detail = fmt.Sprintf("%s的 %d 首本地歌曲，连着放", in.Artist, len(artistIDs))
