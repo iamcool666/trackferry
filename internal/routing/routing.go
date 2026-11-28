@@ -128,7 +128,7 @@ func (r *Router) LoadSettings(ctx context.Context, st *store.Store) {
 			// Preserve the meaning of settings saved by older two-tier versions.
 			switch v {
 			case "high":
-				v = string(online.MP3320)
+				v = string(online.HiRes)
 			case "standard":
 				v = string(online.MP3128)
 			}
