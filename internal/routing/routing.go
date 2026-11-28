@@ -718,7 +718,7 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 					rt.takeOnline(found)
 					rt.Reason = ""
 					rt.List = in.Artist + "的歌"
-					rt.onlineQueue = r.artistQueue(candidates, nil, 60)
+					rt.onlineQueue = r.artistQueue(candidates, nil, artistQueueTarget)
 					key := found.Candidate.Key
 					foundSong := QueueSong{Online: key, Title: found.Candidate.Title, Artist: found.Candidate.Artist,
 						Cover: onlineCover(found.Candidate.ID), DurationMS: found.Candidate.DurationMS}
