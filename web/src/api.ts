@@ -24,7 +24,7 @@ export interface OnlineSong { key: string; source: 'lx' | 'kuwo' | 'kugou' | 'mi
 /** Covers found online for the library: how far it is. */
 export interface FillStatus { on: boolean; running: boolean; left: number; asked: number; found: number; last_ms?: number; missing: number }
 export interface OnlineOutcome { source: string; state: string; detail?: string }
-export interface Playlist { guid: string; name: string }
+export interface Playlist { guid: string; name: string; cover?: string }
 /** What can be sent to a speaker to play. */
 export type Collection = { source: 'favorites' } | { source: 'playlist' | 'album'; id: string } | { source: 'artist'; name: string };
 export type Single = { source: 'track'; track_id: number } | { source: 'online'; id: string; title?: string; artist?: string };
