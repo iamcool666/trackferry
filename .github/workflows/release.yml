@@ -1,5 +1,4 @@
-
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'name: release
+name: release
 on:
   # Edit the rolling "dev" Release notes after all code changes are complete.
   release:
