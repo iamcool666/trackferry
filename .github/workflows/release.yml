@@ -1,8 +1,11 @@
 name: release
 on:
+  # Development builds are intentionally tag-triggered. Finish all code changes,
+  # then move the dev-build tag to the desired commit to build exactly once.
   push:
-    branches:
-      - feature/trackferry-plus
+    tags:
+      - dev-build
+  workflow_dispatch:
 permissions:
   contents: write
 concurrency:
