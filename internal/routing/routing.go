@@ -125,6 +125,13 @@ func (r *Router) LoadSettings(ctx context.Context, st *store.Store) {
 	}
 	if r.Online != nil {
 		if v, err := st.Setting(ctx, qualitySetting); err == nil && v != "" {
+			// Preserve the meaning of settings saved by older two-tier versions.
+			switch v {
+			case "high":
+				v = string(online.MP3320)
+			case "standard":
+				v = string(online.MP3128)
+			}
 			r.Online.SetQuality(online.Quality(v))
 		}
 	}
