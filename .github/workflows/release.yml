@@ -1,0 +1,176 @@
+name: release
+
+on:
+  push:
+    branches:
+      - feature/trackferry-plus
+    paths-ignore:
+      - '.github/workflows/**'
+      - '**/*.md'
+      - '**/*_test.go'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: trackferry-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Calculate next dev version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          base="$(cat VERSION)"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must be numeric x.y.z: $base"
+            exit 1
+          fi
+          IFS=. read -r major minor _ <<< "$base"
+          max_patch=0
+          while IFS= read -r old_tag; do
+            old_version="${old_tag#v}"
+            if [[ "$old_version" =~ ^${major}\.${minor}\.([0-9]+)$ ]]; then
+              patch=$((10#${BASH_REMATCH[1]}))
+              (( patch > max_patch )) && max_patch=$patch
+            fi
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName')
+          version="$major.$minor.$((max_patch + 1))"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          mkdir -p ../internal/webui
+          npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test Go packages
+        run: go test ./...
+      - name: Build server binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build \
+            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA" \
+            -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
+      - name: Sign binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        shell: bash
+        run: |
+          test -n "$UPDATE_SIGNING_KEY" || { echo "Missing UPDATE_SIGNING_KEY secret"; exit 1; }
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
+          chmod 600 "$RUNNER_TEMP/update-signing.key"
+          asset="dist/trackferry-$VERSION-linux-$ARCH"
+          digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
+          printf 'trackferry\n%s\nlinux/%s\n%s\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
+          openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
+            -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
+          base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
+          echo >> "$asset.sig"
+          rm -f "$RUNNER_TEMP/update-signing.key" "$RUNNER_TEMP/message" "$RUNNER_TEMP/signature"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 2
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: signed-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Publish dev release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "TrackFerry $VERSION (dev)" \
+            --prerelease --generate-notes
+
+  image:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+      - name: Build and publish Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ci
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            COMMIT=${{ needs.prepare.outputs.commit }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
