@@ -143,7 +143,7 @@ func (r *Router) SetQuality(ctx context.Context, st *store.Store, q online.Quali
 // Quality is the online audio quality asked for first.
 func (r *Router) Quality() online.Quality {
 	if r.Online == nil {
-		return online.High
+		return online.HiRes
 	}
 	return r.Online.Quality()
 }
