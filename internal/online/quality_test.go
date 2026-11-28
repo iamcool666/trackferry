@@ -20,7 +20,7 @@ func (*qualitySource) Name() string                                        { ret
 func (*qualitySource) Search(context.Context, string) ([]Candidate, error) { return nil, nil }
 func (q *qualitySource) Resolve(ctx context.Context, _ Candidate) (string, error) {
 	q.asked = append(q.asked, QualityOf(ctx))
-	if QualityOf(ctx) == High {
+	if QualityOf(ctx) != MP3128 {
 		return "", ErrRestricted // 320k for members only
 	}
 	return q.base + "/a.mp3", nil
@@ -36,16 +36,16 @@ func TestHighQualityFallsBackToStandard(t *testing.T) {
 	defer srv.Close()
 	src := &qualitySource{base: srv.URL}
 	s := New(slog.New(slog.NewTextHandler(io.Discard, nil)), srv.Client(), src)
-	if s.Quality() != High || s.SetQuality("lossless") {
+	if s.Quality() != HiRes || s.SetQuality("lossless") {
 		t.Fatal("high is the default and only the two qualities exist")
 	}
 	st, err := s.resolveOne(context.Background(), src, Candidate{ID: "1", Duration: 180 * time.Second})
-	if err != nil || st.URL == "" || len(src.asked) != 2 || src.asked[0] != High || src.asked[1] != Standard {
+	if err != nil || st.URL == "" || len(src.asked) != 4 || src.asked[0] != HiRes || src.asked[1] != MP3320 || src.asked[2] != MP3192 || src.asked[3] != MP3128 {
 		t.Fatalf("%v %v %v", st, err, src.asked)
 	}
 	src.asked = nil
-	s.SetQuality(Standard)
-	if _, err := s.resolveOne(context.Background(), src, Candidate{ID: "1", Duration: 180 * time.Second}); err != nil || len(src.asked) != 1 {
-		t.Fatalf("standard asks once: %v %v", err, src.asked)
+	s.SetQuality(MP3192)
+	if _, err := s.resolveOne(context.Background(), src, Candidate{ID: "1", Duration: 180 * time.Second}); err != nil || len(src.asked) != 2 || src.asked[0] != MP3192 || src.asked[1] != MP3128 {
+		t.Fatalf("selected 192 falls only to 128: %v %v", err, src.asked)
 	}
 }
