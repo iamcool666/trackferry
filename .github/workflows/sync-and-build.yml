@@ -93,7 +93,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run build.yml --ref "${TARGET_BRANCH}"
+          gh workflow run build.yml --repo "${GITHUB_REPOSITORY}" --ref "${TARGET_BRANCH}"
           echo "Triggered GHCR image build for updated upstream code."
 
       - name: Summary
