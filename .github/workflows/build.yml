@@ -126,7 +126,7 @@ jobs:
           COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
-            --target "$COMMIT" --title "TrackFerry $VERSION" --generate-notes
+            --target "$COMMIT" --title "v$VERSION" --generate-notes
 
   image:
     needs: [prepare, publish]
