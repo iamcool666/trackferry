@@ -1,17 +1,7 @@
 name: sync-and-build
 
-# Mirror the upstream default branch into this repository.
-# Preserve only this repository's own image-build and sync workflows.
-# Build a new GHCR image only when upstream application files have changed.
-
+# Manual upstream sync. Merge into a review branch and open a PR; never replace this branch.
 on:
-  push:
-    branches:
-      - feature/trackferry-plus
-    paths:
-      - .github/workflows/sync-and-build.yml
-  schedule:
-    - cron: '17 18 * * *' # Daily at 02:17 Beijing time
   workflow_dispatch:
 
 concurrency:
@@ -20,7 +10,7 @@ concurrency:
 
 permissions:
   contents: write
-  actions: write
+  pull-requests: write
 
 env:
   UPSTREAM_REPO: workroom2008/trackferry
@@ -31,79 +21,51 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout target branch
+      - name: Checkout our branch
         uses: actions/checkout@v4
         with:
           ref: ${{ env.TARGET_BRANCH }}
           fetch-depth: 0
-          persist-credentials: true
-
-      - name: Fetch upstream and target
+      - name: Fetch upstream
         run: |
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
           git fetch upstream "+refs/heads/${UPSTREAM_BRANCH}:refs/remotes/upstream/${UPSTREAM_BRANCH}"
           git fetch origin "+refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
-
-      - name: Check whether upstream application code changed
-        id: changes
+      - name: Merge upstream without overwriting our work
+        id: merge
         run: |
-          old_sha=$(git rev-parse "origin/${TARGET_BRANCH}")
-          echo "old_sha=$old_sha" >> "$GITHUB_OUTPUT"
-
-          # Workflow files are managed locally and are not part of the app-code comparison.
-          if git diff --quiet "origin/${TARGET_BRANCH}" "upstream/${UPSTREAM_BRANCH}" -- . \
-            ':(exclude).github/workflows/**'; then
+          if git merge-base --is-ancestor "upstream/${UPSTREAM_BRANCH}" "origin/${TARGET_BRANCH}"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No upstream application changes. Sync and image build are skipped."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Upstream application changes detected."
+            echo "Already contains upstream."
+            exit 0
           fi
-
-      - name: Replace repository code with upstream
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          mkdir -p /tmp/trackferry-own-workflows
-          git show "origin/${TARGET_BRANCH}:.github/workflows/build.yml" \
-            > /tmp/trackferry-own-workflows/build.yml
-          git show "origin/${TARGET_BRANCH}:.github/workflows/sync-and-build.yml" \
-            > /tmp/trackferry-own-workflows/sync-and-build.yml
-
-          git checkout --detach "upstream/${UPSTREAM_BRANCH}"
-
-          # Remove upstream automation (including its madrays sync workflow).
-          # Keep only our GHCR build workflow and this daily mirror workflow.
-          rm -rf .github/workflows
-          mkdir -p .github/workflows
-          cp /tmp/trackferry-own-workflows/build.yml .github/workflows/build.yml
-          cp /tmp/trackferry-own-workflows/sync-and-build.yml .github/workflows/sync-and-build.yml
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Sync from ${UPSTREAM_REPO}@${UPSTREAM_BRANCH}"
-
-          # The target is intentionally a mirror, so replace its old history.
-          # Lease protection prevents overwriting a concurrent update.
-          git push origin "HEAD:refs/heads/${TARGET_BRANCH}" \
-            --force-with-lease="refs/heads/${TARGET_BRANCH}:${{ steps.changes.outputs.old_sha }}"
-
-      - name: Build and publish image
-        if: steps.changes.outputs.changed == 'true'
+          branch="sync/upstream-${GITHUB_RUN_ID}"
+          git checkout -b "$branch" "origin/${TARGET_BRANCH}"
+          if ! git merge --no-edit --no-ff "upstream/${UPSTREAM_BRANCH}"; then
+            echo "::error::Upstream merge has conflicts. Nothing was pushed; resolve them manually."
+            git status --short
+            exit 1
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - name: Push review branch and open PR
+        if: steps.merge.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run build.yml --repo "${GITHUB_REPOSITORY}" --ref "${TARGET_BRANCH}"
-          echo "Triggered GHCR image build for updated upstream code."
-
+          git push origin "HEAD:refs/heads/${{ steps.merge.outputs.branch }}"
+          gh pr create --repo "$GITHUB_REPOSITORY" \
+            --head "${{ steps.merge.outputs.branch }}" \
+            --base "${TARGET_BRANCH}" \
+            --title "Sync upstream ${UPSTREAM_REPO}/${UPSTREAM_BRANCH}" \
+            --body "Manual upstream sync. This PR uses a normal merge and preserves fork commits. Review conflicts and changes before merging."
       - name: Summary
         if: always()
         run: |
           {
-            echo "## TrackFerry upstream mirror"
-            echo "- Source: ${UPSTREAM_REPO}/${UPSTREAM_BRANCH}"
-            echo "- Target: this repository's ${TARGET_BRANCH}"
-            echo "- Preserved: .github/workflows/build.yml and .github/workflows/sync-and-build.yml"
-            echo "- No upstream code change: no push and no image build"
-            echo "- Upstream code changed: mirror source and trigger GHCR build"
+            echo "## Manual upstream sync"
+            echo "- Upstream: ${UPSTREAM_REPO}/${UPSTREAM_BRANCH}"
+            echo "- Target: ${TARGET_BRANCH}"
+            echo "- No scheduled or push-triggered sync"
+            echo "- Changes are proposed as a PR; this workflow never force-pushes the target branch"
           } >> "$GITHUB_STEP_SUMMARY"
