@@ -1,16 +1,7 @@
 name: build
 
-# Build this repository's customized TrackFerry image and publish it to GHCR.
-# The NAS compose file pulls ghcr.io/iamcool666/trackferry:latest.
-# Manual rebuild trigger: 2026-11-27.
-#
-# main mirrors upstream and is not built; feature branches contain this fork's changes.
-
+# Manual image rebuild only. Normal builds run after a signed dev release.
 on:
-  push:
-    branches:
-      - 'feature/**'
-    tags: ['v*']
   workflow_dispatch:
 
 env:
@@ -24,26 +15,21 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Tags and labels
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_name == 'feature/trackferry-plus' }}
-            type=ref,event=tag
+            type=raw,value=latest
             type=sha,format=short
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
