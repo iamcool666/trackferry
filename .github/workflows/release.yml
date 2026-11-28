@@ -1,18 +1,24 @@
 name: release
 on:
-  # Edit the rolling "dev" Release notes after all code changes are complete.
-  release:
-    types: [edited]
+  # Change VERSION after all code changes are complete; this is the only dev build trigger.
+  push:
+    branches:
+      - feature/trackferry-plus
+    paths:
+      - VERSION
+
 permissions:
   contents: write
+
 concurrency:
   group: trackferry-dev
   cancel-in-progress: true
+
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+
 jobs:
   frontend:
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,8 +38,8 @@ jobs:
           name: frontend-dist
           path: internal/webui/dist/
           retention-days: 1
+
   test:
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     needs: frontend
     runs-on: ubuntu-latest
     steps:
@@ -49,8 +55,8 @@ jobs:
           cache: true
       - name: Test Go packages
         run: go test ./...
+
   signed:
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     needs: frontend
     runs-on: ubuntu-latest
     strategy:
@@ -59,6 +65,9 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
+      - name: Read dev version
+        id: version
+        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
       - name: Download frontend assets
         uses: actions/download-artifact@v4
         with:
@@ -70,7 +79,7 @@ jobs:
           cache: true
       - name: Build and sign dev updater
         env:
-          VERSION: 0.0.${{ github.run_number }}
+          VERSION: ${{ steps.version.outputs.value }}
           ARCH: ${{ matrix.arch }}
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         shell: bash
@@ -80,11 +89,11 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath \
             -ldflags "-s -w -X main.version=$VERSION -X main.channel=dev -X main.commit=$GITHUB_SHA" \
             -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
-          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
+          printf '%s\\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
           chmod 600 "$RUNNER_TEMP/update-signing.key"
           asset="dist/trackferry-$VERSION-linux-$ARCH"
           digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
-          printf 'trackferry\n%s\nlinux/%s\n%s\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
+          printf 'trackferry\\n%s\\nlinux/%s\\n%s\\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
           openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
             -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
           base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
@@ -96,14 +105,17 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 2
+
   image:
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Read dev version
+        id: version
+        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -129,13 +141,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=0.0.${{ github.run_number }}
+            VERSION=${{ steps.version.outputs.value }}
             CHANNEL=dev
             COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
   publish:
-    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
     needs: [test, signed, image]
     runs-on: ubuntu-latest
     permissions:
@@ -144,22 +156,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Read dev version
+        id: version
+        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           pattern: signed-dev-linux-*
           path: dist
           merge-multiple: true
-      - name: Keep only one rolling dev Release
+      - name: Keep one rolling dev Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: 0.0.${{ github.run_number }}
+          VERSION: ${{ steps.version.outputs.value }}
         shell: bash
         run: |
-          while IFS= read -r old_tag; do
-            [[ -z "$old_tag" ]] && continue
-            gh release delete "$old_tag" --repo "$GITHUB_REPOSITORY" --yes
-          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease \
-            --jq '.[] | select(.isPrerelease == true and .tagName != "dev") | .tagName')
+          if ! [[ "$VERSION" =~ ^0\\.[0-9]+\\.[0-9]+$ ]]; then
+            echo "VERSION must use 0.x.x format, got: $VERSION"
+            exit 1
+          fi
           if gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release delete dev --repo "$GITHUB_REPOSITORY" --yes
           fi
@@ -168,6 +182,6 @@ jobs:
           git push origin refs/tags/dev
           gh release create dev dist/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "TrackFerry Dev" \
+            --title "TrackFerry Dev $VERSION" \
             --prerelease \
-            --notes "Rolling signed development build. Version: $VERSION. Commit: $GITHUB_SHA. Docker image: ghcr.io/$GITHUB_REPOSITORY:dev"
+            --notes "Development build $VERSION. Commit: $GITHUB_SHA. Docker image: ghcr.io/$GITHUB_REPOSITORY:dev"
