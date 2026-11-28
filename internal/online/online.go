@@ -1130,6 +1130,32 @@ func (s *Service) Search(ctx context.Context, q string) ([]Candidate, []Outcome)
 	return out, outs
 }
 
+// Offer makes songs from a server-provided collection available to Take, just like
+// songs returned by Search. The key remains source:id so it can be sent to the play API.
+func (s *Service) Offer(candidates []Candidate) []Candidate {
+	out := make([]Candidate, 0, len(candidates))
+	s.offMu.Lock()
+	if s.offered == nil { s.offered = map[string]Candidate{} }
+	for _, c := range candidates {
+		if c.Source == "" || c.ID == "" { continue }
+		c.Key = c.Source + ":" + c.ID
+		if _, ok := s.offered[c.Key]; !ok { s.order = append(s.order, c.Key) }
+		s.offered[c.Key] = c
+		out = append(out, c)
+	}
+	for len(s.order) > maxOffered {
+		delete(s.offered, s.order[0])
+		s.order = s.order[1:]
+	}
+	s.offMu.Unlock()
+	if s.Remember != nil && len(out) > 0 {
+		keep := make(map[string]Saved, len(out))
+		for _, c := range out { keep[c.Key] = savedOf(c) }
+		go s.Remember(keep)
+	}
+	return out
+}
+
 func savedOf(c Candidate) Saved {
 	return Saved{Source: c.Source, ID: c.ID, Ref: c.ref, Title: c.Title, Artist: c.Artist, ListedMS: c.Duration.Milliseconds(), Album: c.Album, Cover: c.Cover, Lyric: c.lyric}
 }
