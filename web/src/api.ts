@@ -28,7 +28,8 @@ export interface Playlist { guid: string; name: string }
 /** What can be sent to a speaker to play. */
 export type Collection = { source: 'favorites' } | { source: 'playlist' | 'album'; id: string } | { source: 'artist'; name: string };
 export type Single = { source: 'track'; track_id: number } | { source: 'online'; id: string; title?: string; artist?: string };
-export type Sendable = ((Collection | { source: 'picks'; track_ids: number[] }) & { track_id?: number }) | Single;
+export type OnlinePlaylistItem = { online: string; title: string; artist: string };
+export type Sendable = ((Collection | { source: 'picks'; track_ids: number[] }) & { track_id?: number }) | { source: 'online_playlist'; name: string; online_tracks: OnlinePlaylistItem[] } | Single;
 export type Press = 'play' | 'pause' | 'stop' | 'next' | 'previous' | 'mode' | 'volume' | 'wake' | 'seek';
 export type PlayMode = 'loop' | 'shuffle' | 'one';
 export interface Controls { state: 'playing' | 'paused' | 'idle'; volume: number | null; mode: PlayMode | ''; queue: { list: string; at: number; total: number; next: string[]; by?: string } | null }
