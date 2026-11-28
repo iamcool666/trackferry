@@ -249,11 +249,16 @@ func (n *Netease) songURL(ctx context.Context, path, cookie string, c Candidate)
 			Trial json.RawMessage `json:"freeTrialInfo"`
 		} `json:"data"`
 	}
-	level, br := "exhigh", "320000"
-	if QualityOf(ctx) == Standard {
-		level, br = "standard", "128000"
+	level, br, encode := "hires", "999000", "flac"
+	switch QualityOf(ctx) {
+	case MP3320:
+		level, br, encode = "exhigh", "320000", "mp3"
+	case MP3192:
+		level, br, encode = "higher", "192000", "mp3"
+	case MP3128:
+		level, br, encode = "standard", "128000", "mp3"
 	}
-	form := url.Values{"ids": {"[" + c.ID + "]"}, "level": {level}, "encodeType": {"mp3"}, "br": {br}}
+	form := url.Values{"ids": {"[" + c.ID + "]"}, "level": {level}, "encodeType": {encode}, "br": {br}}
 	if _, err := n.post(ctx, path, form, cookie, &r); err != nil {
 		return "", err
 	}
