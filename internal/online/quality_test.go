@@ -26,7 +26,7 @@ func (q *qualitySource) Resolve(ctx context.Context, _ Candidate) (string, error
 	return q.base + "/a.mp3", nil
 }
 
-func TestHighQualityFallsBackToStandard(t *testing.T) {
+func TestSelectedQualityFallsThroughEveryLowerTier(t *testing.T) {
 	frame := make([]byte, 417)
 	copy(frame, []byte{0xff, 0xfb, 0x90, 0})
 	mp3 := bytes.Repeat(frame, 7000)
