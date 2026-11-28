@@ -577,8 +577,21 @@ func (d *Dispatcher) OnCommand(ctx context.Context, c store.Command, hardware, m
 		return
 	}
 	req := Request{DeviceID: c.DeviceID, Hardware: hardware, Kind: "command", CommandID: c.ID, UpstreamMS: c.UpstreamMS, Track: t, Trace: tr, Answer: utf8.RuneCountInString(c.Answer)}
-	if ids := rt.Queue(); len(ids) > 0 && d.Next != nil {
-		q := &queue{dev: c.DeviceID, hardware: hardware, list: rt.List, ids: ids, order: rt.Order()}
+	ids, onlineSongs := rt.Queue(), rt.OnlineQueue()
+	if (len(ids) > 0 || len(onlineSongs) > 0) && d.Next != nil {
+		q := &queue{dev: c.DeviceID, hardware: hardware, list: rt.List, ids: slices.Clone(ids), order: slices.Clone(rt.Order())}
+		if q.order == nil {
+			q.order = slices.Clone(ids)
+		}
+		for i, song := range onlineSongs {
+			id := -int64(i + 1)
+			q.ids = append(q.ids, id)
+			q.order = append(q.order, id)
+			if q.outside == nil {
+				q.outside = map[int64]Item{}
+			}
+			q.outside[id] = Item{Online: song.Online, Title: song.Title, Artist: song.Artist, Cover: song.Cover, DurationMS: song.DurationMS}
+		}
 		if at := slices.Index(q.order, rt.TrackID); at >= 0 && d.PlayMode(bg, c.DeviceID) == ModeLoop {
 			q.ids, q.pos = slices.Clone(q.order), at
 		}
