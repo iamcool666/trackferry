@@ -36,7 +36,7 @@ jobs:
             exit 1
           fi
           git fetch --force --tags
-          latest="$(git tag --list 'v[0-9]*' | sed 's/^v//' | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+$' | sort -V | tail -n 1)"
+          latest="$(git tag --list 'v[0-9]*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
           if [[ -z "$latest" ]]; then
             latest="$(cat VERSION)"
           fi
@@ -90,11 +90,11 @@ jobs:
         shell: bash
         run: |
           test -n "$UPDATE_SIGNING_KEY" || { echo "Missing UPDATE_SIGNING_KEY secret"; exit 1; }
-          printf '%s\\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
           chmod 600 "$RUNNER_TEMP/update-signing.key"
           asset="dist/trackferry-$VERSION-linux-$ARCH"
           digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
-          printf 'trackferry\\n%s\\nlinux/%s\\n%s\\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
+          printf 'trackferry\n%s\nlinux/%s\n%s\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
           openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
             -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
           base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
