@@ -1,10 +1,13 @@
-name: release
+
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'
+    if: github.event_name != 'release' || github.event.release.tag_name == 'dev'name: release
 on:
-  # Development builds are intentionally tag-triggered. Finish all code changes,
-  # then move the dev-build tag to the desired commit to build exactly once.
-  push:
-    tags:
-      - dev-build
+  # Edit the rolling "dev" Release notes after all code changes are complete.
+  release:
+    types: [edited]
 permissions:
   contents: write
 concurrency:
