@@ -222,7 +222,7 @@ function PlaylistPage({ guid, devices, navigate }: { guid: string; devices: Devi
       {error && <Notice tone="error" title={error} />}
       {!list && !error && <div className="boot"><span className="spinner" /></div>}
       {list && <>
-        <header className="list-head"><h1>{list.name}</h1><span className="num">{list.total.toLocaleString('zh-CN')} 首</span>{list.total > 0 && (list.online_songs ? <Play what={{ onlineList: { list: list.name, tracks: list.online_songs } }} title={`歌单${list.name}`} devices={devices} label="播放全部" /> : <Play what={from} title={`歌单${list.name}`} devices={devices} label="播放歌单" />)}</header>
+        <header className="list-head"><h1>{list.name}</h1><span className="num">{list.total.toLocaleString('zh-CN')} 首</span>{list.total > 0 && (list.online_songs ? <Play what={{ onlineList: { id: guid, list: list.name, tracks: list.online_songs } }} title={`歌单${list.name}`} devices={devices} label="播放全部" /> : <Play what={from} title={`歌单${list.name}`} devices={devices} label="播放歌单" />)}</header>
         {list.tracks.length > 30 && <Filter q={q} setQ={setQ} label="在这个歌单里找" />}
         {list.online_songs ? <ol className="tracks">
           {list.online_songs.map((song) => <li key={song.key}>
