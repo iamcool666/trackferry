@@ -165,7 +165,7 @@ func launch(serving bool) {
 	if err != nil {
 		return // the command reports it
 	}
-	if note := update.Launch(cfg.DataDir, version, serving, handOver); note != "" {
+	if note := update.Launch(cfg.DataDir, version, channel, serving, handOver); note != "" {
 		newLog().Warn("更新　" + note)
 	}
 }
@@ -472,7 +472,7 @@ func serve() error {
 	// The image with ffmpeg is updated by pulling it: its binary is not among the Release files.
 	checker.Image = os.Getenv("TRACKFERRY_IMAGE")
 	if runtime.GOOS == "linux" && checker.Image != "ffmpeg" {
-		checker.Installer = &update.Installer{Data: cfg.DataDir, Backup: st.Backup, Restart: func() { close(restart) }}
+		checker.Installer = &update.Installer{Data: cfg.DataDir, Channel: channel, Backup: st.Backup, Restart: func() { close(restart) }}
 	}
 	checker.SetTVDir(filepath.Join(update.Dir(cfg.DataDir), "tv"))
 	go checker.Run(ctx)
@@ -586,7 +586,7 @@ func serve() error {
 		defer stopTV()
 	}
 	time.AfterFunc(update.Settle, func() {
-		if err := update.Confirm(cfg.DataDir, version); err != nil {
+		if err := update.Confirm(cfg.DataDir, version, channel); err != nil {
 			log.Warn("更新　没能记下这一版运行正常", "原因", err)
 		}
 	})

@@ -80,7 +80,11 @@ func (c *Checker) Status() Status {
 	if _, ok := parse(st.Current); ok && c.Installer != nil {
 		st.Installable = true
 		if r, ok := readRecord(Dir(c.Installer.Data)); ok {
-			st.FailedLast = r.FailedVersion
+			recordChannel := r.Channel
+			if recordChannel == "" { recordChannel = "stable" }
+			channel := c.Channel
+			if channel == "" { channel = "stable" }
+			if recordChannel == channel { st.FailedLast = r.FailedVersion }
 		}
 	}
 	return st

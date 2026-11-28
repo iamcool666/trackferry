@@ -83,6 +83,7 @@ func fileSum(path string) (string, error) {
 // Record is <data>/update/installed.json.
 type Record struct {
 	Version   string `json:"version"`
+	Channel   string `json:"channel,omitempty"`
 	Signature string `json:"signature"`
 	Confirmed bool   `json:"confirmed"`
 	Tries     int    `json:"tries"`
@@ -132,7 +133,7 @@ func format(v [3]int) string { return fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2]) 
 // Launch hands this process over to the installed version, if there is a usable one; then it
 // does not return. serving is false for short commands, which never try an unproven version.
 // It must run before the database is opened. note says why an installed version is not used.
-func Launch(data, version string, serving bool, run func(path string, env []string) error) (note string) {
+func Launch(data, version, channel string, serving bool, run func(path string, env []string) error) (note string) {
 	dir := Dir(data)
 	if os.Getenv(launchedEnv) != "" {
 		return ""
@@ -140,6 +141,16 @@ func Launch(data, version string, serving bool, run func(path string, env []stri
 	r, ok := readRecord(dir)
 	if !ok || r.Version == "" {
 		return ""
+	}
+	recordChannel := r.Channel
+	if recordChannel == "" { // records made before channel separation are stable
+		recordChannel = "stable"
+	}
+	if channel == "" {
+		channel = "stable"
+	}
+	if recordChannel != channel {
+		return "" // never run a dev binary in stable, or vice versa
 	}
 	if !Newer(r.Version, version) {
 		if serving { // the image has caught up
@@ -154,7 +165,7 @@ func Launch(data, version string, serving bool, run func(path string, env []stri
 	if !r.Confirmed {
 		if r.Tries >= maxTries {
 			note = giveUp(data, r, "启动了几次都没有成功")
-			return join(note, Launch(data, version, serving, run))
+			return join(note, Launch(data, version, channel, serving, run))
 		}
 		r.Tries++
 		if err := r.write(dir); err != nil {
@@ -238,13 +249,23 @@ func restore(from, to string) error {
 }
 
 // Confirm marks the running installed version as good.
-func Confirm(data, version string) error {
+func Confirm(data, version, channel string) error {
 	dir := Dir(data)
 	if os.Getenv(launchedEnv) == "" {
 		return nil
 	}
 	r, ok := readRecord(dir)
 	if !ok || r.Version != version || r.Confirmed {
+		return nil
+	}
+	recordChannel := r.Channel
+	if recordChannel == "" {
+		recordChannel = "stable"
+	}
+	if channel == "" {
+		channel = "stable"
+	}
+	if recordChannel != channel {
 		return nil
 	}
 	old := r.Previous
@@ -287,6 +308,7 @@ type Progress struct {
 // Installer says where and how an update is put in place.
 type Installer struct {
 	Data    string
+	Channel string
 	Backup  func(ctx context.Context, path string) error
 	Restart func()
 	// Try runs a downloaded binary and returns what it says about itself.
@@ -373,7 +395,7 @@ func (c *Checker) install(ctx context.Context, version, releaseTag string) error
 		return err
 	}
 	c.progress(func(p *Progress) { p.Phase = "check" })
-	r := Record{Version: version, Signature: strings.TrimSpace(sig)}
+	r := Record{Version: version, Channel: in.Channel, Signature: strings.TrimSpace(sig)}
 	if err := verify(version, runtime.GOARCH, hex.EncodeToString(h.Sum(nil)), r.Signature); err != nil {
 		return err
 	}

@@ -94,7 +94,7 @@ func (w *world) db() string {
 // launch returns the binary that was started, "" for the image's own.
 func (w *world) launch(version string, serving bool) (string, string) {
 	started := ""
-	note := Launch(w.data, version, serving, func(p string, env []string) error { started = p; return nil })
+	note := Launch(w.data, version, "stable", serving, func(p string, env []string) error { started = p; return nil })
 	return started, note
 }
 
@@ -114,7 +114,7 @@ func TestInstallAndLaunch(t *testing.T) {
 	if p, _ := w.launch("1.2.0", true); p != "" {
 		t.Fatal("launched itself")
 	}
-	if err := Confirm(w.data, "1.2.0"); err != nil || !w.record().Confirmed {
+	if err := Confirm(w.data, "1.2.0", "stable"); err != nil || !w.record().Confirmed {
 		t.Fatal(err)
 	}
 	t.Setenv(launchedEnv, "")
@@ -231,5 +231,15 @@ func TestInstallFindsTheNewName(t *testing.T) {
 	w.file = ServerAssets("1.2.0", runtime.GOARCH)[0]
 	if got := w.install(); got != "" {
 		t.Fatal(got)
+	}
+}
+
+func TestLaunchDoesNotCrossUpdateChannels(t *testing.T) {
+	w := newWorld(t)
+	w.install("0.0.2", true)
+	started := ""
+	Launch(w.data, "1.12.8", "stable", true, func(p string, env []string) error { started = p; return nil })
+	if started != "" {
+		t.Fatalf("stable launch used dev update: %s", started)
 	}
 }
