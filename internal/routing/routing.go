@@ -27,6 +27,15 @@ const (
 )
 
 // Candidate is one song a layer considered.
+// QueueSong is a member of a singer's mixed local and online playback queue.
+type QueueSong struct {
+	Online     string
+	Title      string
+	Artist     string
+	Cover      string
+	DurationMS int64
+}
+
 type Candidate struct {
 	Title      string `json:"title"`
 	Artist     string `json:"artist"`
@@ -71,8 +80,9 @@ type Route struct {
 	match *library.Match
 	found *online.Found
 	asked string
-	queue []int64
-	order []int64
+	queue       []int64
+	order       []int64
+	onlineQueue []QueueSong
 }
 
 // Match is the local file chosen, if any.
@@ -614,6 +624,8 @@ func (rt *Route) take(m library.Match) {
 	rt.TrackID, rt.Cover, rt.Album = m.ID, m.Cover, m.Album
 }
 
+const artistQueueTarget = 20
+
 func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 	start := time.Now()
 	l := Layer{Name: "library", State: online.StateMiss, Candidates: []Candidate{}}
@@ -623,6 +635,12 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 			in.Artist = a
 		}
 	}
+
+	artistIDs := []int64{}
+	if in.Kind == intent.KindArtist {
+		artistIDs = r.Library.ArtistIDs(in.Artist)
+	}
+	localPlayed := false
 	for range 5 {
 		var m library.Match
 		n := 0
@@ -642,38 +660,102 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 		l.Candidates = show([]library.Match{m})
 		rt.Because("选它", "从 %d 首里随机抽到", n)
 		rt.take(m)
+		localPlayed = true
 		if in.Kind == intent.KindArtist {
-			if ids := r.Library.ArtistIDs(in.Artist); len(ids) > 1 {
-				rt.List, rt.queue, rt.order = in.Artist+"的歌", shuffled(ids, m.ID), ids
-				l.Detail = fmt.Sprintf("%s的 %d 首歌，连着放", in.Artist, len(ids))
+			artistIDs = r.Library.ArtistIDs(in.Artist)
+			if len(artistIDs) > 1 {
+				rt.List, rt.queue, rt.order = in.Artist+"的歌", shuffled(artistIDs, m.ID), artistIDs
+				l.Detail = fmt.Sprintf("%s的 %d 首本地歌曲，连着放", in.Artist, len(artistIDs))
 				rt.Basis[len(rt.Basis)-1].Text = l.Detail
+			}
+
+			// Keep the local library first. Only ask LX when the local singer list is
+			// shorter than the target queue, then append distinct online songs to it.
+			if len(artistIDs) < artistQueueTarget && r.Online != nil {
+				candidates, outs := r.Online.FindArtistCandidates(ctx, in.Artist, 60)
+				for _, o := range outs {
+					rt.Layers = append(rt.Layers, layer(o))
+				}
+				additions := r.artistQueue(candidates, artistIDs, artistQueueTarget-len(artistIDs))
+				if len(additions) > 0 {
+					if len(rt.queue) == 0 {
+						rt.queue, rt.order = []int64{m.ID}, []int64{m.ID}
+					}
+					rt.List = in.Artist + "的歌"
+					rt.onlineQueue = additions
+					l.Detail = fmt.Sprintf("%s的 %d 首本地歌曲 + %d 首 LX 在线歌曲，连着放", in.Artist, len(artistIDs), len(additions))
+					rt.Basis[len(rt.Basis)-1].Text = l.Detail
+					rt.Because("补充歌单", "本地歌曲不足 %d 首，从 LX 补充了 %d 首", artistQueueTarget, len(additions))
+				}
 			}
 		}
 		break
 	}
-	if l.State != online.StateHit {
+
+	if !localPlayed {
 		rt.Reason = "曲库里没有可以随机的歌"
 		if in.Kind == intent.KindArtist {
 			rt.Reason = "曲库里没有" + in.Artist + "的歌"
-		}
-	}
-	if l.State != online.StateHit && in.Kind == intent.KindArtist && r.Online != nil {
-		// Local songs remain first choice. When this singer has no playable local track,
-		// ask LXServer for their songs and resolve one before handing it to the speaker.
-		found, outs := r.Online.FindArtist(ctx, in.Artist, 60)
-		for _, o := range outs {
-			rt.Layers = append(rt.Layers, layer(o))
-		}
-		if found != nil {
-			rt.takeOnline(found)
-			rt.Because("选它", "本地曲库没有可播放的歌曲，从 LX 在线歌手歌曲中选取")
-			l.Detail = "本地没有，已从 LX 在线歌手歌曲中找到并播放"
-		} else if len(outs) > 0 {
-			rt.Reason = "曲库里没有" + in.Artist + "的歌；" + outs[0].Detail
+			if r.Online != nil {
+				found, candidates, outs := r.Online.FindArtist(ctx, in.Artist, 60)
+				for _, o := range outs {
+					rt.Layers = append(rt.Layers, layer(o))
+				}
+				if found != nil {
+					rt.takeOnline(found)
+					rt.Reason = ""
+					rt.List = in.Artist + "的歌"
+					rt.onlineQueue = r.artistQueue(candidates, nil, 60)
+					key := found.Candidate.Key
+					for i := range rt.onlineQueue {
+						if rt.onlineQueue[i].Online == key {
+							rt.onlineQueue = append([]QueueSong{rt.onlineQueue[i]}, append(rt.onlineQueue[:i], rt.onlineQueue[i+1:]...)...)
+							break
+						}
+					}
+					if len(rt.onlineQueue) == 0 {
+						rt.onlineQueue = []QueueSong{{Online: key, Title: found.Candidate.Title, Artist: found.Candidate.Artist,
+							Cover: onlineCover(found.Candidate.ID), DurationMS: found.Candidate.DurationMS}}
+					}
+					l.Detail = fmt.Sprintf("本地没有歌曲，LX 找到 %d 首，建立在线连续播放队列", len(rt.onlineQueue))
+					rt.Because("选它", "本地没有，改从 LX 歌手歌曲中播放")
+				} else if len(outs) > 0 {
+					rt.Reason += "；" + outs[0].Detail
+				}
+			}
 		}
 	}
 	l.MS = time.Since(start).Milliseconds()
 	rt.Layers = append([]Layer{l}, rt.Layers...)
+}
+
+// artistQueue turns temporary LX candidates into queue entries, excluding songs already in the
+// local library and keeping the local tracks ahead of online additions.
+func (r *Router) artistQueue(candidates []online.Candidate, localIDs []int64, limit int) []QueueSong {
+	if limit <= 0 {
+		return nil
+	}
+	localTitles := make(map[string]bool, len(localIDs))
+	for _, id := range localIDs {
+		if m, ok := r.Library.Track(id); ok {
+			localTitles[names.Norm(m.Title)] = true
+		}
+	}
+	seen := map[string]bool{}
+	out := make([]QueueSong, 0, min(limit, len(candidates)))
+	for _, c := range candidates {
+		title := names.Norm(c.Title)
+		if c.Key == "" || title == "" || localTitles[title] || seen[title] {
+			continue
+		}
+		seen[title] = true
+		out = append(out, QueueSong{Online: c.Key, Title: c.Title, Artist: c.Artist,
+			Cover: onlineCover(c.ID), DurationMS: c.DurationMS})
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
 }
 
 func show(ms []library.Match) []Candidate {
