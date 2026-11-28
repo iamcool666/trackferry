@@ -1259,6 +1259,33 @@ func (s *Service) Offer(candidates []Candidate) []Candidate {
 	return out
 }
 
+// OfferTemporary keeps short-lived artist results available to the queue without persisting
+// member-backed candidates. Their playback rights are rechecked when each song is taken.
+func (s *Service) OfferTemporary(candidates []Candidate) []Candidate {
+	out := make([]Candidate, 0, len(candidates))
+	s.offMu.Lock()
+	if s.offered == nil {
+		s.offered = map[string]Candidate{}
+	}
+	for _, c := range candidates {
+		if c.Source == "" || c.ID == "" {
+			continue
+		}
+		c.Key = c.Source + ":" + c.ID
+		if _, ok := s.offered[c.Key]; !ok {
+			s.order = append(s.order, c.Key)
+		}
+		s.offered[c.Key] = c
+		out = append(out, c)
+	}
+	for len(s.order) > maxOffered {
+		delete(s.offered, s.order[0])
+		s.order = s.order[1:]
+	}
+	s.offMu.Unlock()
+	return out
+}
+
 func savedOf(c Candidate) Saved {
 	return Saved{Source: c.Source, ID: c.ID, Ref: c.ref, Title: c.Title, Artist: c.Artist, ListedMS: c.Duration.Milliseconds(), Album: c.Album, Cover: c.Cover, Lyric: c.lyric}
 }
@@ -1336,18 +1363,16 @@ func (s *Service) fetcher(src Source) *http.Client {
 
 // Lx returns the self-hosted 洛雪 source, or nil when it is not set up.
 
-// FindArtist asks the LXServer source for songs by one singer and resolves the first playable
-// result. Artist results are member-aware and are deliberately not remembered as search offers.
-func (s *Service) FindArtist(ctx context.Context, artist string, limit int) (*Found, []Outcome) {
+// FindArtistCandidates searches LXServer for a singer and keeps the results available
+// to the playback queue without persisting member-backed candidates.
+func (s *Service) FindArtistCandidates(ctx context.Context, artist string, limit int) ([]Candidate, []Outcome) {
 	var e *entry
 	var lx *Lx
 	s.mu.Lock()
 	for _, candidate := range s.srcs {
 		if candidate.src.Name() == "lx" {
 			e = candidate
-			if v, ok := candidate.src.(*Lx); ok {
-				lx = v
-			}
+			lx, _ = candidate.src.(*Lx)
 			break
 		}
 	}
@@ -1378,36 +1403,61 @@ func (s *Service) FindArtist(ctx context.Context, artist string, limit int) (*Fo
 		out.State, out.Detail = StateError, describe(err)
 		return nil, []Outcome{out}
 	}
-	out.Candidates = slices.Clone(candidates[:min(shownPerSource, len(candidates))])
 	if len(candidates) == 0 {
 		s.record(e, time.Since(start), nil)
 		out.State, out.Detail = StateMiss, "LX 没找到这位歌手的歌曲"
 		return nil, []Outcome{out}
 	}
 
+	candidates = s.OfferTemporary(candidates)
+	s.record(e, time.Since(start), nil)
+	out.Candidates = slices.Clone(candidates[:min(shownPerSource, len(candidates))])
+	out.State = StateHit
+	out.Detail = fmt.Sprintf("LX 找到这位歌手的 %d 首在线歌曲", len(candidates))
+	return candidates, []Outcome{out}
+}
+
+// FindArtist finds and resolves the first playable LX song for a singer. It also returns the
+// complete temporary candidate list so the caller can build a continuous queue.
+func (s *Service) FindArtist(ctx context.Context, artist string, limit int) (*Found, []Candidate, []Outcome) {
+	candidates, outs := s.FindArtistCandidates(ctx, artist, limit)
+	if len(candidates) == 0 {
+		return nil, candidates, outs
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*totalBudget)
+	defer cancel()
 	var lastErr error
 	for _, c := range candidates[:min(maxPerSource, len(candidates))] {
 		if ctx.Err() != nil {
 			lastErr = ctx.Err()
 			break
 		}
-		c.Key = c.Source + ":" + c.ID
-		foundCtx, done := context.WithTimeout(ctx, totalBudget)
-		stream, resolveErr := s.resolveOne(foundCtx, lx, c)
-		done()
-		if resolveErr == nil {
-			s.record(e, time.Since(start), nil)
-			out.State, out.Detail = StateHit, "LX 找到歌手歌曲并取得可播放音频"
-			return &Found{Candidate: c, Stream: stream, Unprobed: unprobed(lx)}, []Outcome{out}
+		found, err := s.Take(ctx, c.Key)
+		if err == nil {
+			if len(outs) > 0 {
+				outs[0].Detail = fmt.Sprintf("LX 找到 %d 首歌，已取得第一首可播放音频", len(candidates))
+			}
+			return found, candidates, outs
 		}
-		lastErr = resolveErr
+		lastErr = err
 	}
-	s.record(e, time.Since(start), lastErr)
-	out.State, out.Detail = StateError, describe(lastErr)
-	if errors.Is(lastErr, ErrRestricted) || errors.Is(lastErr, ErrTrial) || errors.Is(lastErr, ErrNoAudio) {
-		out.State = StateRestricted
+	if lastErr != nil {
+		s.mu.Lock()
+		for _, e := range s.srcs {
+			if e.src.Name() == "lx" {
+				s.record(e, 0, lastErr)
+				break
+			}
+		}
+		s.mu.Unlock()
+		if len(outs) > 0 {
+			outs[0].State, outs[0].Detail = StateError, lastErr.Error()
+			if errors.Is(lastErr, ErrRestricted) || errors.Is(lastErr, ErrTrial) || errors.Is(lastErr, ErrNoAudio) {
+				outs[0].State = StateRestricted
+			}
+		}
 	}
-	return nil, []Outcome{out}
+	return nil, candidates, outs
 }
 
 func (s *Service) Lx() *Lx {
