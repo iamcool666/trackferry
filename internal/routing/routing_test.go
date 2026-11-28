@@ -130,5 +130,64 @@ func TestArtistRoutingFallsBackToLX(t *testing.T) {
 	if len(rt.Layers) < 2 || rt.Layers[1].Name != "lx" || rt.Layers[1].State != online.StateHit {
 		t.Fatalf("LX route layer = %+v", rt.Layers)
 	}
+	if len(rt.OnlineQueue()) != 1 || rt.OnlineQueue()[0].Online != "lx:kw_123" {
+		t.Fatalf("online artist queue = %+v", rt.OnlineQueue())
+	}
+}
+
+func TestArtistRoutingKeepsLocalFirstAndAddsLXQueue(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	for _, name := range []string{"周杰伦 - 晴天", "周杰伦 - 稻香"} {
+		if err := os.WriteFile(filepath.Join(dir, name+".mp3"), []byte("no tags in this little file"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	log := slog.New(slog.DiscardHandler)
+	lib := library.New(dir, st, log)
+	if err := lib.Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/search3" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
+			"status": "ok",
+			"searchResult3": map[string]any{"song": []map[string]any{
+				{"id": "kw_1", "title": "晴天", "artist": "周杰伦", "duration": 269, "suffix": "flac"},
+				{"id": "kw_2", "title": "七里香", "artist": "周杰伦", "duration": 300, "suffix": "flac"},
+				{"id": "kg_3", "title": "青花瓷", "artist": "周杰伦", "duration": 240, "suffix": "mp3"},
+			}},
+		}})
+	}))
+	defer srv.Close()
+
+	lx := &online.Lx{BaseURL: srv.URL + "/rest", User: "u", Password: "p", Client: srv.Client()}
+	r := &Router{Library: lib, Online: online.New(log, online.Client(), lx), Log: log}
+	rt := r.Decide(ctx, intent.Parse("播放周杰伦的歌"), "播放周杰伦的歌")
+	if rt.Decision != Local || rt.Source != "library" || rt.Artist != "周杰伦" {
+		t.Fatalf("local artist should remain first: %+v", rt)
+	}
+	if len(rt.Queue()) != 2 {
+		t.Fatalf("local queue = %+v", rt.Queue())
+	}
+	onlineQueue := rt.OnlineQueue()
+	if len(onlineQueue) != 2 {
+		t.Fatalf("LX should supplement the local list and skip duplicate 晴天: %+v", onlineQueue)
+	}
+	if onlineQueue[0].Title != "七里香" || onlineQueue[1].Title != "青花瓷" {
+		t.Fatalf("online queue order = %+v", onlineQueue)
+	}
+	if rt.List != "周杰伦的歌" || rt.Reason != "" {
+		t.Fatalf("artist list metadata = %+v", rt)
+	}
 }
 
