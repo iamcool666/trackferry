@@ -253,6 +253,9 @@ export interface ScanReport {
   source?: 'feiniu' | 'files';
   total?: number;
   skipped?: number;
+  online_playlists?: number;
+  online_tracks?: number;
+  online_error?: string;
   roots: RootReport[];
 }
 
