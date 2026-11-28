@@ -25,7 +25,12 @@ func flacHead(seconds int) []byte {
 func mp3Head() []byte {
 	b := []byte("ID3\x03\x00\x00\x00\x00\x00\x35")
 	b = append(b, make([]byte, 0x35)...)
-	return append(b, 0xff, 0xfb, 0xe0, 0x64)
+	frame := make([]byte, 1044) // MPEG-1 Layer III, 320 kbps at 44.1 kHz
+	copy(frame, []byte{0xff, 0xfb, 0xe0, 0x64})
+	for range 12 {
+		b = append(b, frame...)
+	}
+	return b
 }
 
 // lxServer answers the searches and hands out whatever bodies says for a rate.
