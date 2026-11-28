@@ -248,7 +248,7 @@ func (r *Router) Decide(ctx context.Context, in intent.Intent, query string) *Ro
 				return rt
 			}
 		}
-		r.pick(rt, in)
+		r.pick(ctx, rt, in)
 		tr.Layer("library", rt.Layers[0])
 		return rt
 	case intent.KindList:
@@ -274,7 +274,7 @@ func (r *Router) Decide(ctx context.Context, in intent.Intent, query string) *Ro
 		}
 		rt.Because("改成找", "%s", strings.TrimSpace(strings.Join([]string{in.Artist, in.Title}, " ")))
 		if in.Kind == intent.KindArtist {
-			r.pick(rt, in)
+			r.pick(ctx, rt, in)
 			tr.Layer("library", rt.Layers[0])
 			return rt
 		}
@@ -614,7 +614,7 @@ func (rt *Route) take(m library.Match) {
 	rt.TrackID, rt.Cover, rt.Album = m.ID, m.Cover, m.Album
 }
 
-func (r *Router) pick(rt *Route, in intent.Intent) {
+func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 	start := time.Now()
 	l := Layer{Name: "library", State: online.StateMiss, Candidates: []Candidate{}}
 	if in.Kind == intent.KindArtist && len(r.Library.ArtistIDs(in.Artist)) == 0 {
@@ -660,13 +660,12 @@ func (r *Router) pick(rt *Route, in intent.Intent) {
 	if l.State != online.StateHit && in.Kind == intent.KindArtist && r.Online != nil {
 		// Local songs remain first choice. When this singer has no playable local track,
 		// ask LXServer for their songs and resolve one before handing it to the speaker.
-		found, outs := r.Online.FindArtist(context.Background(), in.Artist, 60)
+		found, outs := r.Online.FindArtist(ctx, in.Artist, 60)
 		for _, o := range outs {
 			rt.Layers = append(rt.Layers, layer(o))
 		}
 		if found != nil {
 			rt.takeOnline(found)
-			rt.List = in.Artist + "的歌"
 			rt.Because("选它", "本地曲库没有可播放的歌曲，从 LX 在线歌手歌曲中选取")
 			l.Detail = "本地没有，已从 LX 在线歌手歌曲中找到并播放"
 		} else if len(outs) > 0 {
