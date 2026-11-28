@@ -1,5 +1,6 @@
 name: release
 
+# Every code push updates the single rolling dev Release and the :dev image.
 on:
   push:
     branches:
@@ -8,149 +9,37 @@ on:
       - '.github/workflows/**'
       - '**/*.md'
       - 'docs/**'
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: trackferry-release-${{ github.ref }}
+  group: trackferry-dev
   cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  prepare:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      version: ${{ steps.version.outputs.version }}
-      commit: ${{ steps.version.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
-      - name: Calculate next dev version
-        id: version
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          base="$(cat VERSION)"
-          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "VERSION must be numeric x.y.z: $base"
-            exit 1
-          fi
-
-          versions=("$base")
-          while IFS= read -r old_tag; do
-            old_version="${old_tag#v}"
-            if [[ "$old_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              versions+=("$old_version")
-            fi
-          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName')
-
-          latest="$(printf '%s\n' "${versions[@]}" | sort -V | tail -n 1)"
-          IFS=. read -r major minor patch <<< "$latest"
-          version="$major.$minor.$((10#$patch + 1))"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-          echo "Next dev release: v$version"
-
-  build:
-    needs: prepare
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.commit }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Build web UI
-        working-directory: web
-        run: |
-          npm ci --no-audit --no-fund
-          mkdir -p ../internal/webui
-          npm run build
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
       - name: Test Go packages
         run: go test ./...
-      - name: Build Linux server binary
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          ARCH: ${{ matrix.arch }}
-        run: |
-          mkdir -p dist
-          CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build \
-            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA" \
-            -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
-      - name: Sign update binary
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          ARCH: ${{ matrix.arch }}
-          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-        shell: bash
-        run: |
-          test -n "$UPDATE_SIGNING_KEY" || { echo "Missing UPDATE_SIGNING_KEY secret"; exit 1; }
-          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
-          chmod 600 "$RUNNER_TEMP/update-signing.key"
-          asset="dist/trackferry-$VERSION-linux-$ARCH"
-          digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
-          printf 'trackferry\n%s\nlinux/%s\n%s\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
-          openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
-            -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
-          base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
-          echo >> "$asset.sig"
-          rm -f "$RUNNER_TEMP/update-signing.key" "$RUNNER_TEMP/message" "$RUNNER_TEMP/signature"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: signed-linux-${{ matrix.arch }}
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 2
-
-  publish:
-    needs: [prepare, build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: signed-linux-*
-          path: dist
-          merge-multiple: true
-      - name: Publish signed dev Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          COMMIT: ${{ needs.prepare.outputs.commit }}
-        run: |
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
-            --target "$COMMIT" --title "TrackFerry $VERSION (dev)" \
-            --prerelease --generate-notes
 
   image:
-    needs: [prepare, publish]
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.commit }}
       - uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -164,9 +53,9 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest
-            type=sha,format=short
-      - name: Build and push Docker image
+            type=raw,value=dev
+            type=sha,format=short,prefix=dev-
+      - name: Build and push dev image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -176,7 +65,38 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ needs.prepare.outputs.version }}
-            COMMIT=${{ needs.prepare.outputs.commit }}
+            VERSION=dev
+            COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  publish:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install GitHub CLI
+        run: gh --version
+      - name: Keep only one rolling dev Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # Remove old prerelease records, but keep their numeric git tags so
+          # the next formal version continues increasing from the highest tag.
+          while IFS= read -r old_tag; do
+            [[ -z "$old_tag" ]] && continue
+            gh release delete "$old_tag" --repo "$GITHUB_REPOSITORY" --yes
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease == true and .tagName != "dev") | .tagName')
+
+          # Recreate the fixed dev tag at this exact commit and keep one dev Release.
+          if gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete dev --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          else
+            git push origin :refs/tags/dev 2>/dev/null || true
+          fi
+          gh release create dev --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "TrackFerry Dev" \
+            --prerelease \
+            --notes "滚动开发版。\n\nCommit: $GITHUB_SHA\n\nDocker: `ghcr.io/$GITHUB_REPOSITORY:dev`"
