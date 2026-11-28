@@ -1,13 +1,6 @@
 name: release
 
 on:
-  push:
-    branches:
-      - feature/trackferry-plus
-    paths-ignore:
-      - '.github/workflows/**'
-      - '**/*.md'
-      - 'docs/**'
   workflow_dispatch:
 
 permissions:
