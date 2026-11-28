@@ -7,7 +7,6 @@ on:
     paths-ignore:
       - '.github/workflows/**'
       - '**/*.md'
-      - '**/*_test.go'
       - 'docs/**'
   workflow_dispatch:
 
