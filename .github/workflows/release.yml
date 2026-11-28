@@ -46,7 +46,7 @@ jobs:
           max_patch=0
           while IFS= read -r old_tag; do
             old_version="${old_tag#v}"
-            if [[ "$old_version" =~ ^${major//./\.}.${minor//./\.}.([0-9]+)$ ]]; then
+            if [[ "$old_version" =~ ^${major}\.${minor}\.([0-9]+)$ ]]; then
               patch=$((10#${BASH_REMATCH[1]}))
               (( patch > max_patch )) && max_patch=$patch
             fi
