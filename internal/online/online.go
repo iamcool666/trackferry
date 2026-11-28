@@ -711,6 +711,15 @@ func unprobed(src Source) bool {
 // tryOne takes a candidate's address from its source and, unless the source vouches for its
 // own bytes, probes it.
 func (s *Service) tryOne(ctx context.Context, src Source, c Candidate) (Stream, error) {
+	// LX handles the entire quality ladder inside lxCheck. Do not wrap it in
+	// another qualityFalls loop, or every lower tier is requested repeatedly.
+	if unprobed(src) {
+		if _, ok := src.(interface {
+			ResolveAt(context.Context, Candidate, string) (string, error)
+		}); ok {
+			return s.lxCheck(ctx, src, c)
+		}
+	}
 	var last Stream
 	var lastErr error
 	for _, q := range qualityFalls(s.Quality()) {
