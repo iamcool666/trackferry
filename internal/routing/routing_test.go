@@ -137,7 +137,7 @@ func TestArtistRoutingFallsBackToLX(t *testing.T) {
 	}
 }
 
-func TestArtistRoutingKeepsLocalFirstAndAddsLXQueue(t *testing.T) {
+func TestArtistRoutingMergesLocalAndLXQueue(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	for _, name := range []string{"周杰伦 - 晴天", "周杰伦 - 稻香"} {
