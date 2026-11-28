@@ -160,7 +160,7 @@ func TestNeteaseSignedInAsksAsTheDesktopClientAndThenAsAStranger(t *testing.T) {
 	defer srv.Close()
 	n := &Netease{Client: srv.Client(), Base: srv.URL, ses: neteaseSession{Cookie: "MUSIC_U=x"}}
 	s := New(slog.New(slog.NewTextHandler(io.Discard, nil)), srv.Client(), n)
-	s.SetQuality(Standard) // one quality: the calls counted are the fallbacks between clients
+	s.SetQuality(MP3128) // one quality: the calls counted are the fallbacks between clients
 	const good, bad = `{"url":"BASE/good","code":200,"type":"mp3"}`, `{"url":"BASE/bad","code":200,"type":"mp3"}`
 	const m4a, none = `{"url":"BASE/good","code":200,"type":"m4a"}`, `{"url":null,"code":404}`
 	const denied, trial = `{"url":null,"code":-110}`, `{"url":"BASE/good","code":200,"freeTrialInfo":{"end":30}}`
