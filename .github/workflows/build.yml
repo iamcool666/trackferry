@@ -1,15 +1,15 @@
 name: build
 
-# Builds the image from this repository and publishes it to GitHub's own registry.
-# The NAS pulls ghcr.io/workroom2008/trackferry:latest, so a push here is a release.
-# A release builds once and publishes only latest — one tag for everyone to pull. Branch
-# pushes don't build — that made two runs of the same commit every release, for nothing.
+# Build this repository's customized TrackFerry image and publish it to GHCR.
+# The NAS compose file pulls ghcr.io/iamcool666/trackferry:latest.
+# Manual rebuild trigger: 2026-11-27.
 #
-# main is a mirror of upstream and is never built: what this repository adds lives on the
-# feature branches, and those are what a tag points at.
+# main mirrors upstream and is not built; feature branches contain this fork's changes.
 
 on:
   push:
+    branches:
+      - 'feature/**'
     tags: ['v*']
   workflow_dispatch:
 
@@ -40,15 +40,15 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref_name == 'feature/trackferry-plus' }}
+            type=ref,event=tag
+            type=sha,format=short
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.ci
-          # Only what the NAS runs: the frontend and Go stages cannot share layers across
-          # architectures, so a second platform nearly doubles the build for nothing.
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
