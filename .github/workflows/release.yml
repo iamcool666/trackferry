@@ -163,6 +163,6 @@ jobs:
           git push origin refs/tags/dev
           gh release create dev dist/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "TrackFerry Dev $VERSION" \
+            --title "TrackFerry Dev" \
             --prerelease \
             --notes "Rolling signed development build. Version: $VERSION. Commit: $GITHUB_SHA. Docker image: ghcr.io/$GITHUB_REPOSITORY:dev"
