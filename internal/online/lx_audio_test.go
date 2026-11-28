@@ -43,8 +43,9 @@ func lxServer(t *testing.T, bodies map[string][]byte) (*httptest.Server, *[]stri
 				"searchResult3": map[string]any{"song": songs}}})
 		case "/rest/stream":
 			rate := r.URL.Query().Get("maxBitRate")
-			asked = append(asked, r.URL.Query().Get("format")+":"+rate)
-			b, ok := bodies[rate]
+			format := r.URL.Query().Get("format")
+			asked = append(asked, format+":"+rate)
+			b, ok := bodies[format+":"+rate]
 			if !ok {
 				b = bodies["*"]
 			}
@@ -68,8 +69,8 @@ func lxService(srv *httptest.Server) *Service {
 func TestLxStreamFallsToARateThatPlays(t *testing.T) {
 	srv, asked := lxServer(t, map[string][]byte{
 		"":    {0x29, 0x17, 0x55, 0x67, 0x33, 0x46, 0x79, 0x6e}, // the encrypted container
-		"320": flacHead(285),
-		"128": flacHead(285),
+		"mp3:320": mp3Head(),
+		"mp3:128": mp3Head(),
 	})
 	defer srv.Close()
 	svc := lxService(srv)
@@ -119,7 +120,7 @@ func TestLxStreamThatNeverPlaysIsRefused(t *testing.T) {
 // The standard quality asks the small rate only, once: the ladder below the best form is for
 // finding a rate that plays, not for asking twice.
 func TestLxStandardQualityAsksTheSmallRateOnly(t *testing.T) {
-	srv, asked := lxServer(t, map[string][]byte{"128": flacHead(285)})
+	srv, asked := lxServer(t, map[string][]byte{"mp3:128": mp3Head()})
 	defer srv.Close()
 	svc := lxService(srv)
 	svc.SetQuality(MP3128)
