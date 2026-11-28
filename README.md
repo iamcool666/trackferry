@@ -31,6 +31,10 @@
 
 <br>
 
+> [!NOTE]
+> **关于本仓库**：这是 [madrays/trackferry](https://github.com/madrays/trackferry)（上游）的衍生版，只做两件事——**合并上游更新**、**追加洛雪音源**（LX Music 在线音源），其余全部功能都来自上游。
+> 功能建议请到[上游仓库提 issue](https://github.com/madrays/trackferry/issues)；只有洛雪音源相关的问题，才在[本仓 issues](https://github.com/workroom2008/trackferry/issues)提。
+
 TrackFerry 住在你的 NAS 里。小爱音箱、电视、DLNA 功放、Chromecast，还有你手里这台手机，只要能出声，它就能让那里响起你想听的那首歌。
 
 歌先从自己的地盘找：飞牛音乐，或者一个普通的音乐文件夹。找不到，再去酷我、酷狗、咪咕、网易云要免费完整版。都没有，才把话筒还给小爱。
