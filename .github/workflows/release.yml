@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - '.github/workflows/**'
       - '**/*.md'
+      - '**/*_test.go'
       - 'docs/**'
   workflow_dispatch:
     inputs:
@@ -62,7 +63,8 @@ jobs:
               old_version="${old_tag#v}"
               if [[ "$old_version" =~ ^${major//./\.}.${minor//./\.}.([0-9]+)$ ]]; then
                 patch="${BASH_REMATCH[1]}"
-                (( patch > max_patch )) && max_patch=$patch
+                patch_num=$((10#$patch))
+                if (( patch_num > max_patch )); then max_patch=$patch_num; fi
               fi
             done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName')
             version="$major.$minor.$((max_patch + 1))"
