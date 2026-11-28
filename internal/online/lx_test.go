@@ -60,14 +60,19 @@ func TestLxClientReachesAPrivateAddress(t *testing.T) {
 
 
 func TestLxMapsPublicOnlineListIDs(t *testing.T) {
+	// All four requested music platforms expose both shared playlists and charts.
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{"public:lx:tx:playlist:7769010449", "pl_tx_7769010449"},
+		{"public:lx:wy:playlist:123456", "pl_wy_123456"},
+		{"public:lx:kw:playlist:123456", "pl_kw_123456"},
+		{"public:lx:kg:playlist:123456", "pl_kg_123456"},
 		{"public:lx:tx:chart:4", "lb_tx_4"},
 		{"public:lx:wy:chart:19723756", "lb_wy_19723756"},
 		{"public:lx:kw:chart:16", "lb_kw_16"},
+		{"public:lx:kg:chart:8888", "lb_kg_8888"},
 	}
 	for _, tt := range tests {
 		got, err := lxPlaylistID(tt.input)
