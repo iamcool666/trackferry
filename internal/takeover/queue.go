@@ -912,7 +912,8 @@ func (d *Dispatcher) skip(q *queue, c store.Command, hardware string, tr *live.T
 		return nil, Request{}, false
 	}
 	rt.MS = time.Since(start).Milliseconds()
-	return rt, Request{DeviceID: q.dev, Hardware: hardware, Kind: "command", CommandID: c.ID, UpstreamMS: c.UpstreamMS, Track: t, Trace: tr}, true
+	song := &store.Song{TrackID: rt.TrackID, Title: rt.Title, Artist: rt.Artist, Album: rt.Album, Cover: rt.Cover, DurationMS: rt.DurationMS, List: rt.List, Online: onlineKey(rt)}
+	return rt, Request{DeviceID: q.dev, Hardware: hardware, Kind: "command", CommandID: c.ID, UpstreamMS: c.UpstreamMS, Track: t, Trace: tr, Song: song}, true
 }
 
 // put adds the song on the speaker to a playlist, or takes it out, and says how it went.

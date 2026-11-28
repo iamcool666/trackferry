@@ -35,8 +35,9 @@ func (s *Server) netCover(w http.ResponseWriter, r *http.Request, id string) {
 	w.Write(b)
 }
 
-// A miss is asked for again after this; lyrics found are kept.
-const onlineLyricsAgain = 3 * 24 * time.Hour
+// A miss is asked for again after this short wait: a platform can fail one song today and
+// answer for it tomorrow. Lyrics found are kept.
+const onlineLyricsAgain = 10 * time.Minute
 
 // onlineLyrics gets an online song's lyrics: ?key=. Kept once found, misses for a while.
 func (s *Server) onlineLyrics(w http.ResponseWriter, r *http.Request) {

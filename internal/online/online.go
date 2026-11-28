@@ -428,6 +428,24 @@ func (s *Service) Find(ctx context.Context, readings []Reading, request string) 
 			tell(outs[r.i])
 		}
 	}
+	if found != nil {
+		// A song found for a voice ask is named and put among the offered, and kept, so its
+		// words can be asked for by key and it can be played again. The page's search does
+		// the same for what it shows.
+		found.Candidate.Key = found.Candidate.Source + ":" + found.Candidate.ID
+		s.offMu.Lock()
+		if s.offered == nil {
+			s.offered = map[string]Candidate{}
+		}
+		if _, ok := s.offered[found.Candidate.Key]; !ok {
+			s.order = append(s.order, found.Candidate.Key)
+		}
+		s.offered[found.Candidate.Key] = found.Candidate
+		s.offMu.Unlock()
+		if s.Remember != nil {
+			go s.Remember(map[string]Saved{found.Candidate.Key: savedOf(found.Candidate)})
+		}
+	}
 	return found, outs
 }
 

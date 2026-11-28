@@ -5,7 +5,6 @@ import { position, type Sounding } from '../live';
 import { lineAt, parseLRC, plainLyrics, restAt, spanOf, type Line } from '../lyrics';
 import { Fish } from './Fish';
 import { useToast } from './Toast';
-import { Blast, nextKind, type BlastKind } from './BlastLine';
 import type { MediaRange } from '../media-clock';
 
 export interface Words { lines: Line[]; timed: boolean; /** How much sooner the lines come, in ms. */ offset: number; setOffset: (ms: number) => void; saveError?: boolean; /** The platform they came from, when the song has none of its own. */ from?: string }
@@ -68,7 +67,7 @@ const fromName: Record<string, string> = { kuwo: '酷我', kugou: '酷狗', migu
 const sizes = [{ v: 'small', label: '小' }, { v: '', label: '中' }, { v: 'large', label: '大' }];
 
 /** All of the words. The line being sung stays in view unless the reader has scrolled away; a tap on a line goes there. */
-export function LyricSheet({ words, now, big, seek, blast }: { words: Words; now: Sounding | null; big: boolean; seek?: (ms: number) => void; blast?: boolean }) {
+export function LyricSheet({ words, now, big, seek }: { words: Words; now: Sounding | null; big: boolean; seek?: (ms: number) => void }) {
   const box = useRef<HTMLOListElement>(null);
   const [i, setI] = useState(-1);
   const line = useRef(-1);
@@ -81,16 +80,6 @@ export function LyricSheet({ words, now, big, seek, blast }: { words: Words; now
   const [size, setSize] = useState(() => { try { return localStorage.getItem(SIZE) ?? ''; } catch { return ''; } });
   const { lines, timed, offset } = words;
   const follow = !!now && timed;
-  // Fireworks on the line being sung: the next kind is drawn once per new line, never the same twice.
-  const [kind, setKind] = useState<BlastKind>('shatter');
-  const lastKind = useRef<BlastKind | null>(null);
-  const live = !!blast && big && i >= 0 && rest < 0 && !!lines[i];
-  useEffect(() => {
-    if (i < 0) return;
-    const k = nextKind(lastKind.current);
-    lastKind.current = k;
-    setKind(k);
-  }, [i]);
   useEffect(() => {
     if (!now || !timed) { line.current = -1; setI(-1); resting.current = -1; setRest(-1); return; }
     let frame = 0;
@@ -148,24 +137,6 @@ export function LyricSheet({ words, now, big, seek, blast }: { words: Words; now
     }
   }, [focus, big, size, follow, free]);
   useEffect(() => { clearTimeout(returnTimer.current); setFree(false); }, [lines]);
-  // Which character of the line is being sung: the line's own span, walked by the clock.
-  const [sung, setSung] = useState(-1);
-  const sungNow = () => {
-    if (!live || !follow) return -1;
-    const cur = lines[i];
-    const span = spanOf(lines, i);
-    if (!(span > 0)) return -1;
-    const f = (position(now!) + offset - cur.at) / span;
-    if (f < 0) return -1;
-    const n = Array.from(cur.text).length;
-    return Math.min(n - 1, Math.floor(f * n));
-  };
-  useEffect(() => {
-    if (!live) { setSung(-1); return; }
-    const t = setInterval(() => setSung(sungNow()), 90);
-    setSung(sungNow());
-    return () => clearInterval(t);
-  }, [live, i, now?.phase, now?.at, now?.since]); // eslint-disable-line react-hooks/exhaustive-deps
   const mine = () => {
     if (!follow) return;
     setFree(true);
@@ -177,11 +148,11 @@ export function LyricSheet({ words, now, big, seek, blast }: { words: Words; now
   const sized = (v: string) => { setSize(v); try { localStorage.setItem(SIZE, v); } catch { /* for this visit only */ } };
   return (
     <div className={`lyric ${size ? `lyric-${size}` : ''}`}>
-      <ol ref={box} className={`sheet-words ${follow ? 'follow' : ''} ${free ? 'free' : ''} ${jump ? 'jump' : ''} ${live ? 'blasting' : ''}`} aria-label="歌词" tabIndex={0} onWheel={mine} onTouchMove={mine} onKeyDown={mine}>
+      <ol ref={box} className={`sheet-words ${follow ? 'follow' : ''} ${free ? 'free' : ''} ${jump ? 'jump' : ''}`} aria-label="歌词" tabIndex={0} onWheel={mine} onTouchMove={mine} onKeyDown={mine}>
         {lines.map((l, k) => {
-          const now0 = k === i && rest < 0, words = <span className="w">{live && k === i ? <Blast text={l.text} seed={k} kind={kind} sung={sung} /> : l.text}</span>;
+          const sung = k === i && rest < 0, words = <span className="w">{l.text}</span>;
           return (
-            <li key={k} className={now0 ? 'now' : k === rest ? 'next' : ''} aria-current={k === i || undefined} style={{ '--d': follow ? Math.min(5, Math.abs(k - Math.max(focus, 0))) : 0 } as React.CSSProperties}>
+            <li key={k} className={sung ? 'now' : k === rest ? 'next' : ''} aria-current={k === i || undefined} style={{ '--d': follow ? Math.min(5, Math.abs(k - Math.max(focus, 0))) : 0 } as React.CSSProperties}>
               {k === rest && <span className="rest" aria-hidden="true"><i /><i /><i /></span>}
               {jump ? <button type="button" onClick={() => go(l)} aria-label={`跳到 ${length(l.at) || '0:00'}：${l.text}`}>{words}</button> : words}
             </li>

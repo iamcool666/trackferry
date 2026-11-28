@@ -552,7 +552,8 @@ func (d *Dispatcher) OnCommand(ctx context.Context, c store.Command, hardware, m
 		stage(store.StageSkipped, "superseded while preparing")
 		return
 	}
-	req := Request{DeviceID: c.DeviceID, Hardware: hardware, Kind: "command", CommandID: c.ID, UpstreamMS: c.UpstreamMS, Track: t, Trace: tr, Answer: utf8.RuneCountInString(c.Answer)}
+	req := Request{DeviceID: c.DeviceID, Hardware: hardware, Kind: "command", CommandID: c.ID, UpstreamMS: c.UpstreamMS, Track: t, Trace: tr, Answer: utf8.RuneCountInString(c.Answer),
+		Song: &store.Song{TrackID: rt.TrackID, Title: rt.Title, Artist: rt.Artist, Album: rt.Album, Cover: rt.Cover, DurationMS: rt.DurationMS, List: rt.List, Online: onlineKey(rt)}}
 	if ids := rt.Queue(); len(ids) > 0 && d.Next != nil {
 		q := &queue{dev: c.DeviceID, hardware: hardware, list: rt.List, ids: ids, order: rt.Order()}
 		if at := slices.Index(q.order, rt.TrackID); at >= 0 && d.PlayMode(bg, c.DeviceID) == ModeLoop {

@@ -142,14 +142,6 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
   const [history, setHistory] = useState(false);
   const many = connected(devices).length > 1;
   const [big, setBig] = useState(false);
-  // Fireworks on the big lyrics, on unless the reader turned them off. Kept across visits.
-  const [blast, setBlast] = useState(() => {
-    try { return localStorage.getItem('tf.blast') !== 'off'; } catch { return true; }
-  });
-  const chooseBlast = (on: boolean) => {
-    setBlast(on);
-    try { localStorage.setItem('tf.blast', on ? 'on' : 'off'); } catch { /* this visit only */ }
-  };
   const [loading, setLoading] = useState(false);
   const loadingMore = useRef(false);
   const log = useRef<HTMLDivElement>(null);
@@ -427,11 +419,10 @@ export function Home({ devices, navigate, onRelink }: HomeProps) {
           {r && native && <p className="by">{r.reason || '由小爱处理'}</p>}
           {r?.track_id && !native ? <div className="acts"><Heart key={`h${r.track_id}/${kept?.key}`} trackID={r.track_id} title={t} /><AddTo trackID={r.track_id} title={t} /></div> : null}
           </div>
-          {words && <LyricSheet key={`l${scene?.key}`} words={words} now={now} big={wide} seek={now ? seek : undefined} blast={blast} />}
+          {words && <LyricSheet key={`l${scene?.key}`} words={words} now={now} big={wide} seek={now ? seek : undefined} />}
           {(now || words) && <div className="transport" key={`p${scene?.key}`}>
             {now ? <Progress now={now} total={total} seek={seek} aim={isHere ? h.seeking : far.aim} buffered={isHere ? h.buffered : undefined} estimated={!tv && !isHere} /> : <span />}
             {words && <button type="button" className="expand" aria-pressed={wide} aria-label={wide ? '收起歌词' : '放大歌词'} onClick={() => setBig(!big)}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d={wide ? 'M9 4v5H4M15 20v-5h5M4 4l5 5M20 20l-5-5' : 'M4 9V4h5M20 15v5h-5M4 4l6 6M20 20l-6-6'} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
-            {wide && <button type="button" className={`expand blast-key ${blast ? 'on' : ''}`} aria-pressed={blast} aria-label={blast ? '关掉歌词特效' : '打开歌词特效'} onClick={() => chooseBlast(!blast)}><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2.5l2 5.6 5.8-.9-3.5 4.7 3.5 4.7-5.8-.9-2 5.6-2-5.6-5.8.9 3.5-4.7-3.5-4.7 5.8.9z" fill={blast ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg></button>}
           </div>}
           {/* Stays while songs change: its list may be open. */}
           {tv ? <TVButtons key={tv.id} device={tv} items={tvItems} queueError={television?.error} onQueue={() => { if (!tvItems) setQueueRead((n) => n + 1); }} foot={chip} tail={tail} />
