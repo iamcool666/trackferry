@@ -33,6 +33,10 @@ func (r *Route) Queue() []int64 { return r.queue }
 // Order is the same list as it stands, not shuffled.
 func (r *Route) Order() []int64 { return r.order }
 
+// OnlineQueue is the online songs of a singer's list, the chosen one first: their keys
+// ride with the negative ids of Queue() and Order(), matched by position.
+func (r *Route) OnlineQueue() []online.Candidate { return r.onlineQueue }
+
 // playlist finds a playlist by what was said. The error is for people.
 func (r *Router) playlist(ctx context.Context, name string) (feiniu.Playlist, error) {
 	all, err := r.Lists.Playlists(ctx)

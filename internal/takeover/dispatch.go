@@ -559,6 +559,15 @@ func (d *Dispatcher) OnCommand(ctx context.Context, c store.Command, hardware, m
 		if at := slices.Index(q.order, rt.TrackID); at >= 0 && d.PlayMode(bg, c.DeviceID) == ModeLoop {
 			q.ids, q.pos = slices.Clone(q.order), at
 		}
+		// A singer's online list rides negative ids; the keys of its songs go with them, so
+		// each one is found anew when it is its turn (see outsider).
+		for i, cand := range rt.OnlineQueue() {
+			if q.outside == nil {
+				q.outside = map[int64]Item{}
+			}
+			id := -int64(i + 1)
+			q.outside[id] = Item{ID: id, Online: cand.Key, Title: cand.Title, Artist: cand.Artist}
+		}
 		req.Ended = d.follow(q)
 	} else {
 		req.Ended = d.After(c.DeviceID, hardware, rt.TrackID, rt, false)

@@ -1152,6 +1152,112 @@ func savedOf(c Candidate) Saved {
 	return Saved{Source: c.Source, ID: c.ID, Ref: c.ref, Title: c.Title, Artist: c.Artist, ListedMS: c.Duration.Milliseconds(), Album: c.Album, Cover: c.Cover, Lyric: c.lyric}
 }
 
+// Artister is a source that can list one singer's songs, for a singer the library cannot
+// fill (see FindArtist).
+type Artister interface {
+	ArtistSongs(ctx context.Context, artist string, limit int) ([]Candidate, error)
+}
+
+// FindArtist is the online fallback for a singer's list: a singer the library does not
+// have is asked for by name, the first song that really plays is probed and taken, and
+// every song is named among the offered so the queue can take the rest by key. A nil
+// found means nobody has this singer. Probing failures are not recorded: they are the
+// speaker's business, not the platform's (see Take).
+func (s *Service) FindArtist(ctx context.Context, artist string, limit int) (*Found, []Candidate, []Outcome) {
+	ctx, cancel := context.WithTimeout(ctx, totalBudget)
+	defer cancel()
+	outs := make([]Outcome, len(s.srcs))
+	lists := make([][]Candidate, len(s.srcs))
+	var wg sync.WaitGroup
+	for i, e := range s.srcs {
+		outs[i] = Outcome{Source: e.src.Name(), Candidates: []Candidate{}}
+		s.mu.Lock()
+		on, open := e.enabled, time.Now().Before(e.open)
+		s.mu.Unlock()
+		a, ok := e.src.(Artister)
+		if !ok {
+			outs[i].State, outs[i].Detail = StateSkipped, "这个源不会按歌手找"
+			continue
+		}
+		switch {
+		case !on:
+			outs[i].State = StateDisabled
+			continue
+		case open:
+			outs[i].State, outs[i].Detail = StateOpen, "连续失败，暂停询问一会儿"
+			continue
+		}
+		wg.Go(func() {
+			start := time.Now()
+			c, done := context.WithTimeout(ctx, searchTimeout)
+			defer done()
+			cands, err := a.ArtistSongs(c, artist, limit)
+			if ctx.Err() == nil {
+				s.record(e, time.Since(start), err)
+			}
+			outs[i].MS = time.Since(start).Milliseconds()
+			switch {
+			case err != nil:
+				outs[i].State, outs[i].Detail = StateError, describe(err)
+			case len(cands) == 0:
+				outs[i].State = StateMiss
+			default:
+				outs[i].State, lists[i] = StateHit, cands
+			}
+		})
+	}
+	wg.Wait()
+	cands := []Candidate{}
+	for _, l := range lists {
+		cands = append(cands, l...)
+	}
+	if len(cands) == 0 {
+		return nil, nil, outs
+	}
+	s.offMu.Lock()
+	if s.offered == nil {
+		s.offered = map[string]Candidate{}
+	}
+	for i := range cands {
+		c := &cands[i]
+		c.Key = c.Source + ":" + c.ID
+		if _, ok := s.offered[c.Key]; !ok {
+			s.order = append(s.order, c.Key)
+		}
+		s.offered[c.Key] = *c
+	}
+	for len(s.order) > maxOffered {
+		delete(s.offered, s.order[0])
+		s.order = s.order[1:]
+	}
+	if s.Remember != nil {
+		keep := make(map[string]Saved, len(cands))
+		for _, c := range cands {
+			keep[c.Key] = savedOf(c)
+		}
+		go s.Remember(keep)
+	}
+	s.offMu.Unlock()
+	// The first song that really plays starts the list; a few tries bound what one bad
+	// singer costs in quota.
+	for i, c := range cands {
+		if i == maxPerSource {
+			break
+		}
+		for _, e := range s.srcs {
+			if e.src.Name() != c.Source {
+				continue
+			}
+			st, err := s.resolveOne(ctx, e.src, c)
+			if err != nil {
+				break
+			}
+			return &Found{Candidate: c, Stream: st, Unprobed: unprobed(e.src)}, cands[i+1:], outs
+		}
+	}
+	return nil, nil, outs
+}
+
 // candidate is a song a search showed: among the last shown, or remembered.
 func (s *Service) candidate(key string) (Candidate, bool) {
 	s.offMu.Lock()

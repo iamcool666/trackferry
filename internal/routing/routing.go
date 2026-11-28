@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,6 +74,9 @@ type Route struct {
 	asked string
 	queue []int64
 	order []int64
+	// onlineQueue is the online songs of a singer's list, the chosen one first; the ids of
+	// queue/order ride negative alongside it, and the dispatcher matches them by position.
+	onlineQueue []online.Candidate
 }
 
 // Match is the local file chosen, if any.
@@ -242,6 +246,9 @@ func (r *Router) Decide(ctx context.Context, in intent.Intent, query string) *Ro
 			}
 		}
 		r.pick(rt, in)
+		if in.Kind == intent.KindArtist && rt.Decision != Local && r.Online != nil {
+			r.artistOnline(ctx, rt, in)
+		}
 		tr.Layer("library", rt.Layers[0])
 		return rt
 	case intent.KindList:
@@ -654,6 +661,34 @@ func (r *Router) pick(rt *Route, in intent.Intent) {
 	rt.Layers = append(rt.Layers, l)
 }
 
+// artistLimit bounds a singer's online list: the queue plays them one after another.
+const artistLimit = 10
+
+// artistOnline is the online fallback for a singer the library cannot fill: the songs of
+// one singer are asked for, the first that really plays is taken, and all of them wait in
+// the queue under negative ids that the dispatcher matches with their keys. When nothing
+// plays, the reason pick gave stands. A singer the library has whose files cannot be read
+// right now lands here too: an online song beats a silent speaker.
+func (r *Router) artistOnline(ctx context.Context, rt *Route, in intent.Intent) {
+	found, rest, outs := r.Online.FindArtist(ctx, in.Artist, artistLimit)
+	for _, o := range outs {
+		rt.Layers = append(rt.Layers, layer(o))
+	}
+	if found == nil {
+		return
+	}
+	rt.takeOnline(found)
+	rt.asked = askedKey(intent.Intent{Title: found.Candidate.Title, Artist: found.Candidate.Artist}, found.Candidate.Title)
+	rt.List = in.Artist + "的歌"
+	rt.onlineQueue = append([]online.Candidate{found.Candidate}, rest...)
+	rt.queue, rt.order = make([]int64, len(rt.onlineQueue)), make([]int64, len(rt.onlineQueue))
+	for i := range rt.onlineQueue {
+		rt.queue[i], rt.order[i] = -int64(i+1), -int64(i+1)
+	}
+	rt.Reason = ""
+	rt.Because("选它", "曲库里没有%s，从线上挑了《%s》", in.Artist, found.Candidate.Title)
+}
+
 func show(ms []library.Match) []Candidate {
 	out := []Candidate{}
 	for _, m := range ms[:min(6, len(ms))] {
@@ -684,6 +719,22 @@ func (r *Route) Label() string {
 // ForTest is an online route for other packages' tests.
 func ForTest(title, artist string) *Route {
 	return &Route{Decision: Online, Source: "kuwo", Title: title, Artist: artist, Layers: []Layer{}, found: &online.Found{}}
+}
+
+// ForArtistTest is a singer's online list for tests: the taken song first, the rest of the
+// queue online, keyed the way FindArtist names them.
+func ForArtistTest(artist string, titles ...string) *Route {
+	rt := &Route{Decision: Online, Source: "lx", List: artist + "的歌", Layers: []Layer{}}
+	for i, title := range titles {
+		key := "lx:kw_" + strconv.Itoa(i+1)
+		rt.onlineQueue = append(rt.onlineQueue, online.Candidate{Source: "lx", ID: "kw_" + strconv.Itoa(i+1), Key: key, Title: title, Artist: artist})
+		rt.queue = append(rt.queue, -int64(i+1))
+		rt.order = append(rt.order, -int64(i+1))
+	}
+	rt.Title, rt.Artist = titles[0], artist
+	rt.found = &online.Found{Candidate: rt.onlineQueue[0]}
+	rt.Online = rt.onlineQueue[0].Key
+	return rt
 }
 
 // onlineCover is the picture id of an online song: only a source with its own ids has one.

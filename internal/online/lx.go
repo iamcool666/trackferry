@@ -260,10 +260,10 @@ func (l *Lx) ArtistSongs(ctx context.Context, artist string, limit int) ([]Candi
 		d := time.Duration(s.Duration) * time.Second
 		seen[names.Norm(s.Title)] = true
 		// Every song here comes from the server's own resolvers, which is a way of playing what
-		// the platform does not hand out freely. Member keeps it out of the cache: the file is
-		// played and forgotten rather than kept on disk (see cache.keep).
+		// the platform does not hand out freely. These are songs a listener asked for by name,
+		// so they may be kept on disk like any other (see cache.keep).
 		out = append(out, Candidate{Source: "lx", ID: s.ID, Title: s.Title, Artist: s.Artist,
-			Duration: d, DurationMS: d.Milliseconds(), Member: true, Note: lxNote(s.ID, s.Suffix)})
+			Duration: d, DurationMS: d.Milliseconds(), Note: lxNote(s.ID, s.Suffix)})
 	}
 	return out[:min(limit, len(out))], nil
 }
