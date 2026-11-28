@@ -1,11 +1,11 @@
 package routing
 
 import (
-	"slices"
 	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"time"
 
