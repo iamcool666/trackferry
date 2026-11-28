@@ -1,48 +1,160 @@
 name: build
 
-# Build this repository's customized TrackFerry image and publish it to GHCR.
-# The NAS compose file pulls ghcr.io/iamcool666/trackferry:latest.
-# Manual rebuild trigger: 2026-11-27.
-#
-# main mirrors upstream and is not built; feature branches contain this fork's changes.
-
-# Manual rebuild only. Normal code pushes are handled by release.yml,
-# which publishes the signed Release first and then builds the image.
+# Manual formal release: increment the highest existing numeric git tag,
+# publish a signed stable Release, then update :latest.
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: trackferry-formal
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/trackferry-plus
+          fetch-depth: 0
+      - name: Calculate next formal version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/feature/trackferry-plus" ]]; then
+            echo "请在 feature/trackferry-plus 分支手动运行正式构建。"
+            exit 1
+          fi
+          git fetch --force --tags
+          latest="$(git tag --list 'v[0-9]*' | sed 's/^v//' | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+$' | sort -V | tail -n 1)"
+          if [[ -z "$latest" ]]; then
+            latest="$(cat VERSION)"
+          fi
+          IFS=. read -r major minor patch <<< "$latest"
+          version="$major.$minor.$((10#$patch + 1))"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "Next formal release: v$version"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          mkdir -p ../internal/webui
+          npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test Go packages
+        run: go test ./...
+      - name: Build Linux server binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build \
+            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA" \
+            -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
+      - name: Sign update binary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        shell: bash
+        run: |
+          test -n "$UPDATE_SIGNING_KEY" || { echo "Missing UPDATE_SIGNING_KEY secret"; exit 1; }
+          printf '%s\\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
+          chmod 600 "$RUNNER_TEMP/update-signing.key"
+          asset="dist/trackferry-$VERSION-linux-$ARCH"
+          digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
+          printf 'trackferry\\n%s\\nlinux/%s\\n%s\\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
+          openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
+            -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
+          base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
+          echo >> "$asset.sig"
+          rm -f "$RUNNER_TEMP/update-signing.key" "$RUNNER_TEMP/message" "$RUNNER_TEMP/signature"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 2
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: signed-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Publish stable Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: |
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --target "$COMMIT" --title "TrackFerry $VERSION" --generate-notes
+
   image:
+    needs: [prepare, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
       - uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Tags and labels
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_name == 'feature/trackferry-plus' }}
-            type=ref,event=tag
+            type=raw,value=latest
+            type=raw,value=${{ needs.prepare.outputs.version }}
             type=sha,format=short
-
-      - name: Build and push
+      - name: Build and push stable image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -52,7 +164,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=
-            COMMIT=${{ github.sha }}
+            VERSION=${{ needs.prepare.outputs.version }}
+            COMMIT=${{ needs.prepare.outputs.commit }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
