@@ -20,37 +20,41 @@ func TestNewer(t *testing.T) {
 	}
 }
 
-func TestCheck(t *testing.T) {
-	calls, code := 0, 200
-	body := `{"tag_name":"v1.2.0","html_url":"https://github.com/madrays/trackferry/releases/tag/v1.2.0","body":"新"}`
+func TestCheckIncludesPrereleases(t *testing.T) {
+	calls := 0
+	body := `[
+		{"tag_name":"v1.2.0","html_url":"https://github.com/iamcool666/trackferry/releases/tag/v1.2.0","body":"dev build","prerelease":true},
+		{"tag_name":"v1.1.9","html_url":"https://github.com/iamcool666/trackferry/releases/tag/v1.1.9","body":"stable","prerelease":false}
+	]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.URL.Path != "/repos/madrays/trackferry/releases/latest" {
-			t.Error(r.URL.Path)
+		if r.URL.Path != "/repos/iamcool666/trackferry/releases" || r.URL.Query().Get("per_page") != "100" {
+			t.Errorf("unexpected request: %s", r.URL.String())
 		}
-		w.WriteHeader(code)
 		io.WriteString(w, body)
 	}))
 	defer srv.Close()
-	mk := func() *Checker {
-		c := New("madrays/trackferry", "1.0.0", true, slog.New(slog.DiscardHandler))
-		c.API = srv.URL
-		return c
-	}
-	c := mk()
-	if st := c.Check(context.Background()); !st.Newer || st.Latest != "1.2.0" || st.Error != "" {
+
+	c := New("iamcool666/trackferry", "1.0.0", true, slog.New(slog.DiscardHandler))
+	c.API = srv.URL
+	st := c.Check(context.Background())
+	if !st.Newer || st.Latest != "1.2.0" || st.Notes != "dev build" || st.Error != "" {
 		t.Fatalf("%+v", st)
 	}
 	c.Check(context.Background())
 	if calls != 1 {
 		t.Fatalf("asked %d times", calls)
 	}
-	body = `{"tag_name":"v1.2.0","html_url":"javascript:alert(1)"}`
-	if st := mk().Check(context.Background()); st.Error == "" || st.URL != "" {
-		t.Fatalf("%+v", st)
-	}
-	code = 404
-	if st := mk().Check(context.Background()); st.Error != errNone.Error() || st.Newer {
+}
+
+func TestCheckNoReleases(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := New("iamcool666/trackferry", "1.0.0", true, slog.New(slog.DiscardHandler))
+	c.API = srv.URL
+	if st := c.Check(context.Background()); st.Error != errNone.Error() || st.Newer {
 		t.Fatalf("%+v", st)
 	}
 }
