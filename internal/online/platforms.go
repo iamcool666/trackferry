@@ -137,7 +137,7 @@ func (k *Kuwo) Resolve(ctx context.Context, c Candidate) (string, error) {
 	if base == "" {
 		base = "https://mobi.kuwo.cn/mobi.s"
 	}
-	v := url.Values{"f": {"web"}, "source": {"kwplayer_ar_9.2.2.1"}, "type": {"convert_url_with_sign"}, "rid": {c.ID}, "br": {map[Quality]string{Standard: "128kmp3", High: "320kmp3"}[QualityOf(ctx)]}}
+	v := url.Values{"f": {"web"}, "source": {"kwplayer_ar_9.2.2.1"}, "type": {"convert_url_with_sign"}, "rid": {c.ID}, "br": {map[Quality]string{HiRes: "2000kflac", MP3320: "320kmp3", MP3192: "192kmp3", MP3128: "128kmp3"}[QualityOf(ctx)]}}
 	var r struct {
 		Code int `json:"code"`
 		Data struct {
@@ -242,7 +242,7 @@ func (m *Migu) Resolve(ctx context.Context, c Candidate) (string, error) {
 	if base == "" {
 		base = "https://app.c.nf.migu.cn/MIGUM3.0/strategy/pc/listen/v1.0"
 	}
-	v := url.Values{"scene": {""}, "netType": {"01"}, "resourceType": {"2"}, "copyrightId": {c.ref}, "contentId": {c.ID}, "toneFlag": {map[Quality]string{Standard: "PQ", High: "HQ"}[QualityOf(ctx)]}}
+	v := url.Values{"scene": {""}, "netType": {"01"}, "resourceType": {"2"}, "copyrightId": {c.ref}, "contentId": {c.ID}, "toneFlag": {map[Quality]string{HiRes: "ZQ", MP3320: "HQ", MP3192: "HQ", MP3128: "PQ"}[QualityOf(ctx)]}}
 	var r struct {
 		Data struct {
 			URL        string `json:"url"`
