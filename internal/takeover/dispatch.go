@@ -63,6 +63,8 @@ type Dispatcher struct {
 	SilentWhenMissing bool
 	Allowed func(deviceID string) bool // the speaker is released for takeover
 	Log     *slog.Logger
+	// RouteLog writes playback route diagnostics to a dedicated file.
+	RouteLog *slog.Logger
 	Live    *live.Hub // optional
 	// Name of a speaker, for the web UI; optional.
 	Name func(deviceID string) string
@@ -206,6 +208,9 @@ func (d *Dispatcher) TrackOf(dev string, rt *routing.Route, tr *live.Trace) (Tra
 	}
 	switch {
 	case rt.Match() != nil:
+		if d.RouteLog != nil {
+			d.RouteLog.Info("播放路由来源", "来源", "曲库命中", "歌曲", rt.Label(), "歌手", rt.Artist, "曲库ID", rt.TrackID, "路由来源", rt.Source, "路由决策", rt.Decision)
+		}
 		if d.MP3 != nil && d.MP3(dev) {
 			ctx, cancel := context.WithTimeout(context.Background(), mp3Wait)
 			start := time.Now()
@@ -235,6 +240,9 @@ func (d *Dispatcher) TrackOf(dev string, rt *routing.Route, tr *live.Trace) (Tra
 			}
 		}
 	case rt.Found() != nil:
+		if d.RouteLog != nil {
+			d.RouteLog.Info("播放路由来源", "来源", "在线音源命中", "歌曲", rt.Label(), "歌手", rt.Artist, "路由来源", rt.Source, "路由决策", rt.Decision)
+		}
 		// Unprobed audio is announced by whatever its bytes turn out to be.
 		ctype := "audio/mpeg"
 		if rt.Found().Unprobed {
