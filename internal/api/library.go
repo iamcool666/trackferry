@@ -137,7 +137,7 @@ func (s *Server) qualityUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		writeError(w, http.StatusBadRequest, "bad_quality", "音质只能是 standard 或 high")
+		writeError(w, http.StatusBadRequest, "bad_quality", "音质只能是 hires、mp3320、mp3192 或 mp3128")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"quality": s.Router.Quality()})
