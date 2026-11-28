@@ -1023,6 +1023,8 @@ type Item struct {
 	Online string `json:"online,omitempty"`
 	Title string `json:"title,omitempty"`
 	Artist string `json:"artist,omitempty"`
+	Cover string `json:"cover,omitempty"`
+	DurationMS int64 `json:"duration_ms,omitempty"`
 }
 
 // onlineKey is the key of an online song that is not in the library, or "".
