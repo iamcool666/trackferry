@@ -196,12 +196,20 @@ func (c *Checker) latest(ctx context.Context) (*release, error) {
 			continue
 		}
 		if c.Channel == "dev" {
-			// Dev binaries only follow the single rolling prerelease at tag "dev".
-			const prefix = "TrackFerry Dev "
-			if !r.Prerelease || r.Tag != "dev" || !strings.HasPrefix(r.Name, prefix) {
+			// Dev binaries follow the single rolling prerelease at tag "dev".
+			// Keep the release title stable; read the build version from its notes.
+			if !r.Prerelease || r.Tag != "dev" || r.Name != "TrackFerry Dev" {
 				continue
 			}
-			r.Version = strings.TrimSpace(strings.TrimPrefix(r.Name, prefix))
+			parts := strings.SplitN(r.Body, "Version:", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			fields := strings.Fields(parts[1])
+			if len(fields) == 0 {
+				continue
+			}
+			r.Version = strings.TrimRight(fields[0], ".,;")
 			if _, ok := parse(r.Version); !ok {
 				continue
 			}
