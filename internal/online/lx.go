@@ -268,6 +268,56 @@ func (l *Lx) ArtistSongs(ctx context.Context, artist string, limit int) ([]Candi
 	return out[:min(limit, len(out))], nil
 }
 
+
+// Playlist reads an LXServer Subsonic playlist. TrackFerry prefixes these IDs with
+// "online:playlist:" so they cannot be confused with 飞牛音乐's native playlist GUIDs.
+type Playlist struct {
+	Name  string
+	Songs []Candidate
+}
+
+func (l *Lx) Playlist(ctx context.Context, id string) (Playlist, error) {
+	if !strings.HasPrefix(id, "public:lx:") {
+		return Playlist{}, errors.New("不支持的洛雪在线歌单 ID")
+	}
+	var r struct {
+		Status string `json:"status"`
+		Error struct { Message string `json:"message"` } `json:"error"`
+		Playlist struct {
+			ID string `json:"id"`
+			Name string `json:"name"`
+			SongCount int `json:"songCount"`
+			Entry []struct {
+				ID string `json:"id"`
+				Title string `json:"title"`
+				Artist string `json:"artist"`
+				Album string `json:"album"`
+				Duration int `json:"duration"`
+				Cover string `json:"coverArt"`
+				Suffix string `json:"suffix"`
+			} `json:"entry"`
+		} `json:"playlist"`
+	}
+	if err := l.get(ctx, "getPlaylist", url.Values{"id": {id}}, &r); err != nil {
+		return Playlist{}, err
+	}
+	if r.Status != "ok" {
+		if r.Error.Message != "" { return Playlist{}, lxError(r.Error.Message) }
+		return Playlist{}, errors.New("洛雪没有返回这个歌单")
+	}
+	if r.Playlist.ID == "" || r.Playlist.Name == "" {
+		return Playlist{}, errors.New("洛雪返回的歌单信息不完整")
+	}
+	out := Playlist{Name: r.Playlist.Name, Songs: []Candidate{}}
+	for _, s := range r.Playlist.Entry {
+		if s.ID == "" || lxPlatformOf(s.ID) == "" { continue }
+		d := time.Duration(s.Duration) * time.Second
+		out.Songs = append(out.Songs, Candidate{Source: "lx", ID: s.ID, Title: s.Title, Artist: s.Artist,
+			Album: s.Album, Duration: d, DurationMS: d.Milliseconds(), Cover: s.Cover, Note: lxNote(s.ID, s.Suffix)})
+	}
+	return out, nil
+}
+
 // Resolve implements Source. The address points back at the server, which talks to its own
 // sources when the speaker fetches it.
 func (l *Lx) Resolve(ctx context.Context, c Candidate) (string, error) {
