@@ -16,7 +16,7 @@ func TestProxy(t *testing.T) {
 	asked := ""
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		asked = r.URL.Host
-		io.WriteString(w, `[{"tag_name":"v1.2.0","html_url":"https://github.com/x","body":"update","prerelease":true}]`)
+		io.WriteString(w, `[{"tag_name":"v1.2.0","html_url":"https://github.com/x","body":"update","prerelease":false}]`)
 	}))
 	defer proxy.Close()
 	// The environment's proxy is not ours.
