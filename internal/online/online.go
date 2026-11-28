@@ -757,7 +757,8 @@ func (s *Service) tryAt(ctx context.Context, src Source, c Candidate, q Quality)
 func qualitySatisfied(q Quality, st Stream) bool {
 	switch q {
 	case HiRes:
-		return st.Type == "flac" && st.Bits >= 24
+		// Prefer 24-bit FLAC, but any playable FLAC is still better than MP3.
+		return st.Type == "flac"
 	case MP3320:
 		return st.Type == "mp3" && st.Kbps >= 310
 	case MP3192:
@@ -821,7 +822,8 @@ func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream,
 		}
 		switch rate.quality {
 		case HiRes:
-			playable = playable && format == "flac" && bits >= 24
+			// A 16-bit FLAC is the next-best fallback; never skip it for MP3.
+			playable = playable && format == "flac"
 		case MP3320:
 			playable = playable && format == "mp3" && kbps >= 310
 		case MP3192:
