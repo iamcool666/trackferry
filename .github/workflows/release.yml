@@ -5,10 +5,6 @@ on:
   push:
     branches:
       - feature/trackferry-plus
-    paths-ignore:
-      - '.github/workflows/**'
-      - '**/*.md'
-      - 'docs/**'
 
 permissions:
   contents: write
