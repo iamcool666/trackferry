@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -333,7 +334,36 @@ func serve() error {
 		if ext == "alac" {
 			ext = "m4a"
 		}
-		return func(ctx context.Context, rng string) (*http.Response, error) { return fn.Open(ctx, t.GUID, rng) }, "." + ext
+		return func(ctx context.Context, rng string) (*http.Response, error) {
+			resp, err := fn.Open(ctx, t.GUID, rng)
+			if err != nil {
+				log.Warn("飞牛曲库　取流请求失败", "歌曲", t.Title, "曲库格式", t.Format, "推流扩展名", "."+ext, "范围", rng, "原因", err)
+				return nil, err
+			}
+			if resp == nil {
+				log.Warn("飞牛曲库　取流没有响应", "歌曲", t.Title, "曲库格式", t.Format, "推流扩展名", "."+ext, "范围", rng)
+				return nil, errors.New("飞牛音乐没有返回音频响应")
+			}
+			if rng == "" || strings.HasPrefix(rng, "bytes=0-") {
+				reader := bufio.NewReaderSize(resp.Body, 32)
+				head, _ := reader.Peek(16)
+				log.Info("飞牛曲库　取流格式诊断",
+					"歌曲", t.Title,
+					"曲库格式", t.Format,
+					"推流扩展名", "."+ext,
+					"飞牛HTTP状态", resp.StatusCode,
+					"飞牛Content-Type", resp.Header.Get("Content-Type"),
+					"飞牛Content-Length", resp.Header.Get("Content-Length"),
+					"飞牛Content-Range", resp.Header.Get("Content-Range"),
+					"音频头Hex", fmt.Sprintf("% x", head),
+					"音频头长度", len(head))
+				resp.Body = struct {
+					io.Reader
+					io.Closer
+				}{Reader: reader, Closer: resp.Body}
+			}
+			return resp, nil
+		}, "." + ext
 	}
 	go fn.Run(ctx)
 	go lib.Run(ctx)
