@@ -439,7 +439,7 @@ func (d *Dispatcher) RemoveCurrent(ctx context.Context, dev string) error {
 		d.mu.Unlock()
 		return ErrNoQueue
 	}
-	p, listed := Pick{Slot: Slot{q.pos, q.ids[q.pos]}}, !q.aside && !q.solo
+	p, listed := Pick{Slot: Slot{At: q.pos, ID: q.ids[q.pos]}}, !q.aside && !q.solo
 	alone := listed && len(q.ids) == 1
 	d.mu.Unlock()
 	if alone {
