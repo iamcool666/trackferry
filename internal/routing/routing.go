@@ -697,7 +697,6 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 				l.Detail = fmt.Sprintf("%s的 %d 首本地歌曲，连着放", in.Artist, len(artistIDs))
 				rt.Basis[len(rt.Basis)-1].Text = l.Detail
 			}
-
 		}
 		break
 	}
@@ -748,7 +747,10 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 					Cover: onlineCover(found.Candidate.ID), DurationMS: found.Candidate.DurationMS}
 				foundAt := -1
 				for i := range rt.onlineQueue {
-					if rt.onlineQueue[i].Online == key { foundAt = i; break }
+					if rt.onlineQueue[i].Online == key {
+						foundAt = i
+						break
+					}
 				}
 				if foundAt >= 0 {
 					ordered := make([]QueueSong, 0, len(rt.onlineQueue))
