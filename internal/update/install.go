@@ -186,7 +186,7 @@ func Launch(data, version, channel string, serving bool, run func(path string, e
 		return ""
 	}
 	note = giveUp(data, r, err.Error())
-	return join(note, Launch(data, version, serving, run))
+	return join(note, Launch(data, version, channel, serving, run))
 }
 
 func join(a, b string) string {
