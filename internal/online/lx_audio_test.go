@@ -15,10 +15,14 @@ import (
 
 // flacHead is the start of a real FLAC file: the marker and a STREAMINFO block header.
 func flacHead(seconds int) []byte {
+	return flacHeadBits(seconds, 24)
+}
+
+func flacHeadBits(seconds, bits int) []byte {
 	b := []byte("fLaC\x00\x00\x00\x22")
 	b = append(b, make([]byte, 34)...)
-	// 44.1 kHz, stereo, 24-bit samples, and a non-zero sample count.
-	streamInfo := uint64(44100)<<44 | uint64(1)<<41 | uint64(23)<<36 | uint64(seconds*44100)
+	// 44.1 kHz, stereo, selected bit depth, and a non-zero sample count.
+	streamInfo := uint64(44100)<<44 | uint64(1)<<41 | uint64(bits-1)<<36 | uint64(seconds*44100)
 	binary.BigEndian.PutUint64(b[18:26], streamInfo)
 	return b
 }
@@ -107,6 +111,20 @@ func TestLxStreamThatPlaysIsTakenAsItIs(t *testing.T) {
 	}
 	if f.Stream.Type != "flac" {
 		t.Fatalf("stream taken as %q, want FLAC", f.Stream.Type)
+	}
+}
+
+// A normal 16-bit FLAC is accepted before any MP3 fallback is attempted.
+func TestLxAcceptsRegularFlacBeforeMP3(t *testing.T) {
+	srv, asked := lxServer(t, map[string][]byte{"*": flacHeadBits(285, 16)})
+	defer srv.Close()
+	svc := lxService(srv)
+	f, _ := svc.Find(context.Background(), []Reading{{Title: "雨中的恋人", Artist: "曼丽"}}, "雨中的恋人 曼丽")
+	if f == nil || f.Stream.Type != "flac" {
+		t.Fatalf("expected ordinary FLAC, got %+v", f)
+	}
+	if len(*asked) != 1 || (*asked)[0] != "flac:0" {
+		t.Fatalf("asked %v, should not fall back to MP3", *asked)
 	}
 }
 
