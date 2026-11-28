@@ -2,6 +2,7 @@ package online
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -14,10 +15,11 @@ import (
 
 // flacHead is the start of a real FLAC file: the marker and a STREAMINFO block header.
 func flacHead(seconds int) []byte {
-	b := []byte("fLaC\x00\x00\x00\x22\x10\x00\x10\x00\x00\x00\x10\x00")
-	for range 34 {
-		b = append(b, 0)
-	}
+	b := []byte("fLaC\x00\x00\x00\x22")
+	b = append(b, make([]byte, 34)...)
+	// 44.1 kHz, stereo, 24-bit samples, and a non-zero sample count.
+	streamInfo := uint64(44100)<<44 | uint64(1)<<41 | uint64(23)<<36 | uint64(seconds*44100)
+	binary.BigEndian.PutUint64(b[18:26], streamInfo)
 	return b
 }
 
@@ -83,7 +85,7 @@ func TestLxStreamFallsToARateThatPlays(t *testing.T) {
 	if f == nil {
 		t.Fatalf("nothing found: %+v", outs)
 	}
-	if f.Stream.Type != string(MP3320) {
+	if f.Stream.Type != "mp3" {
 		t.Fatalf("stream taken at %q, want the first rate that plays", f.Stream.Type)
 	}
 	if want := []string{"flac:0", "mp3:320"}; strings.Join(*asked, ",") != strings.Join(want, ",") {
