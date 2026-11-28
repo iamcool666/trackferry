@@ -38,7 +38,7 @@ func TestCheck(t *testing.T) {
 		return c
 	}
 	c := mk()
-	if st := c.Check(context.Background()); !st.Newer || st.Latest != "1.2.0" || st.Error != "" {
+	if st := c.Check(context.Background()); !st.Newer || st.Latest != "1.2.0" || st.URL != "https://github.com/madrays/trackferry/releases/tag/v1.2.0" || st.Error != "" {
 		t.Fatalf("%+v", st)
 	}
 	c.Check(context.Background())
