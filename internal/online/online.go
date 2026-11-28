@@ -59,6 +59,7 @@ type Stream struct {
 	Type       string
 	Kbps       int // read from the audio itself, not what the platform claims
 	SampleRate int
+	Bits       int
 }
 
 // Source is one platform.
@@ -631,7 +632,18 @@ func (s *Service) fault(err *error) {
 func (s *Service) resolveOne(ctx context.Context, src Source, c Candidate) (st Stream, err error) {
 	defer func() {
 		if err == nil {
-			s.noteTech(c.Source+":"+c.ID, Tech{Format: "mp3", Kbps: st.Kbps, SampleRate: st.SampleRate, Bits: 16})
+			format := strings.ToLower(st.Type)
+			switch {
+			case format == string(HiRes) || strings.Contains(format, "flac"):
+				format = "flac"
+			case strings.HasPrefix(format, "mp3") || strings.Contains(format, "mpeg"):
+				format = "mp3"
+			case strings.Contains(format, "ogg"):
+				format = "ogg"
+			case strings.Contains(format, "mp4") || strings.Contains(format, "m4a"):
+				format = "m4a"
+			}
+			s.noteTech(c.Source+":"+c.ID, Tech{Format: format, Kbps: st.Kbps, SampleRate: st.SampleRate, Bits: st.Bits})
 		}
 	}()
 	st, err = s.tryOne(ctx, src, c)
@@ -780,13 +792,23 @@ func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream,
 		if ctx.Err() != nil {
 			return Stream{}, ctx.Err()
 		}
-		plays, err := s.plays(ctx, client, u)
+		format, kbps, sampleRate, bits, playable, err := s.plays(ctx, client, u)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		if plays {
-			return Stream{URL: u, Duration: c.Duration, Type: string(rate.quality)}, nil
+		switch rate.quality {
+		case HiRes:
+			playable = playable && format == "flac"
+		case MP3320:
+			playable = playable && format == "mp3" && kbps >= 310
+		case MP3192:
+			playable = playable && format == "mp3" && kbps >= 182
+		case MP3128:
+			playable = playable && format == "mp3" && kbps >= 120
+		}
+		if playable {
+			return Stream{URL: u, Duration: c.Duration, Type: format, Kbps: kbps, SampleRate: sampleRate, Bits: bits}, nil
 		}
 		lastErr = ErrNoAudio
 	}
@@ -800,24 +822,37 @@ func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream,
 // are read: a recognised container marker is what tells a song from the encrypted file a
 // platform sometimes answers with, which has no marker at all. A length is not insisted on —
 // the listing's own is what the run goes by, as for any unread stream.
-func (s *Service) plays(ctx context.Context, client *http.Client, u string) (bool, error) {
+func (s *Service) plays(ctx context.Context, client *http.Client, u string) (format string, kbps, sampleRate, bits int, ok bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return false, err
+		return "", 0, 0, 0, false, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, err
+		return "", 0, 0, 0, false, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return false, httpError(resp.StatusCode)
+		return "", 0, 0, 0, false, httpError(resp.StatusCode)
 	}
 	head, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	return audioHead(head), nil
+	if !audioHead(head) {
+		return "", 0, 0, 0, false, nil
+	}
+	if n := audio.ID3Size(head); n > 0 && int(n) < len(head) {
+		head = head[n:]
+	}
+	if len(head) >= 4 && string(head[:4]) == "fLaC" {
+		meta, _ := audio.ReadMeta(bytes.NewReader(head), ".flac", int64(len(head)))
+		return "flac", 0, meta.SampleRate, meta.Bits, true, nil
+	}
+	if info := audio.MP3Info(head, int64(len(head))); info.Kbps > 0 {
+		return "mp3", info.Kbps, info.SampleRate, info.Bits, true, nil
+	}
+	return "", 0, 0, 0, false, nil
 }
 
 // check probes an address: it must answer with audio about as long as the song.
@@ -842,10 +877,18 @@ func (s *Service) check(ctx context.Context, c *http.Client, u string, want time
 	}
 	info := audio.MP3Info(body, total-off)
 	d := info.Duration
+	format, bits, sampleRate := "mp3", info.Bits, info.SampleRate
 	if d == 0 {
-		// Not MP3 frames: a FLAC header says its own length, and a stream that is neither
-		// still fails the trial check below.
+		// FLAC carries its own duration and bit depth in STREAMINFO.
 		d = audio.Duration(body, total-off)
+		if len(body) >= 4 && string(body[:4]) == "fLaC" {
+			format = "flac"
+			if meta, e := audio.ReadMeta(bytes.NewReader(body), ".flac", int64(len(body))); e == nil {
+				bits, sampleRate = meta.Bits, meta.SampleRate
+			}
+		} else {
+			format = strings.TrimPrefix(ctype, "audio/")
+		}
 	}
 	if d == 0 {
 		return Stream{}, fmt.Errorf("%w（不是 MP3，类型 %.24q，%d 字节）", ErrNoAudio, ctype, total)
@@ -853,7 +896,7 @@ func (s *Service) check(ctx context.Context, c *http.Client, u string, want time
 	if d < shortestSong && (want == 0 || want >= shortestSong) || want > 0 && float64(d) < minFullShare*float64(want) {
 		return Stream{}, ErrTrial
 	}
-	return Stream{URL: u, Duration: d, Type: ctype, Kbps: info.Kbps, SampleRate: info.SampleRate}, nil
+	return Stream{URL: u, Duration: d, Type: format, Kbps: info.Kbps, SampleRate: sampleRate, Bits: bits}, nil
 }
 
 func (s *Service) fetch(ctx context.Context, c *http.Client, u string, from int64) (b []byte, total int64, ctype string, err error) {
