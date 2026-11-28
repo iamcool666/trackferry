@@ -60,13 +60,14 @@ func TestLxClientReachesAPrivateAddress(t *testing.T) {
 
 func TestLxReadsPublicOnlinePlaylist(t *testing.T) {
 	const playlistID = "public:lx:tx:playlist:7769010449"
+	const subsonicID = "pl_tx_7769010449"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/rest/getPlaylist" || r.URL.Query().Get("id") != playlistID {
+		if r.URL.Path != "/rest/getPlaylist" || r.URL.Query().Get("id") != subsonicID {
 			t.Errorf("unexpected playlist request: %s?%s", r.URL.Path, r.URL.RawQuery)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
 			"status": "ok",
-			"playlist": map[string]any{"id": playlistID, "name": "[QQ] 英文经典", "songCount": 1,
+			"playlist": map[string]any{"id": subsonicID, "name": "[QQ] 英文经典", "songCount": 1,
 				"entry": []map[string]any{{"id": "tx_123", "title": "Hello", "artist": "Adele", "duration": 295, "suffix": "mp3"}}},
 		}})
 	}))
