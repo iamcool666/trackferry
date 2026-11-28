@@ -56,7 +56,7 @@ func TestCheck(t *testing.T) {
 }
 
 func TestDevChannelOnlyFollowsRollingDevRelease(t *testing.T) {
-	body := `[{"tag_name":"v1.12.8","name":"TrackFerry 1.12.8","html_url":"https://github.com/madrays/trackferry/releases/tag/v1.12.8","prerelease":false},{"tag_name":"dev","name":"TrackFerry Dev","html_url":"https://github.com/madrays/trackferry/releases/tag/dev","body":"开发版。Version: 0.0.43.","prerelease":true}]`
+	body := `[{"tag_name":"v1.12.8","name":"TrackFerry 1.12.8","html_url":"https://github.com/madrays/trackferry/releases/tag/v1.12.8","prerelease":false},{"tag_name":"dev","name":"TrackFerry Dev 0.0.43","html_url":"https://github.com/madrays/trackferry/releases/tag/dev","body":"Development build 0.0.43.","prerelease":true}]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, body) }))
 	defer srv.Close()
 	c := New("madrays/trackferry", "0.0.42", true, slog.New(slog.DiscardHandler))
