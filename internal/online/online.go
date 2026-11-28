@@ -572,13 +572,27 @@ func (s *Service) address(ctx context.Context, src Source, c Candidate) (u strin
 	return src.Resolve(ctx, c)
 }
 
-// Quality is how good the online audio asked for is. Both are MP3: every speaker plays it.
+// Quality is the preferred online audio tier. The selected tier is tried first,
+// then every lower tier in order until a playable stream is found.
 type Quality string
 
 const (
-	Standard Quality = "standard" // about 128 kbps
-	High     Quality = "high"     // 320 kbps where the platform has it
+	HiRes  Quality = "hires"  // FLAC, no bitrate cap (target: 24-bit Hi-Res)
+	MP3320 Quality = "mp3320"
+	MP3192 Quality = "mp3192"
+	MP3128 Quality = "mp3128"
 )
+
+var qualityOrder = []Quality{HiRes, MP3320, MP3192, MP3128}
+
+// qualityFalls returns the selected tier and every lower tier.
+func qualityFalls(q Quality) []Quality {
+	start := 0
+	for i, v := range qualityOrder {
+		if v == q { start = i; break }
+	}
+	return append([]Quality(nil), qualityOrder[start:]...)
+}
 
 type qualityKey struct{}
 
@@ -587,20 +601,20 @@ func QualityOf(ctx context.Context) Quality {
 	if q, ok := ctx.Value(qualityKey{}).(Quality); ok {
 		return q
 	}
-	return High
+	return HiRes
 }
 
-// Quality is the quality asked for first; a song that does not have it comes in the standard one.
+// Quality is the quality asked for first; unavailable tiers fall through one level at a time.
 func (s *Service) Quality() Quality {
 	if q, ok := s.quality.Load().(Quality); ok {
 		return q
 	}
-	return High
+	return HiRes
 }
 
 // SetQuality changes it; false for a value that is not one.
 func (s *Service) SetQuality(q Quality) bool {
-	if q != Standard && q != High {
+	if !slices.Contains(qualityOrder, q) {
 		return false
 	}
 	s.quality.Store(q)
@@ -685,19 +699,21 @@ func unprobed(src Source) bool {
 // tryOne takes a candidate's address from its source and, unless the source vouches for its
 // own bytes, probes it.
 func (s *Service) tryOne(ctx context.Context, src Source, c Candidate) (Stream, error) {
-	st, err := s.tryAt(ctx, src, c, s.Quality())
-	var he httpError
-	// A source that walks its own rates (洛雪) has already been down the whole ladder once:
-	// asking it again at the standard rate would repeat the very same calls.
-	if err == nil || s.Quality() == Standard || ctx.Err() != nil || errors.Is(err, ErrTrial) || unprobed(src) ||
-		!errors.Is(err, ErrNoAudio) && !errors.Is(err, ErrRestricted) && !errors.As(err, &he) {
-		return st, err
+	var last Stream
+	var lastErr error
+	for _, q := range qualityFalls(s.Quality()) {
+		st, err := s.tryAt(ctx, src, c, q)
+		if err == nil {
+			return st, nil
+		}
+		last, lastErr = st, err
+		var he httpError
+		if ctx.Err() != nil || errors.Is(err, ErrTrial) ||
+			!errors.Is(err, ErrNoAudio) && !errors.Is(err, ErrRestricted) && !errors.As(err, &he) {
+			return last, lastErr
+		}
 	}
-	// The better one is not there for everybody: the standard one is.
-	if again, aerr := s.tryAt(ctx, src, c, Standard); aerr == nil {
-		return again, nil
-	}
-	return st, err
+	return last, lastErr
 }
 
 func (s *Service) tryAt(ctx context.Context, src Source, c Candidate, q Quality) (Stream, error) {
@@ -719,24 +735,32 @@ func (s *Service) tryAt(ctx context.Context, src Source, c Candidate, q Quality)
 	return s.check(ctx, s.fetcher(src), u, c.Duration)
 }
 
-// lxFalls is the order 洛雪's streams are tried in when one turns out to hold no audio: its own
-// best form first, then the rates below it. Which one breaks a song is the platform's business
-// and differs from song to song, so each is asked until one plays. The standard quality starts
-// at the small rate: that is what was asked for, and every call saved is quota kept.
-var lxFalls = []string{"", "320", "128"}
-
-// lxRates are the rates one check may ask, by the quality the listener chose.
-func lxRates(q Quality) []string {
-	if q == Standard {
-		return []string{"128"}
-	}
-	return lxFalls
+// lxRate is one Subsonic stream request in the quality ladder.
+type lxRate struct {
+	quality Quality
+	bitrate string
 }
 
-// lxCheck proves a 洛雪 stream holds audio before the speaker is sent to it, falling through
-// lxFalls until one does. The platforms hand out their own encodings, and some songs at some
-// rates are no audio at all — an encrypted .mflac, or a cut file — which the speaker would
-// otherwise take and play as silence.
+// lxRates returns every requested quality from the selected tier down to MP3 128.
+func lxRates(q Quality) []lxRate {
+	var out []lxRate
+	for _, tier := range qualityFalls(q) {
+		switch tier {
+		case HiRes:
+			out = append(out, lxRate{quality: tier, bitrate: "0"})
+		case MP3320:
+			out = append(out, lxRate{quality: tier, bitrate: "320"})
+		case MP3192:
+			out = append(out, lxRate{quality: tier, bitrate: "192"})
+		case MP3128:
+			out = append(out, lxRate{quality: tier, bitrate: "128"})
+		}
+	}
+	return out
+}
+
+// lxCheck proves a 洛雪 stream holds audio before the speaker is sent to it. If the
+// requested tier is unavailable or returns a non-audio response, it tries the next lower tier.
 func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream, error) {
 	at, ok := src.(interface {
 		ResolveAt(context.Context, Candidate, string) (string, error)
@@ -747,7 +771,8 @@ func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream,
 	client := s.fetcher(src)
 	var lastErr error
 	for _, rate := range lxRates(QualityOf(ctx)) {
-		u, err := at.ResolveAt(ctx, c, rate)
+		rctx := context.WithValue(ctx, qualityKey{}, rate.quality)
+		u, err := at.ResolveAt(rctx, c, rate.bitrate)
 		if err != nil {
 			lastErr = err
 			continue
@@ -755,14 +780,13 @@ func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream,
 		if ctx.Err() != nil {
 			return Stream{}, ctx.Err()
 		}
-		ok, err := s.plays(ctx, client, u)
+		plays, err := s.plays(ctx, client, u)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		if ok {
-			// The rate that worked, so a later address asks for it again.
-			return Stream{URL: u, Duration: c.Duration, Type: rate}, nil
+		if plays {
+			return Stream{URL: u, Duration: c.Duration, Type: string(rate.quality)}, nil
 		}
 		lastErr = ErrNoAudio
 	}
