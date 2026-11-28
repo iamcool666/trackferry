@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -191,3 +192,58 @@ func TestArtistRoutingKeepsLocalFirstAndAddsLXQueue(t *testing.T) {
 	}
 }
 
+func TestArtistQueueCountsOnlyPlayableLocalSongs(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	for i := 0; i < 20; i++ {
+		name := fmt.Sprintf("周杰伦 - 本地歌曲%02d", i)
+		if err := os.WriteFile(filepath.Join(dir, name+".mp3"), []byte("no tags in this little file"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	log := slog.New(slog.DiscardHandler)
+	lib := library.New(dir, st, log)
+	if err := lib.Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/search3" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
+			"status": "ok",
+			"searchResult3": map[string]any{"song": []map[string]any{
+				{"id": "kw_20", "title": "在线补充曲", "artist": "周杰伦", "duration": 240, "suffix": "flac"},
+			}},
+		}})
+	}))
+	defer srv.Close()
+
+	lx := &online.Lx{BaseURL: srv.URL + "/rest", User: "u", Password: "p", Client: srv.Client()}
+	r := &Router{
+		Library: lib,
+		Online:  online.New(log, online.Client(), lx),
+		Log:     log,
+		Openable: func(path string) bool {
+			return filepath.Base(path) != "周杰伦 - 本地歌曲00.mp3"
+		},
+	}
+	rt := r.Decide(ctx, intent.Parse("播放周杰伦的歌"), "播放周杰伦的歌")
+	if rt.Decision != Local || len(rt.Queue()) != 19 {
+		t.Fatalf("playable local queue should contain 19 tracks: decision=%s queue=%d", rt.Decision, len(rt.Queue()))
+	}
+	onlineQueue := rt.OnlineQueue()
+	if len(onlineQueue) != 1 || onlineQueue[0].Title != "在线补充曲" {
+		t.Fatalf("LX should fill the one missing playable slot: %+v", onlineQueue)
+	}
+	if !strings.Contains(rt.Layers[0].Detail, "19 首本地歌曲 + 1 首 LX 在线歌曲") {
+		t.Fatalf("queue detail should report playable local and LX counts: %+v", rt.Layers[0])
+	}
+}
