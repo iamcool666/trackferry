@@ -56,7 +56,7 @@ var (
 	commit  = "unknown"
 	// This fork's own releases, not upstream's: its versions are behind ours from 1.6.1 on, so
 	// asking it would always answer that there is nothing new.
-	repo = "workroom2008/trackferry" // where releases are published
+	repo = "iamcool666/trackferry" // this fork publishes its own releases
 )
 
 func main() {
