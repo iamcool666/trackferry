@@ -48,15 +48,23 @@ jobs:
         run: |
           old_sha=$(git rev-parse "origin/${TARGET_BRANCH}")
           echo "old_sha=$old_sha" >> "$GITHUB_OUTPUT"
-          if git diff --quiet "origin/${TARGET_BRANCH}" "upstream/${UPSTREAM_BRANCH}" -- . \
+          # Compare upstream history since the last common commit, not the fork's
+          # intentional local differences. This avoids rebuilding every day.
+          base_sha="$(git merge-base "origin/${TARGET_BRANCH}" "upstream/${UPSTREAM_BRANCH}" || true)"
+          if [[ -n "$base_sha" ]] && git diff --quiet "$base_sha" "upstream/${UPSTREAM_BRANCH}" -- . ':(exclude).github/workflows/**'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No new upstream application commits."
+          elif [[ -z "$base_sha" ]] && git diff --quiet "origin/${TARGET_BRANCH}" "upstream/${UPSTREAM_BRANCH}" -- . \
             ':(exclude).github/workflows/**' \
             ':(exclude)internal/update/update.go' \
-            ':(exclude)internal/update/update_test.go'; then
+            ':(exclude)internal/update/update_test.go' \
+            ':(exclude)cmd/trackferry/main.go' \
+            ':(exclude)internal/update/install.go'; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No upstream application changes."
+            echo "No upstream application changes (no common history; fork files excluded)."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Upstream application changes detected."
+            echo "New upstream application commits detected."
           fi
       - name: Replace repository code with upstream
         if: steps.changes.outputs.changed == 'true'
