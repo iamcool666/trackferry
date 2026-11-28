@@ -95,10 +95,10 @@ export function Sources({ onLight }: { onLight: (l: Light) => void }) {
       </ul>
       {quality && (
         <div className="kept">
-          <div><b>在线音质</b><small>优先按所选音质获取；当前音质拿不到或返回不可播放音频时，自动逐级降低，直到 MP3 128。Hi-Res 请求 FLAC（无损、无码率上限）；各平台实际能提供的规格不同，播放页显示实际检测到的格式和码率。曲库里的歌始终是原文件</small></div>
+          <div><b>在线音质</b><small>优先获取 FLAC 24bit；没有 24bit 时接受普通 FLAC，再依次尝试 MP3 320、192、128。选择 MP3 档位时则从所选码率逐级降低。实际格式和码率以播放页检测结果为准。曲库里的歌始终是原文件</small></div>
           <Pick label="在线音质" value={quality} onPick={pickQuality}
             choices={[
-              { value: 'hires', label: 'Hi-Res（FLAC 24bit）' },
+              { value: 'hires', label: 'Hi-Res（优先 FLAC 24bit，其次普通 FLAC）' },
               { value: 'mp3320', label: 'MP3 320' },
               { value: 'mp3192', label: 'MP3 192' },
               { value: 'mp3128', label: 'MP3 128' },
