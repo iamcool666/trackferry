@@ -128,6 +128,10 @@ func (c *Checker) remember(rel *release, err error) {
 	switch {
 	case err != nil:
 		c.st.Error = err.Error()
+		if errors.Is(err, errNone) {
+			c.st.Newer = false
+			c.st.Latest, c.st.URL, c.st.Notes, c.st.Published = "", "", "", ""
+		}
 	case rel != nil:
 		c.st.Latest, c.st.URL, c.st.Notes, c.st.Published = strings.TrimPrefix(rel.Tag, "v"), rel.URL, rel.Body, rel.Published
 		c.st.Newer = Newer(c.st.Latest, c.st.Current)
@@ -141,9 +145,9 @@ type release struct {
 	Published string `json:"published_at"`
 }
 
-// latest returns nil when nothing changed since the last answer.
+// latest returns the highest semantic version, including GitHub prereleases.
 func (c *Checker) latest(ctx context.Context) (*release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.API+"/repos/"+c.Repo+"/releases/latest", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.API+"/repos/"+c.Repo+"/releases?per_page=100", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -168,18 +172,28 @@ func (c *Checker) latest(ctx context.Context) (*release, error) {
 	default:
 		return nil, fmt.Errorf("GitHub 返回 %d", res.StatusCode)
 	}
-	var r release
-	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&r); err != nil {
+	var releases []release
+	if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&releases); err != nil {
 		return nil, errors.New("GitHub 的回答看不懂")
 	}
-	if _, ok := parse(r.Tag); !ok || !strings.HasPrefix(r.URL, "https://github.com/") {
-		return nil, errors.New("GitHub 的回答看不懂")
+	var latest *release
+	for i := range releases {
+		r := &releases[i]
+		if _, ok := parse(r.Tag); !ok || !strings.HasPrefix(r.URL, "https://github.com/") {
+			continue
+		}
+		if latest == nil || Newer(strings.TrimPrefix(r.Tag, "v"), strings.TrimPrefix(latest.Tag, "v")) {
+			latest = r
+		}
 	}
-	if n := []rune(r.Body); len(n) > 4000 {
-		r.Body = string(n[:4000])
+	if latest == nil {
+		return nil, errNone
+	}
+	if n := []rune(latest.Body); len(n) > 4000 {
+		latest.Body = string(n[:4000])
 	}
 	c.etag = res.Header.Get("ETag")
-	return &r, nil
+	return latest, nil
 }
 
 // Newer reports whether release a comes after b. A build without a version is never told to update.
