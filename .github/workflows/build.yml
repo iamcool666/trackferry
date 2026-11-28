@@ -2,14 +2,14 @@ name: build
 
 # Builds the image from this repository and publishes it to GitHub's own registry.
 # The NAS pulls ghcr.io/workroom2008/trackferry:latest, so a push here is a release.
+# A release builds once: a v* tag produces both its own tag and latest. Branch pushes
+# don't build — that made two runs of the same commit every release, for nothing.
 #
 # main is a mirror of upstream and is never built: what this repository adds lives on the
 # feature branches, and those are what a tag points at.
 
 on:
   push:
-    branches:
-      - 'feature/**'
     tags: ['v*']
   workflow_dispatch:
 
@@ -40,7 +40,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_name == 'feature/trackferry-plus' }}
+            type=raw,value=latest
             type=ref,event=tag
             type=sha,format=short
 
