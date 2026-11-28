@@ -22,10 +22,10 @@ func TestNewer(t *testing.T) {
 
 func TestCheck(t *testing.T) {
 	calls, code := 0, 200
-	body := `{"tag_name":"v1.2.0","html_url":"https://github.com/madrays/trackferry/releases/tag/v1.2.0","body":"新"}`
+	body := `[{"tag_name":"v1.2.0","html_url":"https://github.com/madrays/trackferry/releases/tag/v1.2.0","body":"新","prerelease":true}]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		if r.URL.Path != "/repos/madrays/trackferry/releases/latest" {
+		if r.URL.Path != "/repos/madrays/trackferry/releases" {
 			t.Error(r.URL.Path)
 		}
 		w.WriteHeader(code)
@@ -45,7 +45,7 @@ func TestCheck(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("asked %d times", calls)
 	}
-	body = `{"tag_name":"v1.2.0","html_url":"javascript:alert(1)"}`
+	body = `[{"tag_name":"v1.2.0","html_url":"javascript:alert(1)"}]`
 	if st := mk().Check(context.Background()); st.Error == "" || st.URL != "" {
 		t.Fatalf("%+v", st)
 	}
