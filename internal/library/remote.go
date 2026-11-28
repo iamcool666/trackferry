@@ -42,6 +42,17 @@ func (l *Library) sync(ctx context.Context, id int64, rep *Report, known map[str
 			got++
 			l.seen++
 			t, ok := remoteRow(s)
+			if pathFormat := strings.TrimPrefix(strings.ToLower(path.Ext(s.Audio.Path)), "."); pathFormat != "" && pathFormat != t.Format && ok && l.log != nil {
+				l.log.Warn("飞牛曲库　音频格式字段不一致",
+					"歌曲", s.Title,
+					"Path扩展名", pathFormat,
+					"Format", s.Audio.Format,
+					"Container", s.Audio.Container,
+					"Codec", s.Audio.Codec,
+					"TrackFerry识别格式", t.Format,
+					"采样率", s.Audio.SampleRate,
+					"位深", s.Audio.Bits)
+			}
 			if !ok {
 				rep.Skipped++
 				continue
