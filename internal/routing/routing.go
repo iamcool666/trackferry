@@ -720,20 +720,23 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 					rt.List = in.Artist + "的歌"
 					rt.onlineQueue = r.artistQueue(candidates, nil, 60)
 					key := found.Candidate.Key
+					foundSong := QueueSong{Online: key, Title: found.Candidate.Title, Artist: found.Candidate.Artist,
+						Cover: onlineCover(found.Candidate.ID), DurationMS: found.Candidate.DurationMS}
+					foundAt := -1
 					for i := range rt.onlineQueue {
 						if rt.onlineQueue[i].Online == key {
-							selected := rt.onlineQueue[i]
-							ordered := make([]QueueSong, 0, len(rt.onlineQueue))
-							ordered = append(ordered, selected)
-							ordered = append(ordered, rt.onlineQueue[:i]...)
-							ordered = append(ordered, rt.onlineQueue[i+1:]...)
-							rt.onlineQueue = ordered
+							foundAt = i
 							break
 						}
 					}
-					if len(rt.onlineQueue) == 0 {
-						rt.onlineQueue = []QueueSong{{Online: key, Title: found.Candidate.Title, Artist: found.Candidate.Artist,
-							Cover: onlineCover(found.Candidate.ID), DurationMS: found.Candidate.DurationMS}}
+					if foundAt >= 0 {
+						ordered := make([]QueueSong, 0, len(rt.onlineQueue))
+						ordered = append(ordered, foundSong)
+						ordered = append(ordered, rt.onlineQueue[:foundAt]...)
+						ordered = append(ordered, rt.onlineQueue[foundAt+1:]...)
+						rt.onlineQueue = ordered
+					} else {
+						rt.onlineQueue = append([]QueueSong{foundSong}, rt.onlineQueue...)
 					}
 					l.Detail = fmt.Sprintf("本地没有歌曲，LX 找到 %d 首，建立在线连续播放队列", len(rt.onlineQueue))
 					rt.Because("选它", "本地没有，改从 LX 歌手歌曲中播放")
