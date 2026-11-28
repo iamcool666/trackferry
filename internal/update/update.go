@@ -142,8 +142,11 @@ type release struct {
 }
 
 // latest returns nil when nothing changed since the last answer.
+// latest includes GitHub prereleases as well as stable releases. Dev releases use
+// ordinary numeric tags (for example v1.12.2), so the installer can verify and
+// compare them with the same signed-binary format as stable releases.
 func (c *Checker) latest(ctx context.Context) (*release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.API+"/repos/"+c.Repo+"/releases/latest", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.API+"/repos/"+c.Repo+"/releases?per_page=100", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -168,18 +171,29 @@ func (c *Checker) latest(ctx context.Context) (*release, error) {
 	default:
 		return nil, fmt.Errorf("GitHub 返回 %d", res.StatusCode)
 	}
-	var r release
-	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&r); err != nil {
+	var releases []release
+	if err := json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&releases); err != nil {
 		return nil, errors.New("GitHub 的回答看不懂")
 	}
-	if _, ok := parse(r.Tag); !ok || !strings.HasPrefix(r.URL, "https://github.com/") {
-		return nil, errors.New("GitHub 的回答看不懂")
+	var newest *release
+	for i := range releases {
+		r := &releases[i]
+		if _, ok := parse(r.Tag); !ok || !strings.HasPrefix(r.URL, "https://github.com/") {
+			continue
+		}
+		if newest == nil || Newer(strings.TrimPrefix(r.Tag, "v"), strings.TrimPrefix(newest.Tag, "v")) {
+			copy := *r
+			newest = &copy
+		}
 	}
-	if n := []rune(r.Body); len(n) > 4000 {
-		r.Body = string(n[:4000])
+	if newest == nil {
+		return nil, errNone
+	}
+	if n := []rune(newest.Body); len(n) > 4000 {
+		newest.Body = string(n[:4000])
 	}
 	c.etag = res.Header.Get("ETag")
-	return &r, nil
+	return newest, nil
 }
 
 // Newer reports whether release a comes after b. A build without a version is never told to update.
