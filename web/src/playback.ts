@@ -1,14 +1,14 @@
-import { api, type Collection, type HereListed, type Single } from './api';
+import { api, type Collection, type HereListed, type OnlineSong, type Single } from './api';
 import { HERE } from './ear';
 import { commandTV, tvID } from './tv';
 import { setTook } from './took';
-import { cancelPendingList, listHere, playHere, playListHere, type HereSong } from './here';
+import { cancelPendingList, listHere, playHere, playListHere, playOnlineListHere, type HereSong } from './here';
 
 type Snapshot = { list: string; tracks: HereListed[] };
 export type ListPlayback =
   | { collection: Collection; start?: number; snapshot?: Snapshot }
   | { picks: Snapshot; start?: number };
-export type Playback = ListPlayback | { single: Single; song: Omit<HereSong, 'n'> };
+export type Playback = ListPlayback | { single: Single; song: Omit<HereSong, 'n'> } | { onlineList: { list: string; tracks: OnlineSong[] } };
 
 let sending: AbortController | undefined;
 
@@ -20,7 +20,8 @@ export async function playOn(output: string, what: Playback, how: 'now' | 'next'
   cancelPendingList();
   if (output === HERE) {
     if ('single' in what) return playHere(what.song, how) ? 'queued' : 'started';
-    if ('picks' in what) playListHere(what.picks.list, what.picks.tracks, what.start, true);
+    if ('onlineList' in what) playOnlineListHere(what.onlineList.list, what.onlineList.tracks);
+    else if ('picks' in what) playListHere(what.picks.list, what.picks.tracks, what.start, true);
     else if (what.snapshot) playListHere(what.snapshot.list, what.snapshot.tracks, what.start);
     else if (!await listHere(what.collection, what.start)) return;
     return 'started';
@@ -31,7 +32,9 @@ export async function playOn(output: string, what: Playback, how: 'now' | 'next'
   try {
     const tv = tvID(output);
     if (tv) {
-      if ('single' in what) {
+      if ('onlineList' in what) {
+        await commandTV(tv, { action: 'load', items: what.onlineList.tracks.map((song) => ({ online: song.key, title: song.title, artist: song.artist })) }, controller.signal);
+      } else if ('single' in what) {
         const item = what.single.source === 'track' ? { id: what.single.track_id } : { online: what.single.id, title: what.song.title, artist: what.song.artist };
         await commandTV(tv, { action: how === 'now' ? 'load' : 'insert', items: [item], queue_mode: how === 'now' ? undefined : how }, controller.signal);
       } else {
@@ -49,7 +52,8 @@ export async function playOn(output: string, what: Playback, how: 'now' | 'next'
       if (controller.signal.aborted) return;
       if (r.queued) return 'queued';
     } else {
-      const send = 'single' in what ? what.single
+      const send = 'onlineList' in what ? { source: 'online_playlist' as const, name: what.onlineList.list, online_tracks: what.onlineList.tracks.map((song) => ({ online: song.key, title: song.title, artist: song.artist })) }
+        : 'single' in what ? what.single
         : { ...('collection' in what ? what.collection : { source: 'picks' as const, track_ids: what.picks.tracks.map((t) => t.id) }), track_id: what.start };
       const r = await api.play(output, send, controller.signal);
       if (controller.signal.aborted) return;
