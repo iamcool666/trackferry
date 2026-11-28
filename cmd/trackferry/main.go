@@ -210,6 +210,17 @@ func serve() error {
 	if err := writable(cfg.DataDir); err != nil {
 		return err
 	}
+	// Keep route diagnostics separate from the normal container log for easy sharing.
+	routeLogPath := filepath.Join(cfg.DataDir, "playback-route.log")
+	routeLogFile, routeLogErr := os.OpenFile(routeLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	var routeLogger *slog.Logger
+	if routeLogErr != nil {
+		log.Warn("诊断日志　无法创建播放路由日志", "路径", routeLogPath, "原因", routeLogErr)
+	} else {
+		defer routeLogFile.Close()
+		routeLogger = slog.New(slog.NewTextHandler(routeLogFile, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		log.Info("诊断日志　播放路由日志已启用", "路径", routeLogPath)
+	}
 	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, "trackferry.db"))
 	if err != nil {
 		return err
@@ -428,7 +439,7 @@ func serve() error {
 		}
 		return d.Name
 	}
-	dispatcher := &takeover.Dispatcher{Live: hub, Name: speakerName, Engine: engine, Store: st, Router: router, Streams: streams, Log: log, SilentWhenMissing: true,
+	dispatcher := &takeover.Dispatcher{Live: hub, Name: speakerName, Engine: engine, Store: st, Router: router, Streams: streams, Log: log, RouteLog: routeLogger, SilentWhenMissing: true,
 		MP3: func(id string) bool {
 			if streams.MP3 == nil {
 				return false
