@@ -89,11 +89,11 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath \
             -ldflags "-s -w -X main.version=$VERSION -X main.channel=dev -X main.commit=$GITHUB_SHA" \
             -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
-          printf '%s\\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
           chmod 600 "$RUNNER_TEMP/update-signing.key"
           asset="dist/trackferry-$VERSION-linux-$ARCH"
           digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
-          printf 'trackferry\\n%s\\nlinux/%s\\n%s\\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
+          printf 'trackferry\n%s\nlinux/%s\n%s\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
           openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
             -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
           base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
