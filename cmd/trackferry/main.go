@@ -53,6 +53,7 @@ import (
 // Set at build time with -ldflags "-X main.version=... -X main.commit=...".
 var (
 	version = "dev"
+	channel = "stable"
 	commit  = "unknown"
 	// This fork's own releases, not upstream's: its versions are behind ours from 1.6.1 on, so
 	// asking it would always answer that there is nothing new.
@@ -463,6 +464,7 @@ func serve() error {
 	go obs.Run(ctx)
 
 	checker := update.New(repo, version, cfg.UpdateCheck, log)
+	checker.Channel = channel
 	if err := checker.LoadProxy(filepath.Join(private, "update_proxy")); err != nil {
 		log.Warn("更新　保存的代理地址不能用", "原因", "格式不对或读不出来")
 	}

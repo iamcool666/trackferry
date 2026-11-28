@@ -151,7 +151,11 @@ func (c *Checker) fetchTV(ctx context.Context, version, abi string) error {
 	if err := os.MkdirAll(t.dir, 0o700); err != nil {
 		return err
 	}
-	base, sig, err := c.findAsset(ctx, version, TVAssets(version, abi))
+	releaseTag := "v" + version
+	if c.Channel == "dev" {
+		releaseTag = "dev"
+	}
+	base, sig, err := c.findAsset(ctx, version, releaseTag, TVAssets(version, abi))
 	if err != nil {
 		return tvMissing(err)
 	}

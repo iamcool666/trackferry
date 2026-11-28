@@ -42,6 +42,7 @@ type Status struct {
 type Checker struct {
 	Repo    string // owner/name
 	API     string // https://api.github.com
+	Channel string // "stable" or "dev"; each binary only checks its own release channel
 	Enabled bool
 	Client  *http.Client
 	Log     *slog.Logger
@@ -51,8 +52,9 @@ type Checker struct {
 
 	mu     sync.Mutex
 	st     Status
-	etag   string
-	asking chan struct{}
+	etag       string
+	releaseTag string // tag used for the assets of the selected release
+	asking     chan struct{}
 
 	installing bool
 	tv         *tvApps // nil: no television app is handed out
@@ -131,16 +133,21 @@ func (c *Checker) remember(rel *release, err error) {
 		if errors.Is(err, errNone) {
 			c.st.Newer = false
 			c.st.Latest, c.st.URL, c.st.Notes, c.st.Published = "", "", "", ""
+			c.releaseTag = ""
 		}
 	case rel != nil:
-		c.st.Latest, c.st.URL, c.st.Notes, c.st.Published = strings.TrimPrefix(rel.Tag, "v"), rel.URL, rel.Body, rel.Published
+		c.st.Latest, c.st.URL, c.st.Notes, c.st.Published = rel.Version, rel.URL, rel.Body, rel.Published
+		c.releaseTag = rel.Tag
 		c.st.Newer = Newer(c.st.Latest, c.st.Current)
 	}
 }
 
 type release struct {
 	Tag       string `json:"tag_name"`
+	Name      string `json:"name"`
 	URL       string `json:"html_url"`
+	Prerelease bool `json:"prerelease"`
+	Version   string `json:"-"`
 	Body      string `json:"body"`
 	Published string `json:"published_at"`
 }
@@ -181,10 +188,31 @@ func (c *Checker) latest(ctx context.Context) (*release, error) {
 	var latest *release
 	for i := range releases {
 		r := &releases[i]
-		if _, ok := parse(r.Tag); !ok || !strings.HasPrefix(r.URL, "https://github.com/") {
+		if !strings.HasPrefix(r.URL, "https://github.com/") {
 			continue
 		}
-		if latest == nil || Newer(strings.TrimPrefix(r.Tag, "v"), strings.TrimPrefix(latest.Tag, "v")) {
+		if c.Channel == "dev" {
+			// Dev binaries only follow the single rolling prerelease at tag "dev".
+			const prefix = "TrackFerry Dev "
+			if !r.Prerelease || r.Tag != "dev" || !strings.HasPrefix(r.Name, prefix) {
+				continue
+			}
+			r.Version = strings.TrimSpace(strings.TrimPrefix(r.Name, prefix))
+			if _, ok := parse(r.Version); !ok {
+				continue
+			}
+			latest = r
+			break
+		}
+		// Stable binaries deliberately ignore every prerelease, including dev.
+		if r.Prerelease {
+			continue
+		}
+		r.Version = strings.TrimPrefix(r.Tag, "v")
+		if _, ok := parse(r.Version); !ok {
+			continue
+		}
+		if latest == nil || Newer(r.Version, latest.Version) {
 			latest = r
 		}
 	}

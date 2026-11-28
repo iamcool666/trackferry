@@ -80,7 +80,7 @@ jobs:
         run: |
           mkdir -p dist
           CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build \
-            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA" \
+            -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.channel=stable -X main.commit=$GITHUB_SHA" \
             -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
       - name: Sign update binary
         env:
@@ -165,6 +165,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ needs.prepare.outputs.version }}
+            CHANNEL=stable
             COMMIT=${{ needs.prepare.outputs.commit }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

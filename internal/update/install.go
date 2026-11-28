@@ -309,13 +309,14 @@ func (c *Checker) Install(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	v, ok := parse(c.st.Latest)
-	if c.Installer == nil || !ok || !c.st.Newer || c.installing {
+	releaseTag := c.releaseTag
+	if c.Installer == nil || !ok || !c.st.Newer || c.installing || releaseTag == "" {
 		return ErrNothing
 	}
 	c.installing = true
 	c.st.Install = &Progress{Phase: "download"}
 	go func() {
-		err := c.install(ctx, format(v))
+		err := c.install(ctx, format(v), releaseTag)
 		if err != nil {
 			c.Log.Warn("更新　没有安装", "版本", format(v), "原因", err)
 			c.progress(func(p *Progress) { p.Error = err.Error() })
@@ -340,7 +341,7 @@ func (c *Checker) progress(f func(*Progress)) {
 	c.st.Install = &p
 }
 
-func (c *Checker) install(ctx context.Context, version string) error {
+func (c *Checker) install(ctx context.Context, version, releaseTag string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 	in := c.Installer
@@ -348,7 +349,7 @@ func (c *Checker) install(ctx context.Context, version string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	base, sig, err := c.findAsset(ctx, version, ServerAssets(version, runtime.GOARCH))
+	base, sig, err := c.findAsset(ctx, version, releaseTag, ServerAssets(version, runtime.GOARCH))
 	if err != nil {
 		return err
 	}
@@ -425,9 +426,9 @@ func TVAssets(version, abi string) []string {
 }
 
 // findAsset fetches the signature of the first of names the release has; base is its download address.
-func (c *Checker) findAsset(ctx context.Context, version string, names []string) (base, sig string, err error) {
+func (c *Checker) findAsset(ctx context.Context, version, releaseTag string, names []string) (base, sig string, err error) {
 	for _, name := range names {
-		base = githubSite + "/" + c.Repo + "/releases/download/v" + version + "/" + name
+		base = githubSite + "/" + c.Repo + "/releases/download/" + releaseTag + "/" + name
 		var b bytes.Buffer
 		if err = c.fetch(ctx, base+".sig", &b, 1<<10, nil); err == nil {
 			return base, b.String(), nil

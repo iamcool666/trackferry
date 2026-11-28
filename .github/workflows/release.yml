@@ -1,21 +1,15 @@
 name: release
-
-# Every code push updates the single rolling dev Release and the :dev image.
 on:
   push:
     branches:
       - feature/trackferry-plus
-
 permissions:
   contents: write
-
 concurrency:
   group: trackferry-dev
   cancel-in-progress: false
-
 env:
   IMAGE: ghcr.io/${{ github.repository }}
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -37,7 +31,56 @@ jobs:
           cache: true
       - name: Test Go packages
         run: go test ./...
-
+  signed:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build frontend
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          mkdir -p ../internal/webui
+          npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and sign dev updater
+        env:
+          VERSION: 0.0.${{ github.run_number }}
+          ARCH: ${{ matrix.arch }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        shell: bash
+        run: |
+          test -n "$UPDATE_SIGNING_KEY" || { echo "Missing UPDATE_SIGNING_KEY secret"; exit 1; }
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath \
+            -ldflags "-s -w -X main.version=$VERSION -X main.channel=dev -X main.commit=$GITHUB_SHA" \
+            -o "dist/trackferry-$VERSION-linux-$ARCH" ./cmd/trackferry
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-signing.key"
+          chmod 600 "$RUNNER_TEMP/update-signing.key"
+          asset="dist/trackferry-$VERSION-linux-$ARCH"
+          digest="$(sha256sum "$asset" | cut -d ' ' -f1)"
+          printf 'trackferry\n%s\nlinux/%s\n%s\n' "$VERSION" "$ARCH" "$digest" > "$RUNNER_TEMP/message"
+          openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-signing.key" \
+            -in "$RUNNER_TEMP/message" -out "$RUNNER_TEMP/signature"
+          base64 -w 0 "$RUNNER_TEMP/signature" > "$asset.sig"
+          echo >> "$asset.sig"
+          rm -f "$RUNNER_TEMP/update-signing.key" "$RUNNER_TEMP/message" "$RUNNER_TEMP/signature"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-dev-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 2
   image:
     needs: test
     runs-on: ubuntu-latest
@@ -71,13 +114,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=dev
+            VERSION=0.0.${{ github.run_number }}
+            CHANNEL=dev
             COMMIT=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
   publish:
-    needs: image
+    needs: [signed, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -85,28 +128,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: signed-dev-linux-*
+          path: dist
+          merge-multiple: true
       - name: Keep only one rolling dev Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: 0.0.${{ github.run_number }}
         shell: bash
         run: |
-          # Remove old prerelease records but retain their numeric git tags.
-          # This preserves the next formal version number.
           while IFS= read -r old_tag; do
             [[ -z "$old_tag" ]] && continue
             gh release delete "$old_tag" --repo "$GITHUB_REPOSITORY" --yes
           done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease \
             --jq '.[] | select(.isPrerelease == true and .tagName != "dev") | .tagName')
-
-          # Move the fixed dev tag to this commit, then recreate its Release.
           if gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release delete dev --repo "$GITHUB_REPOSITORY" --yes
           fi
           git push origin --delete dev 2>/dev/null || true
           git tag -f dev "$GITHUB_SHA"
           git push origin refs/tags/dev
-          gh release create dev --repo "$GITHUB_REPOSITORY" \
+          gh release create dev dist/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "TrackFerry Dev" \
+            --title "TrackFerry Dev $VERSION" \
             --prerelease \
-            --notes "Rolling development build. Commit: $GITHUB_SHA. Docker image: ghcr.io/$GITHUB_REPOSITORY:dev"
+            --notes "Rolling signed development build. Version: $VERSION. Commit: $GITHUB_SHA. Docker image: ghcr.io/$GITHUB_REPOSITORY:dev"

@@ -26,10 +26,11 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
 ARG VERSION=
+ARG CHANNEL=stable
 ARG COMMIT=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go build -ldflags "-s -w -X main.version=${VERSION:-$(cat VERSION)} -X main.commit=${COMMIT}" \
+    go build -ldflags "-s -w -X main.version=${VERSION:-$(cat VERSION)} -X main.channel=${CHANNEL} -X main.commit=${COMMIT}" \
       -o /out/trackferry ./cmd/trackferry && mkdir -p /out/run
 RUN /out/trackferry version
 
