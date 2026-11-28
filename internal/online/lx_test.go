@@ -43,6 +43,42 @@ func TestLxSearchAsksPlatformsAtOnce(t *testing.T) {
 }
 
 // A server on this network is reached by its own client, which is allowed a private address.
+func TestFindArtistUsesLXAndResolvesPlayableSong(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/search3":
+			if got := r.URL.Query().Get("query"); got != "周杰伦" {
+				t.Errorf("artist query = %q", got)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{
+				"status": "ok",
+				"searchResult3": map[string]any{"song": []map[string]any{
+					{"id": "kw_123", "title": "晴天", "artist": "周杰伦", "duration": 269, "suffix": "flac"},
+				}},
+			}})
+		case "/rest/stream":
+			w.Header().Set("Content-Type", "audio/flac")
+			_, _ = w.Write([]byte("fLaC"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	lx := &Lx{BaseURL: srv.URL + "/rest", User: "u", Password: "p", Client: srv.Client()}
+	svc := New(nil, Client(), lx)
+	found, outcomes := svc.FindArtist(context.Background(), "周杰伦", 20)
+	if found == nil {
+		t.Fatalf("FindArtist returned no song: %+v", outcomes)
+	}
+	if found.Candidate.Title != "晴天" || found.Candidate.Key != "lx:kw_123" || !found.Candidate.Member {
+		t.Fatalf("found candidate = %+v", found.Candidate)
+	}
+	if len(outcomes) != 1 || outcomes[0].State != StateHit {
+		t.Fatalf("outcomes = %+v", outcomes)
+	}
+}
+
 func TestLxClientReachesAPrivateAddress(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"subsonic-response": map[string]any{"status": "ok"}})
