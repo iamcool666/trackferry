@@ -52,7 +52,9 @@ jobs:
         run: |
           git merge --ff-only "${{ steps.cmp.outputs.upstream }}"
           git push origin main
-          git push --tags origin
+          # Upstream's tags stay upstream: our own releases use the v* tags too, and a synced
+          # tag would both collide with ours and make the image build a release of upstream's
+          # code. Fetching tags locally is still fine; only pushing them here is not.
 
       - name: Say what changed
         if: steps.cmp.outputs.state == 'behind'
