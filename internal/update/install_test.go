@@ -67,7 +67,7 @@ func (w *world) install() string {
 	if err := c.Install(context.Background()); !errors.Is(err, ErrNothing) {
 		w.t.Fatal("installed without a newer version")
 	}
-	c.remember(&release{Tag: "v1.2.0", URL: "https://github.com/x"}, nil)
+	c.remember(&release{Tag: "v1.2.0", Version: "1.2.0", URL: "https://github.com/x"}, nil)
 	if err := c.Install(context.Background()); err != nil {
 		w.t.Fatal(err)
 	}
@@ -236,7 +236,10 @@ func TestInstallFindsTheNewName(t *testing.T) {
 
 func TestLaunchDoesNotCrossUpdateChannels(t *testing.T) {
 	w := newWorld(t)
-	w.install("0.0.2", true)
+	dir := Dir(w.data)
+	if err := os.MkdirAll(dir, 0o700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(dir, "trackferry-0.0.2"), []byte("dev binary"), 0o700); err != nil { t.Fatal(err) }
+	if err := (Record{Version: "0.0.2", Channel: "dev", Confirmed: true}).write(dir); err != nil { t.Fatal(err) }
 	started := ""
 	Launch(w.data, "1.12.8", "stable", true, func(p string, env []string) error { started = p; return nil })
 	if started != "" {
