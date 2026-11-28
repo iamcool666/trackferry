@@ -717,7 +717,10 @@ func (s *Service) tryOne(ctx context.Context, src Source, c Candidate) (Stream, 
 		if _, ok := src.(interface {
 			ResolveAt(context.Context, Candidate, string) (string, error)
 		}); ok {
-			return s.lxCheck(ctx, src, c)
+			// Carry the user's selected starting tier into LX's own fallback ladder.
+			// Without this, QualityOf(ctx) falls back to HiRes and ignores MP3 128/192.
+			lctx := context.WithValue(ctx, qualityKey{}, s.Quality())
+			return s.lxCheck(lctx, src, c)
 		}
 	}
 	var last Stream
