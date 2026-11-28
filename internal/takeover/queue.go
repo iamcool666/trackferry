@@ -300,7 +300,7 @@ func (d *Dispatcher) Listing(ctx context.Context, dev string) (Listing, bool) {
 	appendSlot := func(i int) {
 		slot := Slot{At: i, ID: q.ids[i]}
 		if item, ok := q.outside[slot.ID]; ok {
-			slot.Title, slot.Artist = item.Title, item.Artist
+			slot.Title, slot.Artist, slot.Cover, slot.DurationMS = item.Title, item.Artist, item.Cover, item.DurationMS
 		}
 		out.Songs = append(out.Songs, slot)
 	}
