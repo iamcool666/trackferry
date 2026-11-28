@@ -50,10 +50,9 @@ jobs:
           old_sha=$(git rev-parse "origin/${TARGET_BRANCH}")
           echo "old_sha=$old_sha" >> "$GITHUB_OUTPUT"
 
-          # Ignore our two repository-specific workflows when comparing trees.
+          # Workflow files are managed locally and are not part of the app-code comparison.
           if git diff --quiet "origin/${TARGET_BRANCH}" "upstream/${UPSTREAM_BRANCH}" -- . \
-            ':(exclude).github/workflows/build.yml' \
-            ':(exclude).github/workflows/sync-and-build.yml'; then
+            ':(exclude).github/workflows/**'; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No upstream application changes. Sync and image build are skipped."
           else
