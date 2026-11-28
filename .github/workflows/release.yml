@@ -47,7 +47,7 @@ jobs:
           cache: true
       - name: Test Go packages
         run: go test ./...
-    signed:
+  signed:
     needs: frontend
     runs-on: ubuntu-latest
     strategy:
@@ -131,7 +131,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
   publish:
-    needs: [signed, image]
+    needs: [test, signed, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
