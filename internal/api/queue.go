@@ -51,7 +51,7 @@ func (s *Server) queue(w http.ResponseWriter, r *http.Request) {
 	from = min(max(0, from), len(l.Songs))
 	to := min(from+queuePage, len(l.Songs))
 	for _, x := range l.Songs[from:to] {
-		out.Songs = append(out.Songs, s.named(queued{Pick: takeover.Pick{Slot: x}}))
+		out.Songs = append(out.Songs, s.named(queued{Pick: takeover.Pick{Slot: x}, Title: x.Title, Artist: x.Artist, Cover: x.Cover, DurationMS: x.DurationMS}))
 	}
 	for _, x := range l.Wishes {
 		out.Wishes = append(out.Wishes, s.named(queued{Pick: takeover.Pick{Wish: x.ID, Slot: takeover.Slot{ID: x.Track}}, Title: x.Title, Artist: x.Artist}))
