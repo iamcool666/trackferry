@@ -709,7 +709,12 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 					key := found.Candidate.Key
 					for i := range rt.onlineQueue {
 						if rt.onlineQueue[i].Online == key {
-							rt.onlineQueue = append([]QueueSong{rt.onlineQueue[i]}, append(rt.onlineQueue[:i], rt.onlineQueue[i+1:]...)...)
+							selected := rt.onlineQueue[i]
+							ordered := make([]QueueSong, 0, len(rt.onlineQueue))
+							ordered = append(ordered, selected)
+							ordered = append(ordered, rt.onlineQueue[:i]...)
+							ordered = append(ordered, rt.onlineQueue[i+1:]...)
+							rt.onlineQueue = ordered
 							break
 						}
 					}
