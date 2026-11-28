@@ -142,7 +142,7 @@ export interface Command {
 }
 
 /** Online audio: about 128 kbps, or 320 kbps where the platform has it. */
-export type Quality = 'standard' | 'high';
+export type Quality = 'hires' | 'mp3320' | 'mp3192' | 'mp3128';
 
 export type LayerName = 'library' | 'lx' | 'kuwo' | 'kugou' | 'migu' | 'netease' | 'xiaomi';
 export type LayerState = 'hit' | 'miss' | 'ambiguous' | 'restricted' | 'error' | 'timeout' | 'disabled' | 'open' | 'skipped' | 'asking';
