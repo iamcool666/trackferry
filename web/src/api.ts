@@ -511,7 +511,7 @@ export const api = {
   rename: (name: string) => request<{ name: string }>('PUT', '/api/me', { name }),
   favorites: (from = 0) => request<{ tracks: Track[] | null; total: number }>('GET', `/api/library/favorites?from=${from}`),
   playlists: () => request<{ playlists: Playlist[]; linked?: boolean }>('GET', '/api/library/playlists'),
-  playlist: (guid: string) => request<{ name: string; tracks: Track[]; total: number }>('GET', `/api/library/playlists/${encodeURIComponent(guid)}`),
+  playlist: (guid: string) => request<{ name: string; tracks: Track[]; total: number; online_songs?: OnlineSong[] }>('GET', `/api/library/playlists/${encodeURIComponent(guid)}`),
   searchOnline: (q: string) => request<{ songs: OnlineSong[]; sources: OnlineOutcome[] }>('GET', `/api/library/online?q=${encodeURIComponent(q)}`),
   setMode: (id: string, mode: Mode) => request<Device>('PATCH', `/api/devices/${encodeURIComponent(id)}`, { mode }),
 };
