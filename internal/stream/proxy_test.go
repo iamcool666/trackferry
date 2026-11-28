@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -61,5 +62,36 @@ func TestProxySourceFailureHidesAddress(t *testing.T) {
 	b, _ := io.ReadAll(w.Result().Body)
 	if w.Code != http.StatusBadGateway || strings.Contains(string(b), "secret") {
 		t.Fatalf("%d %s", w.Code, b)
+	}
+}
+
+func TestSnifferKeepsReadingAfterAudioHeader(t *testing.T) {
+	data := append([]byte("ID3"), []byte(strings.Repeat("a", 5000))...)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(data)
+	}))
+	defer up.Close()
+
+	open := func(ctx context.Context, _ string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, up.URL, nil)
+		if err != nil {
+			return nil, err
+		}
+		return up.Client().Do(req)
+	}
+	resp, err := sniffer(open)(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("sniffed stream was truncated: got %d bytes, want %d", len(got), len(data))
+	}
+	if got := resp.Header.Get("Content-Type"); got != "audio/mpeg" {
+		t.Fatalf("content type = %q, want audio/mpeg", got)
 	}
 }
