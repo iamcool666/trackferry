@@ -139,7 +139,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		items := make([]takeover.Item, 0, len(songs))
 		for _, song := range songs {
 			if song.Key == "" { continue }
-			items = append(items, takeover.Item{Online: song.Key, Title: song.Title, Artist: song.Artist})
+			items = append(items, takeover.Item{Online: song.Key, Title: song.Title, Artist: song.Artist, Cover: song.Cover, DurationMS: song.DurationMS})
 		}
 		if len(items) == 0 {
 			writeError(w, http.StatusNotFound, "empty", "这个在线歌单里没有可播放的歌曲")
