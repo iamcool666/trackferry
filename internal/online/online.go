@@ -1335,6 +1335,81 @@ func (s *Service) fetcher(src Source) *http.Client {
 }
 
 // Lx returns the self-hosted 洛雪 source, or nil when it is not set up.
+
+// FindArtist asks the LXServer source for songs by one singer and resolves the first playable
+// result. Artist results are member-aware and are deliberately not remembered as search offers.
+func (s *Service) FindArtist(ctx context.Context, artist string, limit int) (*Found, []Outcome) {
+	var e *entry
+	var lx *Lx
+	s.mu.Lock()
+	for _, candidate := range s.srcs {
+		if candidate.src.Name() == "lx" {
+			e = candidate
+			if v, ok := candidate.src.(*Lx); ok {
+				lx = v
+			}
+			break
+		}
+	}
+	enabled, open := false, false
+	if e != nil {
+		enabled, open = e.enabled, time.Now().Before(e.open)
+	}
+	s.mu.Unlock()
+
+	out := Outcome{Source: "lx", Candidates: []Candidate{}}
+	switch {
+	case e == nil || lx == nil || !enabled:
+		out.State, out.Detail = StateDisabled, "LX 音源未启用"
+		return nil, []Outcome{out}
+	case open:
+		out.State, out.Detail = StateOpen, "连续失败，暂停询问一会儿"
+		return nil, []Outcome{out}
+	}
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, totalBudget)
+	defer cancel()
+	searchCtx, stop := context.WithTimeout(ctx, searchTimeout)
+	candidates, err := lx.ArtistSongs(searchCtx, artist, limit)
+	stop()
+	if err != nil {
+		s.record(e, time.Since(start), err)
+		out.State, out.Detail = StateError, describe(err)
+		return nil, []Outcome{out}
+	}
+	out.Candidates = slices.Clone(candidates[:min(shownPerSource, len(candidates))])
+	if len(candidates) == 0 {
+		s.record(e, time.Since(start), nil)
+		out.State, out.Detail = StateMiss, "LX 没找到这位歌手的歌曲"
+		return nil, []Outcome{out}
+	}
+
+	var lastErr error
+	for _, c := range candidates[:min(maxPerSource, len(candidates))] {
+		if ctx.Err() != nil {
+			lastErr = ctx.Err()
+			break
+		}
+		c.Key = c.Source + ":" + c.ID
+		foundCtx, done := context.WithTimeout(ctx, totalBudget)
+		stream, resolveErr := s.resolveOne(foundCtx, lx, c)
+		done()
+		if resolveErr == nil {
+			s.record(e, time.Since(start), nil)
+			out.State, out.Detail = StateHit, "LX 找到歌手歌曲并取得可播放音频"
+			return &Found{Candidate: c, Stream: stream, Unprobed: unprobed(lx)}, []Outcome{out}
+		}
+		lastErr = resolveErr
+	}
+	s.record(e, time.Since(start), lastErr)
+	out.State, out.Detail = StateError, describe(lastErr)
+	if errors.Is(lastErr, ErrRestricted) || errors.Is(lastErr, ErrTrial) || errors.Is(lastErr, ErrNoAudio) {
+		out.State = StateRestricted
+	}
+	return nil, []Outcome{out}
+}
+
 func (s *Service) Lx() *Lx {
 	s.mu.Lock()
 	defer s.mu.Unlock()
