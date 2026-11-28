@@ -88,6 +88,17 @@ func (l *Library) sync(ctx context.Context, id int64, rep *Report, known map[str
 	if got < total {
 		return fmt.Errorf("飞牛音乐说有 %d 首，只读到 %d 首", total, got)
 	}
+	// LX playlists are separate from /track/list. Read them during the same sync,
+	// but keep their counts separate from the playable local-library index.
+	if l.OnlinePlaylistStats != nil {
+		playlists, tracks, statsErr := l.OnlinePlaylistStats(ctx)
+		l.mu.Lock()
+		rep.OnlinePlaylists, rep.OnlineTracks = playlists, tracks
+		if statsErr != nil {
+			rep.OnlineError = statsErr.Error()
+		}
+		l.mu.Unlock()
+	}
 	var n int64
 	var gone []int64
 	for p, t := range known {
