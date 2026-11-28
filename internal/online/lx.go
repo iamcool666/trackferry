@@ -38,12 +38,6 @@ func (*Lx) Name() string { return "lx" }
 // and redirects to a platform's own address when its cache is cold.
 func (l *Lx) HTTP() *http.Client { return l.Client }
 
-// lxFormat is asked of the server for every stream. It does not transcode: what comes back is
-// the platform's own file, and the platforms do not follow their own listings — a 酷我 song
-// listed as MP3 arrives as an encrypted .mflac, a 酷狗 one as an MP3 under another name. Only
-// what the speaker makes of it tells whether the song plays.
-const lxFormat = "mp3"
-
 // lxMaxBody bounds one answer: the server may send lyrics and covers along with songs.
 const lxMaxBody = 8 << 20
 
@@ -348,12 +342,14 @@ func (l *Lx) Resolve(ctx context.Context, c Candidate) (string, error) {
 	return l.ResolveAt(ctx, c, "")
 }
 
-// ResolveAt is Resolve for a given most bit rate; an empty one asks for the platform's own
-// quality, which is the best form of the song. That is the one to try first: the platforms
-// break different songs at different rates, so no single rate is always right (a 酷我 song may
-// be no audio as flac and fine at 320k, one on 网易云 the other way round).
+// ResolveAt requests one exact step in the selected quality ladder. FLAC is requested
+// without a bitrate cap; MP3 tiers request their explicit bitrate ceiling.
 func (l *Lx) ResolveAt(ctx context.Context, c Candidate, maxBitRate string) (string, error) {
-	v := l.auth(url.Values{"id": {c.ID}, "format": {lxFormat}})
+	format := "mp3"
+	if QualityOf(ctx) == HiRes {
+		format = "flac"
+	}
+	v := l.auth(url.Values{"id": {c.ID}, "format": {format}})
 	if maxBitRate != "" {
 		v.Set("maxBitRate", maxBitRate)
 	}
