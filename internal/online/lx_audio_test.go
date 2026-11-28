@@ -21,7 +21,7 @@ func flacHead(seconds int) []byte {
 	return b
 }
 
-// mp3Head is an ID3 tag followed by the first MPEG frame of a real 128 kbps file.
+// mp3Head is an ID3 tag followed by MPEG-1 Layer III 320 kbps frames.
 func mp3Head() []byte {
 	b := []byte("ID3\x03\x00\x00\x00\x00\x00\x35")
 	b = append(b, make([]byte, 0x35)...)
@@ -73,7 +73,7 @@ func lxService(srv *httptest.Server) *Service {
 // some rates; a smaller rate is what the platform serves a playable file for.
 func TestLxStreamFallsToARateThatPlays(t *testing.T) {
 	srv, asked := lxServer(t, map[string][]byte{
-		"":    {0x29, 0x17, 0x55, 0x67, 0x33, 0x46, 0x79, 0x6e}, // the encrypted container
+		"flac:0": {0x29, 0x17, 0x55, 0x67, 0x33, 0x46, 0x79, 0x6e}, // the encrypted container
 		"mp3:320": mp3Head(),
 		"mp3:128": mp3Head(),
 	})
@@ -103,8 +103,8 @@ func TestLxStreamThatPlaysIsTakenAsItIs(t *testing.T) {
 	if len(*asked) != 1 || (*asked)[0] != "flac:0" {
 		t.Fatalf("asked %v, want the best form only", *asked)
 	}
-	if f.Stream.Type != "" {
-		t.Fatalf("stream taken at %q, want its own quality", f.Stream.Type)
+	if f.Stream.Type != "flac" {
+		t.Fatalf("stream taken as %q, want FLAC", f.Stream.Type)
 	}
 }
 
@@ -122,9 +122,8 @@ func TestLxStreamThatNeverPlaysIsRefused(t *testing.T) {
 	}
 }
 
-// The standard quality asks the small rate only, once: the ladder below the best form is for
-// finding a rate that plays, not for asking twice.
-func TestLxStandardQualityAsksTheSmallRateOnly(t *testing.T) {
+// Selecting MP3 128 asks only that tier; no lower tier remains.
+func TestLxMP3128QualityAsksTheSmallRateOnly(t *testing.T) {
 	srv, asked := lxServer(t, map[string][]byte{"mp3:128": mp3Head()})
 	defer srv.Close()
 	svc := lxService(srv)
