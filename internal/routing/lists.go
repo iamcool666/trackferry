@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"slices"
 	"context"
 	"errors"
 	"fmt"
@@ -29,6 +30,9 @@ const listWait = 8 * time.Second
 
 // Queue is the songs to play one after another, the chosen one first.
 func (r *Route) Queue() []int64 { return r.queue }
+
+// OnlineQueue is the online part appended to a singer's local queue.
+func (r *Route) OnlineQueue() []QueueSong { return slices.Clone(r.onlineQueue) }
 
 // Order is the same list as it stands, not shuffled.
 func (r *Route) Order() []int64 { return r.order }
