@@ -80,6 +80,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Test Go packages
+        run: go test ./...
       - name: Build server binary
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
