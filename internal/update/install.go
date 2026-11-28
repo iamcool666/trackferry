@@ -29,7 +29,7 @@ var (
 	githubAPI  = "https://api.github.com"
 	githubSite = "https://github.com"
 	// publicKey verifies releases. The private half never leaves the maintainer's machine.
-	publicKey = "bP7NiKgkGYPrGf03hYHGEhM/nW1ZiXyfx6ewvLVXkLw="
+	publicKey = "3OboEDZ9oWm53Mb6GNkvz2l8UZRA8KTghLAlMjkMVVE="
 )
 
 const (
