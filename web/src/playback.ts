@@ -8,7 +8,7 @@ type Snapshot = { list: string; tracks: HereListed[] };
 export type ListPlayback =
   | { collection: Collection; start?: number; snapshot?: Snapshot }
   | { picks: Snapshot; start?: number };
-export type Playback = ListPlayback | { single: Single; song: Omit<HereSong, 'n'> } | { onlineList: { list: string; tracks: OnlineSong[] } };
+export type Playback = ListPlayback | { single: Single; song: Omit<HereSong, 'n'> } | { onlineList: { id: string; list: string; tracks: OnlineSong[] } };
 
 let sending: AbortController | undefined;
 
@@ -52,7 +52,7 @@ export async function playOn(output: string, what: Playback, how: 'now' | 'next'
       if (controller.signal.aborted) return;
       if (r.queued) return 'queued';
     } else {
-      const send = 'onlineList' in what ? { source: 'online_playlist' as const, name: what.onlineList.list, online_tracks: what.onlineList.tracks.map((song) => ({ online: song.key, title: song.title, artist: song.artist })) }
+      const send = 'onlineList' in what ? { source: 'playlist' as const, id: what.onlineList.id }
         : 'single' in what ? what.single
         : { ...('collection' in what ? what.collection : { source: 'picks' as const, track_ids: what.picks.tracks.map((t) => t.id) }), track_id: what.start };
       const r = await api.play(output, send, controller.signal);
