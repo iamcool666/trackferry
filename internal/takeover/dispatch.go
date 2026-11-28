@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -241,7 +242,22 @@ func (d *Dispatcher) TrackOf(dev string, rt *routing.Route, tr *live.Trace) (Tra
 		}
 	case rt.Found() != nil:
 		if d.RouteLog != nil {
-			d.RouteLog.Info("播放路由来源", "来源", "在线音源命中", "歌曲", rt.Label(), "歌手", rt.Artist, "路由来源", rt.Source, "路由决策", rt.Decision)
+			var libraryState, libraryDetail string
+			var libraryCandidates []string
+			for _, layer := range rt.Layers {
+				if layer.Name != "library" {
+					continue
+				}
+				libraryState, libraryDetail = layer.State, layer.Detail
+				for _, candidate := range layer.Candidates {
+					name := strings.TrimSpace(candidate.Artist + " - " + candidate.Title)
+					if name != "-" {
+						libraryCandidates = append(libraryCandidates, name)
+					}
+				}
+				break
+			}
+			d.RouteLog.Info("播放路由来源", "来源", "在线音源命中", "歌曲", rt.Label(), "歌手", rt.Artist, "路由来源", rt.Source, "路由决策", rt.Decision, "曲库检索状态", libraryState, "曲库检索说明", libraryDetail, "曲库候选", strings.Join(libraryCandidates, "；"), "最终原因", rt.Reason)
 		}
 		// Unprobed audio is announced by whatever its bytes turn out to be.
 		ctype := "audio/mpeg"
