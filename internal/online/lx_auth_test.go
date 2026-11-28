@@ -48,8 +48,10 @@ func TestLxAuthUsesAToken(t *testing.T) {
 // rows: it must not hold the password either.
 func TestLxStreamAddressCarriesNoPassword(t *testing.T) {
 	l := &Lx{BaseURL: "http://192.168.1.10:9527/rest", User: "hongbo", Password: "SECRET-123"}
-	for _, rate := range lxFalls {
-		u, err := l.ResolveAt(context.Background(), Candidate{ID: "kw_1"}, rate)
+	for _, tier := range lxRates(HiRes) {
+		ctx := context.WithValue(context.Background(), qualityKey{}, tier.quality)
+		rate := tier.bitrate
+		u, err := l.ResolveAt(ctx, Candidate{ID: "kw_1"}, rate)
 		if err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
@@ -70,8 +72,13 @@ func TestLxStreamAddressCarriesNoPassword(t *testing.T) {
 		if q.Get("id") != "kw_1" {
 			t.Fatalf("song lost: %s", u)
 		}
-		if rate != "" && q.Get("maxBitRate") != rate {
+		if q.Get("maxBitRate") != rate {
 			t.Fatalf("rate lost: %s", u)
+		}
+		wantFormat := "mp3"
+		if tier.quality == HiRes { wantFormat = "flac" }
+		if q.Get("format") != wantFormat {
+			t.Fatalf("format = %q, want %q", q.Get("format"), wantFormat)
 		}
 	}
 }
