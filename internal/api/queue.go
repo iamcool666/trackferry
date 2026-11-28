@@ -18,7 +18,8 @@ type queued struct {
 }
 
 func (s *Server) named(q queued) queued {
-	if s.Library == nil || q.ID == 0 {
+	// Online queue slots already carry their metadata; their negative IDs are not library IDs.
+	if q.Title != "" || s.Library == nil || q.ID <= 0 {
 		return q
 	}
 	if t, ok := s.Library.Track(q.ID); ok {
