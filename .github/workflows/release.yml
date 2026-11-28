@@ -73,30 +73,34 @@ jobs:
   publish:
     needs: image
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Install GitHub CLI
-        run: gh --version
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Keep only one rolling dev Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          # Remove old prerelease records, but keep their numeric git tags so
-          # the next formal version continues increasing from the highest tag.
+          # Remove old prerelease records but retain their numeric git tags.
+          # This preserves the next formal version number.
           while IFS= read -r old_tag; do
             [[ -z "$old_tag" ]] && continue
             gh release delete "$old_tag" --repo "$GITHUB_REPOSITORY" --yes
           done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isPrerelease \
             --jq '.[] | select(.isPrerelease == true and .tagName != "dev") | .tagName')
 
-          # Recreate the fixed dev tag at this exact commit and keep one dev Release.
+          # Move the fixed dev tag to this commit, then recreate its Release.
           if gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release delete dev --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-          else
-            git push origin :refs/tags/dev 2>/dev/null || true
+            gh release delete dev --repo "$GITHUB_REPOSITORY" --yes
           fi
+          git push origin --delete dev 2>/dev/null || true
+          git tag -f dev "$GITHUB_SHA"
+          git push origin refs/tags/dev
           gh release create dev --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "TrackFerry Dev" \
             --prerelease \
-            --notes "滚动开发版。\n\nCommit: $GITHUB_SHA\n\nDocker: `ghcr.io/$GITHUB_REPOSITORY:dev`"
+            --notes "Rolling development build. Commit: $GITHUB_SHA. Docker image: ghcr.io/$GITHUB_REPOSITORY:dev"
