@@ -687,7 +687,9 @@ func unprobed(src Source) bool {
 func (s *Service) tryOne(ctx context.Context, src Source, c Candidate) (Stream, error) {
 	st, err := s.tryAt(ctx, src, c, s.Quality())
 	var he httpError
-	if err == nil || s.Quality() == Standard || ctx.Err() != nil || errors.Is(err, ErrTrial) ||
+	// A source that walks its own rates (洛雪) has already been down the whole ladder once:
+	// asking it again at the standard rate would repeat the very same calls.
+	if err == nil || s.Quality() == Standard || ctx.Err() != nil || errors.Is(err, ErrTrial) || unprobed(src) ||
 		!errors.Is(err, ErrNoAudio) && !errors.Is(err, ErrRestricted) && !errors.As(err, &he) {
 		return st, err
 	}
@@ -709,7 +711,7 @@ func (s *Service) tryAt(ctx context.Context, src Source, c Candidate, q Quality)
 		if _, ok := src.(interface {
 			ResolveAt(context.Context, Candidate, string) (string, error)
 		}); ok {
-			return s.lxCheck(ctx, src, c)
+			return s.lxCheck(context.WithValue(ctx, qualityKey{}, q), src, c)
 		}
 		// The listing's own length: every platform claims one, and it need not hold.
 		return Stream{URL: u, Duration: c.Duration}, nil
@@ -719,8 +721,17 @@ func (s *Service) tryAt(ctx context.Context, src Source, c Candidate, q Quality)
 
 // lxFalls is the order 洛雪's streams are tried in when one turns out to hold no audio: its own
 // best form first, then the rates below it. Which one breaks a song is the platform's business
-// and differs from song to song, so each is asked until one plays.
+// and differs from song to song, so each is asked until one plays. The standard quality starts
+// at the small rate: that is what was asked for, and every call saved is quota kept.
 var lxFalls = []string{"", "320", "128"}
+
+// lxRates are the rates one check may ask, by the quality the listener chose.
+func lxRates(q Quality) []string {
+	if q == Standard {
+		return []string{"128"}
+	}
+	return lxFalls
+}
 
 // lxCheck proves a 洛雪 stream holds audio before the speaker is sent to it, falling through
 // lxFalls until one does. The platforms hand out their own encodings, and some songs at some
@@ -735,7 +746,7 @@ func (s *Service) lxCheck(ctx context.Context, src Source, c Candidate) (Stream,
 	}
 	client := s.fetcher(src)
 	var lastErr error
-	for _, rate := range lxFalls {
+	for _, rate := range lxRates(QualityOf(ctx)) {
 		u, err := at.ResolveAt(ctx, c, rate)
 		if err != nil {
 			lastErr = err

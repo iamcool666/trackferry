@@ -116,6 +116,22 @@ func TestLxStreamThatNeverPlaysIsRefused(t *testing.T) {
 	}
 }
 
+// The standard quality asks the small rate only, once: the ladder below the best form is for
+// finding a rate that plays, not for asking twice.
+func TestLxStandardQualityAsksTheSmallRateOnly(t *testing.T) {
+	srv, asked := lxServer(t, map[string][]byte{"128": flacHead(285)})
+	defer srv.Close()
+	svc := lxService(srv)
+	svc.SetQuality(Standard)
+	f, _ := svc.Find(context.Background(), []Reading{{Title: "雨中的恋人", Artist: "曼丽"}}, "雨中的恋人 曼丽")
+	if f == nil {
+		t.Fatal("nothing found, though the small rate plays")
+	}
+	if len(*asked) != 1 || (*asked)[0] != "128" {
+		t.Fatalf("asked %v, want 128 alone", *asked)
+	}
+}
+
 // A container is recognised from its marker; what these bytes say is not whether the song has
 // a length, only whether they are audio at all.
 func TestLxPlaysSeesRealAudio(t *testing.T) {
