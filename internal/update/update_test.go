@@ -62,7 +62,7 @@ func TestDevChannelOnlyFollowsRollingDevRelease(t *testing.T) {
 	c := New("madrays/trackferry", "0.0.42", true, slog.New(slog.DiscardHandler))
 	c.API, c.Channel = srv.URL, "dev"
 	st := c.Check(context.Background())
-	if !st.Newer || st.Latest != "0.0.43" || st.URL != "https://github.com/madrays/trackferry/releases/tag/dev" {
+	if !st.Newer || st.Latest != "0.0.43" || st.URL != "https://github.com/madrays/trackferry/releases/tag/development-build" {
 		t.Fatalf("%+v", st)
 	}
 }
