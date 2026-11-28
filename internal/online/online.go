@@ -1442,14 +1442,18 @@ func (s *Service) FindArtist(ctx context.Context, artist string, limit int) (*Fo
 		lastErr = err
 	}
 	if lastErr != nil {
+		var lxEntry *entry
 		s.mu.Lock()
 		for _, e := range s.srcs {
 			if e.src.Name() == "lx" {
-				s.record(e, 0, lastErr)
+				lxEntry = e
 				break
 			}
 		}
 		s.mu.Unlock()
+		if lxEntry != nil {
+			s.record(lxEntry, 0, lastErr)
+		}
 		if len(outs) > 0 {
 			outs[0].State, outs[0].Detail = StateError, lastErr.Error()
 			if errors.Is(lastErr, ErrRestricted) || errors.Is(lastErr, ErrTrial) || errors.Is(lastErr, ErrNoAudio) {
