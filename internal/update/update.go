@@ -196,6 +196,7 @@ func (c *Checker) latest(ctx context.Context) (*release, error) {
 	}
 	c.etag = res.Header.Get("ETag")
 	return latest, nil
+}
 
 // Newer reports whether release a comes after b. A build without a version is never told to update.
 func Newer(a, b string) bool {
