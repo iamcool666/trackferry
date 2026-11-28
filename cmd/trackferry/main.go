@@ -377,7 +377,6 @@ func serve() error {
 		}, "." + ext
 	}
 	go fn.Run(ctx)
-	go lib.Run(ctx)
 	client := online.Client()
 	netease := &online.Netease{Client: client, File: filepath.Join(private, "netease.json")}
 	if err := netease.Load(); err != nil {
@@ -418,6 +417,43 @@ func serve() error {
 		}
 		return saved, true
 	}
+	// 飞牛's playlist list also contains LX online playlists. Count their songs
+	// once per stable LX song ID, without inserting them into the local track index.
+	lib.OnlinePlaylistStats = func(scanCtx context.Context) (int, int, error) {
+		playlists, err := fn.Playlists(scanCtx)
+		if err != nil {
+			return 0, 0, err
+		}
+		var lxPlaylists []feiniu.Playlist
+		for _, p := range playlists {
+			if strings.HasPrefix(p.GUID, "online:playlist:") {
+				lxPlaylists = append(lxPlaylists, p)
+			}
+		}
+		if len(lxPlaylists) == 0 {
+			return 0, 0, nil
+		}
+		lx := sources.Lx()
+		if lx == nil {
+			return len(lxPlaylists), 0, errors.New("LXServer 未连接，在线歌单歌曲数暂时无法统计")
+		}
+		ctx, cancel := context.WithTimeout(scanCtx, 90*time.Second)
+		defer cancel()
+		seen := make(map[string]struct{})
+		for _, p := range lxPlaylists {
+			detail, err := lx.Playlist(ctx, strings.TrimPrefix(p.GUID, "online:playlist:"))
+			if err != nil {
+				return len(lxPlaylists), len(seen), fmt.Errorf("歌单 %q：%w", p.Name, err)
+			}
+			for _, song := range detail.Songs {
+				if song.ID != "" {
+					seen[song.ID] = struct{}{}
+				}
+			}
+		}
+		return len(lxPlaylists), len(seen), nil
+	}
+	go lib.Run(ctx)
 	router := &routing.Router{Library: lib, Online: sources, Log: log, Openable: streams.Openable}
 	covers := netcover.New(filepath.Join(cfg.DataDir, "netcovers"), client)
 	filler := fill.New(lib, st, sources, log)
