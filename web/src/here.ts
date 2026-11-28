@@ -520,6 +520,18 @@ export function playListHere(list: string, tracks: HereListed[], trackID?: numbe
   start(s.i);
 }
 
+/** Starts a complete LX online playlist in the browser's own queue. */
+export function playOnlineListHere(list: string, tracks: OnlineSong[]) {
+  const seen = new Set<string>();
+  const songs = tracks.filter((x) => x.key && !seen.has(x.key) && seen.add(x.key)).map((x, n) => ({ ...onlineHere(x), n }));
+  if (!songs.length) throw new Error('这个在线歌单里没有能播放的歌');
+  newIntent();
+  const i = s.mode === 'shuffle' ? Math.floor(Math.random() * songs.length) : 0;
+  set({ list, drift: false, ...(s.mode === 'shuffle' ? arrange({ songs, i }, 'shuffle') : { songs, i }) });
+  lookAt('here');
+  start(s.i);
+}
+
 /** Reads the complete list when the page has only loaded a preview. */
 export async function listHere(what: Collection, trackID?: number) {
   const action = ++pendingList;
