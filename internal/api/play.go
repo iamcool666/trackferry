@@ -378,7 +378,23 @@ func (s *Server) libraryPlaylistAdd(w http.ResponseWriter, r *http.Request) {
 func (s *Server) libraryPlaylist(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	name, ids, err := s.Router.Collect(ctx, r.PathValue("guid"))
+	guid := r.PathValue("guid")
+	if strings.HasPrefix(guid, "online:playlist:") {
+		lx := s.Router.Online.Lx()
+		if lx == nil {
+			writeError(w, http.StatusConflict, "no_lx", "还没有连接 LXServer")
+			return
+		}
+		p, err := lx.Playlist(ctx, strings.TrimPrefix(guid, "online:playlist:"))
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "lx_playlist", "没能读到洛雪在线歌单："+err.Error())
+			return
+		}
+		songs := s.Router.Online.Offer(p.Songs)
+		writeJSON(w, http.StatusOK, map[string]any{"name": p.Name, "tracks": []store.TrackRow{}, "total": len(songs), "online_songs": songs})
+		return
+	}
+	name, ids, err := s.Router.Collect(ctx, guid)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "feiniu", err.Error())
 		return
