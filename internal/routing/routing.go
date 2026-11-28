@@ -657,8 +657,24 @@ func (r *Router) pick(rt *Route, in intent.Intent) {
 			rt.Reason = "曲库里没有" + in.Artist + "的歌"
 		}
 	}
+	if l.State != online.StateHit && in.Kind == intent.KindArtist && r.Online != nil {
+		// Local songs remain first choice. When this singer has no playable local track,
+		// ask LXServer for their songs and resolve one before handing it to the speaker.
+		found, outs := r.Online.FindArtist(context.Background(), in.Artist, 60)
+		for _, o := range outs {
+			rt.Layers = append(rt.Layers, layer(o))
+		}
+		if found != nil {
+			rt.takeOnline(found)
+			rt.List = in.Artist + "的歌"
+			rt.Because("选它", "本地曲库没有可播放的歌曲，从 LX 在线歌手歌曲中选取")
+			l.Detail = "本地没有，已从 LX 在线歌手歌曲中找到并播放"
+		} else if len(outs) > 0 {
+			rt.Reason = "曲库里没有" + in.Artist + "的歌；" + outs[0].Detail
+		}
+	}
 	l.MS = time.Since(start).Milliseconds()
-	rt.Layers = append(rt.Layers, l)
+	rt.Layers = append([]Layer{l}, rt.Layers...)
 }
 
 func show(ms []library.Match) []Candidate {
