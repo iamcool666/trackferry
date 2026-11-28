@@ -699,7 +699,6 @@ func (r *Router) pick(ctx context.Context, rt *Route, in intent.Intent) {
 			}
 
 		}
-		}
 		break
 	}
 
